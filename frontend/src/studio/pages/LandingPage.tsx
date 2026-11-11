@@ -9,6 +9,8 @@ import { SplitText } from 'gsap/SplitText';
 import { ArrowRight, ArrowUpRight, Menu, X, Play, Volume2, VolumeX, Database, Code2, Shield, FileText, Check, Upload, Search, ListTree, Filter, Users, Layers, Cpu, FileCheck2, Bot, CreditCard, Building2, RefreshCw, KeyRound, Route, Laptop, ScrollText, MessageSquareText } from 'lucide-react';
 import { BrandLogo } from '../components/BrandLogo';
 import { AssistantRobot } from '../components/robot/AssistantRobot';
+import '@fontsource/be-vietnam-pro/800.css';
+import '@fontsource/be-vietnam-pro/900.css';
 import '../styles/landing-2026.css';
 import '../styles/landing-paper.css';
 import { PaperStage, PAPER_CHAPTERS, PAPERS } from '../components/landing/PaperStory';

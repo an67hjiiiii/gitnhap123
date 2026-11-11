@@ -1,5 +1,5 @@
 @font-face{font-family:'Be Vietnam Pro';src:url('/fonts/BeVietnamPro-Regular.ttf') format('truetype');font-weight:400 500;font-display:swap}
-@font-face{font-family:'Be Vietnam Pro';src:url('/fonts/BeVietnamPro-Bold.ttf') format('truetype');font-weight:600 900;font-display:swap}
+@font-face{font-family:'Be Vietnam Pro';src:url('/fonts/BeVietnamPro-Bold.ttf') format('truetype');font-weight:600 700;font-display:swap}
 :root{--paper:#f5f6f2;--surface:#fff;--ink:#192c25;--muted:#52635b;--accent:#225c46;--accent-hover:#174532;--tint:#e4ece5;--line:#d4ddd5;--night:#172f27;--light-ink:#d5e3d9;--mint:#c3e5c5;--radius:12px;--shadow:0 14px 40px -24px #172f273b;--motion:180ms;--font-ui:'Be Vietnam Pro',sans-serif}
 body{font-family:var(--font-ui);background:var(--paper);color:var(--ink)}
 button,input,select,textarea{font:inherit}button,a,input,select,textarea{touch-action:manipulation}input,textarea{caret-color:var(--accent)}
