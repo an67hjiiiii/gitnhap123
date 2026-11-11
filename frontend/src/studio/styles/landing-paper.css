@@ -82,3 +82,17 @@
 .v4-paper-flow h2{font-size:clamp(30px,6vw,46px);line-height:1.12}
 .v4-paper-flow article>p:not(.v4-kicker){color:var(--text);margin:14px 0 24px!important}
 
+
+/* Tiêu đề chương: từng từ lật lên 3D trong mặt nạ; từ khóa có vệt highlight; đoạn mô tả vào sau */
+.v4-rw{display:inline-block;overflow:hidden;vertical-align:top;padding:.16em .1em .18em 0;margin:-.16em -.1em -.18em 0}
+.v4-rw>span{display:inline-block;transform:perspective(520px) translateY(72%) rotateX(-78deg);transform-origin:50% 100%;opacity:0;transition:transform .85s var(--ease),opacity .45s ease;transition-delay:calc(var(--w) * 42ms)}
+.v4-chapter.is-on .v4-rw>span{transform:none;opacity:1}
+.v4-chapter h2 i{background:linear-gradient(transparent 64%,rgba(29,102,201,.16) 64%,rgba(29,102,201,.16) 92%,transparent 92%) no-repeat 0 0/0% 100%;-webkit-box-decoration-break:clone;box-decoration-break:clone;transition:background-size .9s var(--ease)}
+.v4-chapter.is-on h2 i{background-size:100% 100%;transition-delay:.5s}
+.v4-chapter.is-dark h2 i{background-image:linear-gradient(transparent 64%,rgba(127,211,255,.2) 64%,rgba(127,211,255,.2) 92%,transparent 92%)}
+.v4-chapter .v4-kicker::before{transform-origin:0 50%;transform:scaleX(0);transition:transform .7s var(--ease)}
+.v4-chapter.is-on .v4-kicker::before{transform:scaleX(1);transition-delay:.1s}
+.v4-chapter>p:last-child{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .7s var(--ease)}
+.v4-chapter.is-on>p:last-child{opacity:1;transform:none;transition-delay:.38s}
+.v4-device{will-change:transform}
+@media (prefers-reduced-motion:reduce){.lp:not([data-motion=on]) .v4-rw>span,.lp:not([data-motion=on]) .v4-chapter>p:last-child{transform:none;opacity:1;transition:none}}
