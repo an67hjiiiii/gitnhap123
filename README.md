@@ -5,6 +5,8 @@ The included PostgreSQL dump is sanitized: one synthetic demo user, no private h
 
 ## Quick start
 
+> Bản tích hợp Studio C1SE.27 (nhánh `tich-hop/studio-c1se27`): xem `docs/HUONG_DAN_CHAY_DU_AN.md`, chạy bằng Ctrl+Shift+B trong VS Code.
+
 ```powershell
 .\scripts\SETUP_FIRST_TIME.ps1
 .\scripts\START_CAP1_MIDTERM.ps1
