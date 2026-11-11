@@ -1,7 +1,9 @@
 ﻿# Cấp quyền ADMIN cho một tài khoản đã đăng ký (để thấy trang "Cơ sở dữ liệu").
 # Dùng: powershell -ExecutionPolicy Bypass -File scripts/dev/make-admin.ps1 ten@email.com   (thêm -Revoke để hạ về USER)
 param([Parameter(Mandatory = $true)][string]$Email, [switch]$Revoke)
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'  # lỗi thật được bắt qua $LASTEXITCODE và throw
+. "$PSScriptRoot/_common.ps1"
+Start-DockerEngine
 if ($Email -notmatch '^[^@\s'']+@[^@\s'']+$') { throw 'Email không hợp lệ.' }
 $role = if ($Revoke) { 'USER' } else { 'ADMIN' }
 $sql = "UPDATE users SET role='$role', updated_at=now() WHERE lower(email)=lower('$Email');"
