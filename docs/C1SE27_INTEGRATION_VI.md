@@ -33,7 +33,9 @@ Phụ thuộc mới: `tokenizers==0.22.2`. Tokenizer Qwen3 offline nằm ở `ba
 
 - `/`: trang giới thiệu, Robot C27.
 - `/login`, `/register`: dùng phiên cookie của CAP1.
-- `/studio`: điều phối, 8 bước, lịch sử, thử truy xuất, thực nghiệm, trang quản trị.
+- `/studio`: điều phối, 8 bước, lịch sử, thử truy xuất, **trò chuyện nhiều lượt**, thực nghiệm, trang quản trị.
+  - **Trò chuyện**: dùng `/api/conversations` và `/api/chat` ở chế độ sản phẩm, giống giao diện chat gốc; có ngữ cảnh nhiều lượt, trạng thái bằng chứng, bấm nguồn để xem đoạn tài liệu (`/api/chunks/{id}`).
+  - **8 bước** lấy đúng các sự kiện mà pipeline CAP1 ghi: hiểu yêu cầu, truy xuất lập kế hoạch, lập kế hoạch, kiểm tra kế hoạch, chuẩn hóa, truy xuất và ngân sách, thực thi, tổng hợp. Bước không diễn ra trong lượt chạy được làm mờ, không đánh dấu giả.
 - `/chat`: **giao diện trò chuyện gốc của CAP1, giữ nguyên**.
 - Hai giao diện nạp CSS riêng (`ChatRoute.tsx`, `studio/StudioRoot.tsx`) nên không ảnh hưởng nhau.
 - Mã Studio nằm trong `frontend/src/studio`. Lớp `studio/services/api.ts` gọi API CAP1. `studio/services/adapt.ts` chuyển bản ghi run của CAP1 sang dạng màn hình Studio dùng.
@@ -70,6 +72,7 @@ cd frontend; npm run dev -- --host 127.0.0.1
 - Chưa có tạo hoặc khóa cấu hình. Cấu hình CAP1 lấy từ biến môi trường; Studio chỉ hiển thị kèm `config_hash`.
 - Chưa có token theo từng tác tử, token tiết kiệm, độ phủ. Studio hiện "Chưa đo".
 - Chưa có diễn tập nghẽn LLM và đăng nhập Google/GitHub. Đã bỏ khỏi giao diện, không giả lập.
-- Điều kiện C của CAP1 có thể bị từ chối ở bước kiểm tra kế hoạch. Đây là hành vi sẵn có của CAP1, không do tích hợp.
+- Điều kiện B và C của CAP1 thường bị từ chối ở bước kiểm tra kế hoạch với yêu cầu dài nhiều ý (rà soát 11/11: cả B và C từ chối yêu cầu "Thiết kế cổng thanh toán chống trừ tiền hai lần… và phân quyền truy cập"). Đây là hành vi sẵn có của CAP1, không do tích hợp. Studio báo lỗi bằng tiếng Việt và giữ nguyên thông báo gốc.
+- Câu trả lời của mô hình đôi khi là JSON bị cụt; Studio lấy phần trả lời đọc được và ghi chú "bị cắt", không sửa nội dung.
 - Dữ liệu 60 lượt pilot R4 của C1SE.27 **không mang sang**: đo trên backend cũ, không tái lập trên pipeline CAP1.
 - Chưa có kết luận chất lượng nào. Mọi số là số mô tả kỹ thuật.

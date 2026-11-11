@@ -1,9 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Copy, Check, ChevronLeft, ChevronRight, FileCheck } from 'lucide-react';
-import { metric, percent } from '../utils/measurement';
 import { groupAgentResults } from '../utils/agentResults';
-import { TaskPlanTrace } from './TaskPlanTrace';
-import { PipelineStep, PIPELINE_STEPS } from './ExecutionFlowGraph';
+import { PipelineStep, PIPELINE_STEPS, STAGE_LABEL, stepEvents } from './ExecutionFlowGraph';
 import { ModeExecutionResult } from '../types';
 import { StudioModal } from './StudioModal';
 
@@ -17,11 +15,31 @@ interface NodeTraceModalProps {
 
 type Tab = 'trace_data' | 'agent_subtasks' | 'mechanism';
 const AGENTS = [
-  { role: 'DatabaseAgent', label: 'Dữ liệu', tone: 'db', fallback: 'Lược đồ CSDL', duty: 'Cấu trúc bảng, khóa và ràng buộc.' },
-  { role: 'APIAgent', label: 'API', tone: 'api', fallback: 'Đặc tả API', duty: 'Endpoint, dữ liệu vào/ra, idempotency.' },
-  { role: 'SecurityAgent', label: 'Bảo mật', tone: 'sec', fallback: 'Bảo mật & RBAC', duty: 'Xác thực chữ ký, phân quyền.' },
+  { role: 'DatabaseAgent', label: 'Dữ liệu', tone: 'db' },
+  { role: 'APIAgent', label: 'API', tone: 'api' },
+  { role: 'SecurityAgent', label: 'Bảo mật', tone: 'sec' },
 ] as const;
-const dash = (v: number | null | undefined, unit: string) => v == null ? 'Chưa đo' : `${v.toLocaleString('vi-VN')}${unit}`;
+
+// Tóm tắt một sự kiện CAP1 thành vài dòng dễ đọc; dữ liệu đầy đủ nằm ở phần "Dữ liệu gốc".
+function summarize(e: any): [string, string][] {
+  const out: [string, string][] = [];
+  const list = (v: any[], f: (x: any) => string) => v.slice(0, 8).map(f).join('\n') + (v.length > 8 ? `\n… và ${v.length - 8} mục nữa` : '');
+  if (Array.isArray(e.obligations) && e.obligations.length) out.push(['Nghĩa vụ', list(e.obligations, o => `${o.obligation_id}: ${o.description}`)]);
+  if (Array.isArray(e.concerns) && e.concerns.length) out.push(['Mối quan tâm', list(e.concerns, c => `${c.concern_id} (${c.domain}): ${c.description}`)]);
+  if (Array.isArray(e.tasks) && e.tasks.length) out.push(['Nhiệm vụ', list(e.tasks, t => `${t.task_id} [${t.domain}] ${t.goal}`)]);
+  if (Array.isArray(e.execution_order)) out.push(['Thứ tự thực thi', e.execution_order.join(' → ')]);
+  if ('valid' in e) out.push(['Hợp lệ', e.valid ? 'Có' : 'Không']);
+  if (Array.isArray(e.errors) && e.errors.length) out.push(['Lỗi', list(e.errors, x => String(x))]);
+  if (e.reason) out.push(['Lý do', String(e.reason)]);
+  if (e.task_id) out.push(['Nhiệm vụ', String(e.task_id)]);
+  if (Array.isArray(e.selected)) out.push(['Đoạn được giao', `${e.selected.length}${Array.isArray(e.candidates) ? ` / ${e.candidates.length} ứng viên` : ''}`]);
+  if (Array.isArray(e.dropped) && e.dropped.length) out.push(['Đoạn bị loại', list(e.dropped, d => `${d.chunk_id}: ${d.reason}${d.tokens ? ` (${d.tokens} token)` : ''}`)]);
+  if (e.limits) out.push(['Trần token theo nhiệm vụ', Object.entries(e.limits).map(([k, v]) => `${k}: ${v} (cần ${e.needs?.[k] ?? '?'})`).join('\n')]);
+  if (e.result) out.push(['Kết quả', `${e.result.status} · ${String(e.result.answer || '').slice(0, 300)}`]);
+  if (e.status && !e.result) out.push(['Trạng thái', String(e.status)]);
+  if (e.error) out.push(['Lỗi', String(e.error)]);
+  return out;
+}
 
 export const NodeTraceModal: React.FC<NodeTraceModalProps> = ({ step, isOpen, onClose, result, onSelectStep }) => {
   const [copied, setCopied] = useState(false);
@@ -32,11 +50,9 @@ export const NodeTraceModal: React.FC<NodeTraceModalProps> = ({ step, isOpen, on
   const idx = PIPELINE_STEPS.findIndex(s => s.id === step.id);
   const prev = idx > 0 ? PIPELINE_STEPS[idx - 1] : null;
   const next = idx < PIPELINE_STEPS.length - 1 ? PIPELINE_STEPS[idx + 1] : null;
+  const events = stepEvents(result?.raw, step);
   const agents = AGENTS.map(a => ({ ...a, r: groupAgentResults(result?.agent_results, a.role) }));
-  const copyTrace = () => {
-    const text = step.stepNumber === 6 ? result?.shared_brief || '' : step.stepNumber === 8 ? result?.final_answer || '' : JSON.stringify(result || {}, null, 2);
-    navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000);
-  };
+  const copyTrace = () => { navigator.clipboard.writeText(JSON.stringify(events, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   const n = step.stepNumber;
 
   return (
@@ -51,74 +67,43 @@ export const NodeTraceModal: React.FC<NodeTraceModalProps> = ({ step, isOpen, on
         <button className="icon-btn" disabled={!next} onClick={() => next && onSelectStep(next)} aria-label={next ? `Bước sau: ${next.shortTitle}` : 'Không có bước sau'}><ChevronRight size={18} /></button>
       </>}
       toolbar={<div className="tabs is-flush" role="tablist" aria-label="Nội dung bước">
-        {([['trace_data', 'Dữ liệu bước'], ['agent_subtasks', 'Đầu ra tác tử'], ['mechanism', 'Cơ sở khoa học']] as [Tab, string][]).map(([k, l]) => (
+        {([['trace_data', 'Dữ liệu bước'], ['agent_subtasks', 'Đầu ra tác tử'], ['mechanism', 'Vai trò nghiên cứu']] as [Tab, string][]).map(([k, l]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{l}</button>
         ))}
-        <button className="tabs-copy" onClick={copyTrace} disabled={!result}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'Đã sao chép' : 'Sao chép'}</button>
+        <button className="tabs-copy" onClick={copyTrace} disabled={!events.length}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'Đã sao chép' : 'Sao chép'}</button>
       </div>}
       footer={<>
-        <span className="mo-note">Đề tài C1SE.27 · Đại học Duy Tân</span>
+        <span className="mo-note">Dữ liệu lấy nguyên từ bản ghi lượt chạy của backend CAP1.</span>
         <button className="btn btn-dark" onClick={onClose}>Đóng</button>
       </>}
     >
       {tab === 'trace_data' && <div className="tr">
         <p className="tr-lead">{step.description}</p>
-        {!result ? <div className="empty is-big"><FileCheck size={22} /><b>Chưa có dữ liệu lượt chạy</b><span>Bạn đang xem mô tả cơ chế. Chạy điều phối để xem thông tin API trả về cho bước này.</span></div>
-          : <p className="tr-hint">Thông tin nguyên mẫu từ API, chưa phải xác nhận thực nghiệm về hiệu quả của từng bước.</p>}
-
-        {result && n === 1 && <>
-          <dl className="pg-stats is-2"><div><dt>Phân đoạn tham chiếu</dt><dd>{result.retrieved_chunks_count ?? 0}</dd></div></dl>
-          <section className="tr-box"><h3>Câu truy vấn lập kế hoạch</h3><pre className="chunk-pre">{result.subtasks?.[0]?.retrieval_query || 'API chưa cung cấp câu truy vấn lập kế hoạch.'}</pre></section>
-        </>}
-
-        {result && n === 2 && <section className="tr-box"><h3>{result.subtasks?.length ?? 0} nhiệm vụ sau phân rã</h3>
-          <ol className="tr-tasks">{result.subtasks?.map((st, i) => (
-            <li key={i}><div className="tr-task-head"><span className="tr-id">{st.id}</span><b>{st.title}</b><em>{st.agent_role}</em></div>
-              <p>{st.description}</p>{st.retrieval_query && <small>Truy vấn: {st.retrieval_query}</small>}</li>
-          ))}</ol></section>}
-
-        {result && n === 3 && <section className="tr-box"><h3>Chuẩn hóa ranh giới nhiệm vụ</h3>
-          <p className="tr-sub">Chỉ gộp các nhiệm vụ trùng nội dung sau chuẩn hóa, giữ yêu cầu và phụ thuộc. Chưa đánh giá mức tiết kiệm token.</p>
-          <TaskPlanTrace result={result} /></section>}
-
-        {result && n === 4 && <div className="tr-agents">{agents.map(a => (
-          <section key={a.role}><h3><i className={`dot is-${a.tone}`} />{a.label}</h3><p>{a.duty}</p></section>
-        ))}</div>}
-
-        {result && n === 5 && <section className="tr-box"><h3>{result.retrieved_chunks_count || 0} phân đoạn được phân bổ</h3>
-          <p className="tr-sub">Mỗi tác tử truy xuất riêng theo nhãn chuyên môn, để chỉ nhận tài liệu đúng phần mình phụ trách.</p></section>}
-
-        {result && n === 6 && <>
-          <dl className="pg-stats is-2"><div><dt>Token giảm (cần đối chứng)</dt><dd className={result.tokens_saved == null ? 'is-muted' : ''}>{metric(result.tokens_saved, ' token')}</dd></div>
-            <div><dt>Tỷ lệ chi phí ngữ cảnh</dt><dd className={result.token_saving_ratio == null ? 'is-muted' : ''}>{percent(result.token_saving_ratio, 1)}</dd></div></dl>
-          <section className="tr-box"><h3>Bản tóm tắt dùng chung (Shared Brief)</h3><pre className="chunk-pre">{result.shared_brief || 'Không có nội dung dùng chung.'}</pre></section>
-        </>}
-
-        {result && n === 7 && <>
-          <dl className="pg-stats is-2"><div><dt>Tổng thời gian</dt><dd>{dash(result.latency_ms, ' ms')}</dd></div><div><dt>Tổng token</dt><dd>{dash(result.total_tokens, '')}</dd></div></dl>
-          <div className="tr-agents">{agents.map(a => (
-            <section key={a.role}><h3><i className={`dot is-${a.tone}`} />{a.label}</h3><p><b>{dash(a.r?.latency_ms, ' ms')}</b> · {dash(a.r?.tokens_used, ' token')}</p></section>
-          ))}</div>
-        </>}
-
-        {result && n === 8 && <>
-          <dl className="pg-stats is-2"><div><dt>Độ bao phủ nhiệm vụ</dt><dd className={result.task_coverage == null ? 'is-muted' : ''}>{percent(result.task_coverage)}</dd></div></dl>
-          <section className="tr-box"><h3>Báo cáo tổng hợp</h3><pre className="chunk-pre is-prose">{result.final_answer || 'Chưa chạy điều phối.'}</pre></section>
-        </>}
+        {!result ? <div className="empty is-big"><FileCheck size={22} /><b>Chưa có dữ liệu lượt chạy</b><span>Chạy một yêu cầu hoặc mở lại một lượt trong Lịch sử để xem dữ liệu thật của bước này.</span></div>
+          : events.length === 0 ? <div className="empty is-big"><FileCheck size={22} /><b>Bước này không diễn ra trong lượt chạy</b><span>Điều kiện {result.raw?.condition ?? ''} không dùng bước này, hoặc lượt chạy đã dừng trước đó.</span></div>
+          : events.map((e, i) => (
+            <section key={i} className="tr-box">
+              <h3>{STAGE_LABEL[e.stage] ?? e.stage}{e.phase ? ` · ${e.phase}` : ''}</h3>
+              <dl className="tr-kv">{summarize(e).map(([k, v], j) => <div key={j}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+              <details><summary>Dữ liệu gốc</summary><pre className="chunk-pre">{JSON.stringify(e, null, 2)}</pre></details>
+            </section>
+          ))}
       </div>}
 
       {tab === 'agent_subtasks' && <div className="tr">{agents.map(a => (
         <section key={a.role} className="tr-box">
-          <div className="tr-agent-head"><h3><i className={`dot is-${a.tone}`} />{a.label}<small>{a.r?.subtask_title || a.fallback}</small></h3><span>{dash(a.r?.latency_ms, ' ms')} · {dash(a.r?.tokens_used, ' token')}</span></div>
-          <pre className="chunk-pre">{a.r?.content || `Chưa có dữ liệu từ tác tử ${a.label}.`}</pre>
+          <div className="tr-agent-head"><h3><i className={`dot is-${a.tone}`} />{a.label}<small>{a.r?.subtask_title || ''}</small></h3><span>Token theo tác tử: Chưa đo</span></div>
+          <pre className="chunk-pre">{a.r?.content || `Lượt chạy này không có nhiệm vụ cho tác tử ${a.label}.`}</pre>
         </section>
       ))}</div>}
 
       {tab === 'mechanism' && <div className="tr">
-        <section className="tr-box"><h3>Vai trò trong đề tài C1SE.27</h3><p className="tr-sub">{step.scientificRole}</p></section>
+        <section className="tr-box"><h3>Vai trò trong nghiên cứu</h3><p className="tr-sub">{step.scientificRole}</p></section>
         <div className="tr-agents is-2">
-          <section><h3>Vanilla RAG (đối chứng 1)</h3><p>Một prompt chung, đưa toàn bộ top-K đoạn vào ngữ cảnh. Dễ bỏ sót yêu cầu khi ngữ cảnh dài.</p></section>
-          <section><h3>Đa tác tử đơn giản (đối chứng 2)</h3><p>Có chia tác tử nhưng mỗi tác tử nhận lại cùng ngữ cảnh hoặc truy xuất lặp, có thể làm tăng chi phí token.</p></section>
+          <section><h3>Điều kiện A · Vanilla RAG</h3><p>Một lượt truy xuất, một lần sinh; không lập kế hoạch, không chia việc.</p></section>
+          <section><h3>Điều kiện B · Multi-Agent cơ bản</h3><p>Có chia việc nhưng tắt lập kế hoạch có kiểm tra, chuẩn hóa và tối ưu ngữ cảnh.</p></section>
+          <section><h3>Điều kiện C · Đầy đủ</h3><p>Bật lập kế hoạch (P), chuẩn hóa (N) và tối ưu ngữ cảnh (O).</p></section>
+          <section><h3>C-P, C-N, C-O</h3><p>Bản C bỏ đi đúng một thành phần, để đo đóng góp riêng của từng thành phần.</p></section>
         </div>
       </div>}
     </StudioModal>

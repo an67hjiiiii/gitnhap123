@@ -7,7 +7,7 @@ import { ModeExecutionResult, ExecutionMode } from '../types';
 import { AssistantRobot } from './robot/AssistantRobot';
 import { useRobotAssistant } from './robot/RobotContext';
 import { RobotState } from './robot/robotEngine';
-import { PIPELINE_STEPS, PipelineStep } from './ExecutionFlowGraph';
+import { PIPELINE_STEPS, PipelineStep, stepEvents } from './ExecutionFlowGraph';
 import { NodeTraceModal } from './NodeTraceModal';
 import { MODES, useDismiss } from './Header';
 import { Markdown } from '../utils/markdown';
@@ -229,10 +229,11 @@ export const CenterCanvas: React.FC<CenterCanvasProps> = ({ onAnalyze, result, i
           <ol className="steps-list">
             {PIPELINE_STEPS.map(step => (
               <li key={step.id}>
-                <button onClick={() => openStep(step)} aria-label={`Xem bước ${step.stepNumber}: ${step.shortTitle}`} className={result && !isAnalyzing ? 'is-done' : ''}>
-                  <span className="steps-n">{result && !isAnalyzing ? <Check size={13} /> : step.stepNumber}</span>
+                {(() => { const ran = !!result && !isAnalyzing && stepEvents(result.raw, step).length > 0; const skipped = !!result && !isAnalyzing && !ran; return (
+                <button onClick={() => openStep(step)} aria-label={`Xem bước ${step.stepNumber}: ${step.shortTitle}${skipped ? ' (không diễn ra trong lượt này)' : ''}`} className={ran ? 'is-done' : skipped ? 'is-skip' : ''}>
+                  <span className="steps-n">{ran ? <Check size={13} /> : step.stepNumber}</span>
                   <span className="steps-t">{step.shortTitle}</span>
-                </button>
+                </button>); })()}
               </li>
             ))}
           </ol>
