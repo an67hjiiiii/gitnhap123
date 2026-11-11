@@ -405,4 +405,6 @@ app.include_router(_build_studio_router(
     current_user=current_user,
     owner_pipeline=owner_pipeline,
     session_factory=lambda: app.state.session_factory,
+    owner_source_store=owner_source_store,
+    vector_store=_configured_vector_store,
 ))

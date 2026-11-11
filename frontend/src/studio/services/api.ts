@@ -132,8 +132,15 @@ export async function seedSampleDocs(_ws?: number): Promise<{ status: string; me
   return { status: 'ok', message: `Đã nạp ${SAMPLES.length} tài liệu mẫu.` };
 }
 
-export async function deleteDocument(_docId: number | string): Promise<{ status: string; message: string }> { throw new Error(NOT_SUPPORTED); }
-export async function clearDocuments(_ws?: number): Promise<{ status: string; message: string }> { throw new Error(NOT_SUPPORTED); }
+export async function deleteDocument(docId: number | string): Promise<{ status: string; message: string }> {
+  const r = await call<any>(`/studio/sources/${encodeURIComponent(String(docId))}`, { method: 'DELETE' });
+  return { status: 'ok', message: `Đã xóa tài liệu và ${r.chunks_removed} đoạn.` };
+}
+export async function clearDocuments(_ws?: number): Promise<{ status: string; message: string }> {
+  const docs = await getDocuments();
+  for (const d of docs) await deleteDocument(d.id as unknown as string);
+  return { status: 'ok', message: `Đã xóa ${docs.length} tài liệu.` };
+}
 
 export async function testRetrieval(req: RetrievalTestRequest): Promise<RetrievalTestResponse> {
   const data = await post<any>('/studio/retrieval-test', { query: req.query, top_k: req.top_k });
@@ -247,4 +254,9 @@ export const getChunk = (id: string) => call<{ chunk_id: string; source_name: st
 
 export async function sendChat(message: string, conversationId: string | null): Promise<Cap1Run> {
   return post<Cap1Run>('/chat', { message, conversation_id: conversationId ?? undefined, product_mode: true });
+}
+
+// Phân tích sâu trong cùng cuộc trò chuyện (điều kiện A/B/C, không dùng chế độ sản phẩm).
+export async function sendAnalysis(message: string, condition: string, conversationId: string | null): Promise<Cap1Run> {
+  return post<Cap1Run>('/chat', { message, condition, conversation_id: conversationId ?? undefined });
 }

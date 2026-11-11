@@ -47,8 +47,8 @@ function FileIcon({ doc }: { doc: DocumentInfo }) {
 export const LeftPanel: React.FC<LeftPanelProps> = ({
   documents, onUpload, onClear, onSeedDocs, onInspectDocument, onOpenPlayground, onDeleteDocument, isUploading, totalChunks, user,
 }) => {
-  // shortcut: backend CAP1 chưa có API xóa tài liệu nên ẩn nút xóa; bật lại khi có DELETE /api/sources/{id}
-  const canDelete = false as boolean;
+  // Mỗi người chỉ thấy và xóa được tài liệu của chính mình (máy chủ kiểm tra quyền sở hữu).
+  const canDelete = !!user;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [status, setStatus] = useState<{ text: string; tone: 'info' | 'ok' | 'error' } | null>(null);

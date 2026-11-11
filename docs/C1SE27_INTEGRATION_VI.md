@@ -17,6 +17,7 @@ API mới, đều cần đăng nhập:
 
 - `POST /api/studio/retrieval-test`: thử truy xuất, không gọi LLM.
 - `POST /api/studio/compare`: chạy cùng một yêu cầu dưới nhiều điều kiện (`A, B, C, C-P, C-N, C-O`).
+- `DELETE /api/studio/sources/{id}`: xóa tài liệu **của chính người dùng** (nguồn, đoạn theo CASCADE, vector dẫn xuất).
 - `GET /api/studio/admin/overview | table/{name} | security-audit | db-diagnostic`: chỉ ADMIN. Trang xem bảng **không bao giờ trả** `password_hash` hay `token_hash`.
 
 Lưu ý khi đổi `EMBEDDING_BACKEND`: phải dùng `VECTOR_COLLECTION` mới (ví dụ `domain_nomic`) hoặc index lại. Không trộn vector hash với vector ngữ nghĩa.
@@ -33,9 +34,12 @@ Phụ thuộc mới: `tokenizers==0.22.2`. Tokenizer Qwen3 offline nằm ở `ba
 
 - `/`: trang giới thiệu, Robot C27.
 - `/login`, `/register`: dùng phiên cookie của CAP1.
-- `/studio`: điều phối, 8 bước, lịch sử, thử truy xuất, **trò chuyện nhiều lượt**, thực nghiệm, trang quản trị.
-  - **Trò chuyện**: dùng `/api/conversations` và `/api/chat` ở chế độ sản phẩm, giống giao diện chat gốc; có ngữ cảnh nhiều lượt, trạng thái bằng chứng, bấm nguồn để xem đoạn tài liệu (`/api/chunks/{id}`).
-  - **8 bước** lấy đúng các sự kiện mà pipeline CAP1 ghi: hiểu yêu cầu, truy xuất lập kế hoạch, lập kế hoạch, kiểm tra kế hoạch, chuẩn hóa, truy xuất và ngân sách, thực thi, tổng hợp. Bước không diễn ra trong lượt chạy được làm mờ, không đánh dấu giả.
+- `/studio`: **không gian làm việc thống nhất** (một trang thay cho Điều phối + Trò chuyện riêng):
+  - lúc đầu chỉ là khung chat nhỏ cạnh Robot C27; bấm vào thì khung phóng to, Robot hướng dẫn, hiện 3 gợi ý;
+  - trong cùng một cuộc trò chuyện có thể **Hỏi nhanh** (chế độ sản phẩm CAP1, nhớ ngữ cảnh) hoặc **Phân tích** (điều kiện A/B/C);
+  - mỗi câu trả lời có trạng thái bằng chứng, nút nguồn (xem đoạn tài liệu), **8 bước** (sự kiện thật của CAP1) và **Theo tác tử**;
+  - thanh bên: kho tài liệu (tải lên, xem đoạn, thử truy xuất, **xóa**) và danh sách **cuộc trò chuyện** (một lịch sử chung, không trùng lặp).
+- Thực nghiệm (so sánh A/B/C, cấu hình chỉ đọc, nhật ký) và Cơ sở dữ liệu (chỉ ADMIN).
 - `/chat`: **giao diện trò chuyện gốc của CAP1, giữ nguyên**.
 - Hai giao diện nạp CSS riêng (`ChatRoute.tsx`, `studio/StudioRoot.tsx`) nên không ảnh hưởng nhau.
 - Mã Studio nằm trong `frontend/src/studio`. Lớp `studio/services/api.ts` gọi API CAP1. `studio/services/adapt.ts` chuyển bản ghi run của CAP1 sang dạng màn hình Studio dùng.
@@ -66,9 +70,18 @@ cd frontend; npm run dev -- --host 127.0.0.1
   - API quản trị: tài khoản thường nhận 403, không lộ cột mật khẩu.
 - Trình duyệt (Playwright, 1440 và 390 px): trang chủ, đăng nhập, Studio, xem mẩu, thử truy xuất, mở lại lịch sử, 8 bước, chạy điều kiện A, thực nghiệm, quản trị, và trang `/chat` gốc. Không lỗi mạng ngoài 401 kiểm tra phiên trước khi đăng nhập, không tràn ngang.
 
+## Phân quyền
+
+CAP1 có hai vai trò: USER và ADMIN. Mỗi người chỉ thấy và xóa được tài liệu, cuộc trò chuyện, lượt chạy của chính mình (máy chủ kiểm tra). ADMIN thấy thêm trang Cơ sở dữ liệu; các API `/api/studio/admin/*` trả 403 với USER. Bốn vai trò cũ của C1SE.27 (developer, tech_lead, researcher, admin) không mang sang.
+
+## Hiệu năng trang giới thiệu
+
+Các giá trị đổi theo cuộn (chương câu chuyện, bước đường ray) và hộp phương pháp tự chuyển được tách thành khối nhỏ, nên không render lại cả trang. Đo bằng Playwright (cuộn hết trang): trước 10 long task, khoảng 1 giây; sau 0 long task, ngang bản C1SE.27 gốc. Hiệu ứng, mốc cuộn và âm thanh giữ nguyên.
+
 ## Chưa có hoặc chưa làm
 
-- CAP1 chưa có API xóa tài liệu nên nút xóa trong Studio bị ẩn.
+- Không gian làm việc nhiều kho (tạo/chuyển kho tài liệu như bản C1SE.27) chưa có: mô hình dữ liệu CAP1 gắn tài liệu trực tiếp với người dùng; thêm kho cần migration cho nguồn, cuộc trò chuyện, lượt chạy và bộ lọc truy xuất.
+
 - Chưa có tạo hoặc khóa cấu hình. Cấu hình CAP1 lấy từ biến môi trường; Studio chỉ hiển thị kèm `config_hash`.
 - Chưa có token theo từng tác tử, token tiết kiệm, độ phủ. Studio hiện "Chưa đo".
 - Chưa có diễn tập nghẽn LLM và đăng nhập Google/GitHub. Đã bỏ khỏi giao diện, không giả lập.

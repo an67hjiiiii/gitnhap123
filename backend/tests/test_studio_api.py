@@ -58,3 +58,47 @@ def test_admin_table_whitelist_hides_secrets():
     assert client(role="ADMIN", session=object()).get("/api/studio/admin/table/pg_shadow").status_code == 404
     flat = {c for cols in ADMIN_TABLES.values() for c in cols}
     assert "password_hash" not in flat and "token_hash" not in flat
+
+
+class FakeOwnerStore:
+    def __init__(self, items): self.items = items
+    def source(self, sid): return self.items.get(sid)
+
+
+class FakeVectors:
+    def __init__(self): self.deleted = []
+    def delete(self, ids): self.deleted.extend(ids)
+
+
+class FakeDB:
+    def __init__(self, log): self.log = log
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def execute(self, sql, params): self.log.append((str(sql), params))
+    def commit(self): self.log.append('commit')
+
+
+def delete_client(items, vectors, log):
+    def current_user(request): return {"user_id": "u1", "role": "USER"}
+    app = FastAPI()
+    app.include_router(build_router(current_user=current_user, owner_pipeline=lambda user, *a: FakePipeline(),
+                                    session_factory=lambda: (lambda: FakeDB(log)),
+                                    owner_source_store=lambda user: FakeOwnerStore(items), vector_store=lambda: vectors))
+    return TestClient(app)
+
+
+def test_delete_source_removes_vectors_and_row_scoped_to_owner():
+    vectors, log = FakeVectors(), []
+    c = delete_client({"s1": {"chunks": [{"chunk_id": "s1_c0"}, {"chunk_id": "s1_c1"}]}}, vectors, log)
+    r = c.delete("/api/studio/sources/s1")
+    assert r.status_code == 200 and r.json()["chunks_removed"] == 2
+    assert vectors.deleted == ["u1:s1_c0", "u1:s1_c1"]
+    sql, params = log[0]
+    assert "owner_user_id" in sql and params == {"s": "s1", "o": "u1"} and log[-1] == 'commit'
+
+
+def test_delete_source_of_someone_else_is_404():
+    # Kho của người dùng không thấy tài liệu người khác -> 404, không xóa gì.
+    vectors, log = FakeVectors(), []
+    assert delete_client({}, vectors, log).delete("/api/studio/sources/khac").status_code == 404
+    assert vectors.deleted == [] and log == []
