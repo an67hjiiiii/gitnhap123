@@ -1,5 +1,5 @@
 ﻿# Chạy giao diện (Vite) ở http://127.0.0.1:5173, chuyển /api sang backend 127.0.0.1:8000.
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'  # lỗi thật được bắt qua $LASTEXITCODE và throw
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Push-Location (Join-Path $root 'frontend')
 try {

@@ -99,8 +99,9 @@ npx tsc -b
 
 | Hiện tượng | Cách xử lý |
 |---|---|
-| `Không bật được PostgreSQL` | Mở Docker Desktop, đợi chạy xong rồi nhấn lại Ctrl+Shift+B |
-| `Chưa cài Ollama` | Cài Ollama, mở lại VS Code để PATH cập nhật |
+| Docker Desktop chưa mở | Script tự mở Docker Desktop và chờ tối đa 2 phút. Nếu vẫn báo lỗi, mở Docker Desktop, đợi "Engine running" rồi nhấn lại Ctrl+Shift+B |
+| `ports are not available ... 55435` | Windows (Hyper-V/WSL) đang giữ chỗ dải cổng chứa 55435. Script tự chuyển PostgreSQL sang cổng trống khác (ví dụ 54329) và báo trong terminal Backend. Muốn cố định cổng: đặt biến `CAP1_PG_PORT` |
+| `Không tìm thấy Ollama` | Cài Ollama rồi mở lại VS Code. Script tìm ollama.exe trong PATH, `%LOCALAPPDATA%\Programs\Ollama`, `Program Files\Ollama`, thư mục `.runtime\ollama` của dự án, hoặc đường dẫn trong biến `OLLAMA_EXE` |
 | Cổng 8000 hoặc 5173 đã bị chiếm | Tắt chương trình đang dùng cổng đó (một bản backend/frontend khác đang chạy) |
 | Trang báo chưa kết nối mô hình | Xem terminal Ollama; lần đầu đang tải mô hình thì đợi tải xong |
 | Muốn đổi cấu hình (cơ sở dữ liệu, mô hình…) | Đặt biến môi trường trước khi chạy hoặc ghi vào `backend/.env`; giá trị mặc định nằm đầu file `scripts/dev/start-backend.ps1` |
