@@ -8,7 +8,7 @@ const AGENT = { db: { Icon: Database, label: 'Dữ liệu' }, api: { Icon: Code2
 export const PAPER_CHAPTERS: { tag: string; title: ReactNode; body: string }[] = [
   { tag: 'Thói quen', title: <>Ta tin câu trả lời của AI vì nó <i>trôi chảy</i>.</>, body: 'Dồn cả kho tài liệu vào một cửa sổ ngữ cảnh, mô hình vẫn viết ra một đoạn mạch lạc, đầy thuật ngữ.' },
   { tag: 'Rủi ro', title: <>Nhưng trôi chảy chưa chắc <i>có căn cứ</i>.</>, body: 'Phần trùng bị lặp, phần thừa chen vào, phần cần thiết rơi ra ngoài giới hạn ngữ cảnh. Không ai biết câu nào lấy từ đâu.' },
-  { tag: 'Cách khác', title: <>OrchestrIQ chia tài liệu cho <i>đúng chuyên gia</i>.</>, body: 'Mỗi tác tử chỉ nhận phần của nhiệm vụ mình. Phần cả ba cùng cần được gom một lần thành ghi chú chung, giữ nguyên văn.' },
+  { tag: 'Cách khác', title: <>OrchestrIQ chia tài liệu cho <i>đúng chuyên gia</i>.</>, body: 'Kế hoạch được kiểm tra trước khi giao việc. Mỗi tác tử chỉ nhận tài liệu của nhiệm vụ mình, với ngân sách token chia theo nhu cầu.' },
   { tag: 'Dấu vết', title: <>Mỗi kết quả giữ lại <i>sợi dây</i> về nguồn.</>, body: 'Kế hoạch, đoạn tài liệu đã cấp cho từng tác tử và mọi lần gọi mô hình đều được lưu để bạn tự kiểm tra.' },
 ];
 // kind: tone của tài liệu; noise = không liên quan; shared = phần chung. Tên file là ví dụ.
