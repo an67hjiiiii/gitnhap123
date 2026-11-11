@@ -32,7 +32,7 @@ Phụ thuộc mới: `tokenizers==0.22.2`. Tokenizer Qwen3 offline nằm ở `ba
 
 ### Frontend (`frontend/src`)
 
-- `/`: trang giới thiệu, Robot C27. Nội dung đã đồng bộ với CAP1: 8 bước đúng pipeline (giống màn hình 8 bước trong Studio), ba tác tử Security / Database / API-Architecture Analyst, các điều kiện so sánh A, B, C (đúng ba cách trả lời trong Studio), PostgreSQL thay SQLite; bỏ "Shared Brief" (CAP1 không có) và dải số 3/8/4 ở trang đầu. Phần Nghiên cứu có thêm "bản ghi một lượt chạy" (các trường CAP1 thật sự lưu: điều kiện, model digest, context policy, token từ Ollama, độ trễ, trích dẫn hợp lệ/không hợp lệ, 8 bước; quality = null chờ rubric), không có số liệu.
+- `/`: trang giới thiệu, Robot C27. Nội dung đã đồng bộ với CAP1: 8 bước đúng pipeline (giống màn hình 8 bước trong Studio), ba tác tử Security / Database / API-Architecture Analyst, các điều kiện so sánh A, B, C (đúng ba cách trả lời trong Studio), PostgreSQL thay SQLite; bỏ "Shared Brief" (CAP1 không có) và dải số 3/8/4 ở trang đầu.
 - `/login`, `/register`: dùng phiên cookie của CAP1.
 - `/studio`: **không gian làm việc thống nhất** (một trang thay cho Điều phối + Trò chuyện riêng):
   - màn hình đầu: Robot C27 lớn với bong bóng lời thoại (chữ hiện dần), tình trạng kho (tên không gian, số tài liệu và đoạn của không gian đó, mô hình), khung chat bấm vào thì phóng to dần (khoảng 0,6 giây) và hiện 6 câu hỏi phổ biến (tóm tắt, quy trình, điều kiện, người phê duyệt, thuật ngữ, rủi ro), dải tài liệu của không gian (bấm để hỏi về tài liệu đó), 3 cuộc trò chuyện gần nhất; kho trống thì có nút dùng bộ mẫu;

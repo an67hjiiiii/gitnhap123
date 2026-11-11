@@ -335,7 +335,6 @@ export function LandingPage() {
       gsap.utils.toArray<HTMLElement>('.lp-reveal').forEach(el => {
         gsap.from(el, { y: 44, opacity: 0, duration: 0.9, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 88%', once: true } });
       });
-      gsap.from('.lp-measure-line', { x: -14, opacity: 0, duration: 0.5, ease: 'power2.out', stagger: 0.07, scrollTrigger: { trigger: '.lp-measure-run', start: 'top 80%', once: true } });
       gsap.utils.toArray<HTMLElement>('.lp-stagger').forEach(group => {
         gsap.from(group.children, { y: 50, opacity: 0, duration: 0.9, ease: 'power3.out', stagger: 0.1, scrollTrigger: { trigger: group, start: 'top 85%', once: true } });
       });
@@ -665,22 +664,6 @@ export function LandingPage() {
         <div className="lp-wrap">
           <p className="lp-eyebrow">Nghiên cứu</p>
           <h2 className="lp-big lp-split">Hiệu quả cần được đo,<br/><span>không chỉ được hứa hẹn.</span></h2>
-          <div className="lp-measure">
-            <div className="lp-measure-run lp-reveal" aria-hidden="true">
-              <p className="lp-measure-cap"><i/>Bản ghi một lượt chạy</p>
-              {[['condition', '"C"'], ['model', '"qwen3:4b" · digest'], ['context_policy', '"adaptive_qwen"'], ['tokens', 'prompt + output · từ Ollama'], ['latency_ms', 'truy xuất · sinh'], ['citations', 'hợp lệ / không hợp lệ'], ['events', '8 bước · đầu vào, kết quả'], ['quality', 'null · chờ rubric']].map(([k, v], i) => (
-                <div key={k} className={`lp-measure-line${k === 'quality' ? ' is-null' : ''}`} style={{ '--i': i } as React.CSSProperties}><b>{k}</b><span>{v}</span></div>
-              ))}
-            </div>
-            <div className="lp-measure-grid">
-              {[
-                { Icon: Cpu, t: 'Token thật', d: 'Đếm từ phản hồi của Ollama cho từng lần gọi mô hình, không ước lượng theo độ dài chữ.' },
-                { Icon: RefreshCw, t: 'Độ trễ từng phần', d: 'Tách thời gian truy xuất và thời gian sinh để biết chậm ở đâu.' },
-                { Icon: FileCheck2, t: 'Trích dẫn kiểm được', d: 'Mỗi nguồn phải trỏ tới một đoạn tài liệu có thật; nguồn sai được đếm riêng.' },
-                { Icon: Shield, t: 'Giữ cả lượt lỗi', d: 'Kế hoạch bị từ chối, lượt thất bại đều được lưu kèm lý do để phân tích.' },
-              ].map(({ Icon, t, d }) => <article key={t} className="lp-measure-card lp-reveal"><i><Icon size={18}/></i><h3>{t}</h3><p>{d}</p></article>)}
-            </div>
-          </div>
           <div className="lp-mission-rows">
             <div><span className="lp-mission-tag">Mục tiêu</span><p className="lp-fill" aria-label="Kiểm chứng bằng thực nghiệm việc phân bổ ngữ cảnh theo nhiệm vụ ảnh hưởng thế nào tới chất lượng, độ trễ và chi phí.">{fill('Kiểm chứng bằng thực nghiệm việc phân bổ ngữ cảnh theo nhiệm vụ ảnh hưởng thế nào tới chất lượng, độ trễ và chi phí.')}</p></div>
             <div><span className="lp-mission-tag">Cam kết</span><p className="lp-fill" aria-label="Không công bố con số nào chưa đo. Mọi lượt chạy, kể cả lượt lỗi, đều được giữ lại.">{fill('Không công bố con số nào chưa đo. Mọi lượt chạy, kể cả lượt lỗi, đều được giữ lại.')}</p></div>
