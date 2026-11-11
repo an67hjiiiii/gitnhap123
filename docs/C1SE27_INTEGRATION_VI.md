@@ -47,7 +47,7 @@ Phụ thuộc mới: `tokenizers==0.22.2`. Tokenizer Qwen3 offline nằm ở `ba
 - Mã Studio nằm trong `frontend/src/studio`. Lớp `studio/services/api.ts` gọi API CAP1. `studio/services/adapt.ts` chuyển bản ghi run của CAP1 sang dạng màn hình Studio dùng.
 - Ánh xạ cách làm: Vanilla = A, Multi-Agent cơ bản = B, Điều phối đầy đủ = C.
 - Thêm phụ thuộc: `react-router-dom`, `lucide-react`, `gsap`, `@gsap/react`, `@fontsource/be-vietnam-pro` (chỉ nạp nét 800/900 cho tiêu đề landing).
-- Tiêu đề landing: Be Vietnam Pro 900; từ khóa có vệt highlight xanh lơ (nền sáng) hoặc xanh dương (nền tối). Trước đây từ khóa khai báo Playfair Display nhưng font này chưa từng được nạp nên hiện thành Times New Roman nghiêng.
+- Tiêu đề landing: Be Vietnam Pro 900; từ khóa màu xanh; vệt highlight chỉ ở 3 phần: 4 chương câu chuyện, "Mỗi tác tử, một góc nhìn", "Hiệu quả cần được đo". Trước đây từ khóa khai báo Playfair Display nhưng font này chưa từng được nạp nên hiện thành Times New Roman nghiêng.
 
 ## Chạy thử
 
