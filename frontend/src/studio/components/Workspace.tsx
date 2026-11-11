@@ -20,13 +20,14 @@ const MODE_INFO: Record<Mode, { label: string; hint: string }> = {
   C: { label: 'Điều phối đầy đủ', hint: 'Điều kiện C: lập kế hoạch có kiểm tra, chuẩn hóa, tối ưu ngữ cảnh.' },
 };
 const STATUS_LABEL: Record<string, string> = { COMPLETE: 'Đủ bằng chứng', PARTIAL: 'Một phần', NO_EVIDENCE: 'Không có bằng chứng', FAILED: 'Thất bại' };
+// Viết dạng câu hỏi để CAP1 đi đường hỏi đáp trực tiếp (câu mệnh lệnh bị chuyển sang lập kế hoạch nhiều bước).
 const PRESETS = [
-  { label: 'Tóm tắt ý chính', text: 'Tóm tắt các ý chính trong tài liệu giúp tôi.' },
-  { label: 'Quy trình gồm bước nào?', text: 'Quy trình này gồm những bước nào và ai phụ trách từng bước?' },
+  { label: 'Tóm tắt ý chính', text: 'Tài liệu nói về những ý chính nào?' },
+  { label: 'Quy trình gồm bước nào?', text: 'Quy trình này gồm những bước nào, ai phụ trách từng bước?' },
   { label: 'Điều kiện, hạn mức', text: 'Có những điều kiện, hạn mức hoặc thời hạn nào cần lưu ý?' },
-  { label: 'Ai được phê duyệt?', text: 'Ai có quyền phê duyệt hoặc thực hiện việc này?' },
-  { label: 'Giải thích thuật ngữ', text: 'Giải thích các thuật ngữ quan trọng trong tài liệu bằng lời dễ hiểu.' },
-  { label: 'Rủi ro cần lưu ý', text: 'Những rủi ro hoặc lỗi thường gặp cần lưu ý là gì?' },
+  { label: 'Ai được phê duyệt?', text: 'Ai có quyền phê duyệt việc này?' },
+  { label: 'Giải thích thuật ngữ', text: 'Những thuật ngữ quan trọng trong tài liệu có nghĩa là gì?' },
+  { label: 'Lỗi thường gặp', text: 'Lỗi thường gặp nào cần lưu ý?' },
 ]
 
 // Nguồn đã hiện thành nút bên dưới nên bỏ dòng "Nguồn: [...]" trong thân câu trả lời.
@@ -231,7 +232,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
             <div className="ws-docs-row">
               {docs.slice(0, 5).map((d, i) => (
                 <button key={d.id ?? d.source_file} type="button" style={{ animationDelay: `${0.06 * i}s` }} title={d.source_file}
-                  onClick={() => { closedH.current = open ? 0 : formRef.current?.offsetHeight ?? 0; setOpen(true); setMode('quick'); setDraft(`Tóm tắt nội dung chính của tài liệu ${d.source_file}.`); speak(`Mình sẽ đọc ${d.source_file}. Nhấn gửi nhé.`); }}>
+                  onClick={() => { closedH.current = open ? 0 : formRef.current?.offsetHeight ?? 0; setOpen(true); setMode('quick'); setDraft(`Nội dung chính của tài liệu ${d.source_file} là gì?`); speak(`Mình sẽ đọc ${d.source_file}. Nhấn gửi nhé.`); }}>
                   <FileText size={16} /><span>{d.source_file}</span><small>{d.chunks_count} đoạn</small>
                 </button>
               ))}

@@ -88,6 +88,8 @@ Các giá trị đổi theo cuộn (chương câu chuyện, bước đường ra
 - Chưa có token theo từng tác tử, token tiết kiệm, độ phủ. Studio hiện "Chưa đo".
 - Chưa có diễn tập nghẽn LLM và đăng nhập Google/GitHub. Đã bỏ khỏi giao diện, không giả lập.
 - Điều kiện B và C của CAP1 thường bị từ chối ở bước kiểm tra kế hoạch với yêu cầu dài nhiều ý (rà soát 11/11: cả B và C từ chối yêu cầu "Thiết kế cổng thanh toán chống trừ tiền hai lần… và phân quyền truy cập"). Đây là hành vi sẵn có của CAP1, không do tích hợp. Studio báo lỗi bằng tiếng Việt và giữ nguyên thông báo gốc.
+- Ngôn ngữ trả lời (chế độ Hỏi nhanh): câu hỏi có dấu tiếng Việt thì có thêm lời nhắc cuối prompt "trả lời bằng tiếng Việt, gọn khoảng 150 từ" (qwen3:4b hay trả lời theo ngôn ngữ của tài liệu tiếng Anh; giới hạn 700 token đầu ra làm câu dài bị cụt). Điều kiện A/B/C dùng cho thực nghiệm không đổi. Chạy thật 11/11: 6/7 câu mẫu trả lời tiếng Việt, câu tiếng Anh vẫn trả lời tiếng Anh.
+- Chế độ Hỏi nhanh của CAP1 chỉ đi đường hỏi đáp trực tiếp khi câu có dạng câu hỏi (dấu "?" hoặc từ hỏi). Câu mệnh lệnh như "Giải thích các thuật ngữ…" bị chuyển sang lập kế hoạch nhiều bước và thường báo không có bằng chứng. Câu hỏi mẫu của Studio đã viết dạng câu hỏi; luật định tuyến của CAP1 giữ nguyên.
 - Câu trả lời của mô hình đôi khi là JSON bị cụt; Studio lấy phần trả lời đọc được và ghi chú "bị cắt", không sửa nội dung.
 - Dữ liệu 60 lượt pilot R4 của C1SE.27 **không mang sang**: đo trên backend cũ, không tái lập trên pipeline CAP1.
 - Chưa có kết luận chất lượng nào. Mọi số là số mô tả kỹ thuật.

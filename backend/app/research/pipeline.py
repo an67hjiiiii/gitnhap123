@@ -1,4 +1,5 @@
 from __future__ import annotations
+import unicodedata
 import re
 import time
 import uuid
@@ -40,7 +41,7 @@ from app.research.worker import execute_task
 from app.research.synthesizer import synthesize
 from app.research.vanilla import answer_vanilla
 from app.retrieval.text import retrieve, apply_token_budget, estimate_tokens, terms
-from app.retrieval.multilingual import build_query_variants
+from app.retrieval.multilingual import build_query_variants, detect_language
 from app.storage.source_store import SourceStore
 from app.storage.run_store import RunStore
 
@@ -316,7 +317,12 @@ class ResearchPipeline:
                 )
                 task = Task(task_id="T1", goal=query, domain="general")
                 g0 = time.perf_counter()
-                result = await answer_vanilla(provider, query, selected, metrics)
+                reply_language = None
+                if product_mode:
+                    # Có dấu tiếng Việt thì trả lời tiếng Việt (detect_language bỏ sót chữ như "ệ", "ề").
+                    has_vi_marks = any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", query)) or "đ" in query.lower()
+                    reply_language = "vi" if has_vi_marks or detect_language(query) != "en" else "en"
+                result = await answer_vanilla(provider, query, selected, metrics, reply_language=reply_language)
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                 tasks, task_results = [task], [result]
                 answer = result.answer
