@@ -23,7 +23,13 @@ export function answerText(raw: unknown): string {
   try {
     const parsed = JSON.parse(text);
     return [parsed.answer, parsed.final_answer, parsed.text].find(v => typeof v === 'string' && v.trim()) ?? text;
-  } catch { return text; }
+  } catch {
+    // JSON bị cụt (mô hình chạm giới hạn độ dài): lấy phần "answer" đọc được, bỏ ký tự thoát.
+    const m = text.match(/"(?:answer|final_answer|text)"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    if (!m) return text;
+    const body = m[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    return text.trimEnd().endsWith('}') ? body : `${body}\n\n_(Câu trả lời bị cắt do chạm giới hạn độ dài của mô hình.)_`;
+  }
 }
 
 const event = (run: Cap1Run, stage: string) => (run.events || []).find((e: any) => e.stage === stage);
@@ -79,6 +85,7 @@ export function adaptRun(run: Cap1Run): ModeExecutionResult {
     agent_results,
     final_answer: status && status !== 'COMPLETE' ? `**Trạng thái: ${status}**\n\n${answerText(run.answer)}` : answerText(run.answer),
     retrieved_chunks_count: Number(m.retrieved_chunks ?? 0),
+    raw: run,
     planning_trace: {
       requirements: (handoff?.obligations || []).map((o: any) => ({ id: o.obligation_id, text: o.description })),
       execution_order: handoff?.execution_order,

@@ -50,7 +50,7 @@ export const DocumentChunksModal: React.FC<DocumentChunksModalProps> = ({ docume
       labelId="chunks-title"
       icon={<Icon size={18} />}
       title={document.source_file}
-      subtitle={<>{document.file_type}{document.file_size_kb ? ` · ${document.file_size_kb} KB` : ''} · {chunks.length} phân đoạn · {totalTokens.toLocaleString('vi-VN')} token</>}
+      subtitle={<>{document.file_type}{document.file_size_kb ? ` · ${document.file_size_kb} KB` : ''} · {chunks.length} phân đoạn · {chunks.some(c => c.token_count != null) ? `${totalTokens.toLocaleString('vi-VN')} token` : 'chưa đếm token'}</>}
       onClose={onClose}
       toolbar={<>
         <label className="search is-grow"><Search size={14} /><span className="sr">Tìm trong phân đoạn</span><input data-autofocus type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Tìm nội dung, mã vector hoặc nhãn" /></label>
@@ -72,7 +72,7 @@ export const DocumentChunksModal: React.FC<DocumentChunksModalProps> = ({ docume
               <div className="chunk-head">
                 <b>Đoạn {c.chunk_index + 1}</b>
                 {(tags.length ? tags : [domainOf('')]).map(d => <span key={d.label} className="chunk-tag"><i className={`dot is-${d.key}`} />{d.label}</span>)}
-                <span className="chunk-meta" title={c.qdrant_point_id}>{c.token_count} token · {c.qdrant_point_id.slice(0, 8)}</span>
+                <span className="chunk-meta" title={c.qdrant_point_id}>{c.token_count == null ? `${c.content.length.toLocaleString('vi-VN')} ký tự` : `${c.token_count} token`} · {c.qdrant_point_id.slice(-8)}</span>
                 <button className="chunk-copy" onClick={() => copy(c.content, c.id)} aria-label={`Sao chép đoạn ${c.chunk_index + 1}`}>{copiedId === c.id ? <><Check size={14} />Đã chép</> : <><Copy size={14} />Chép</>}</button>
               </div>
               <pre className="chunk-pre">{c.content}</pre>

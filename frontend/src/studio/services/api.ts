@@ -81,10 +81,18 @@ export async function analyzeQuery(query: string, mode: ExecutionMode, _topK = 4
     for (const run of data.runs as Cap1Run[]) results[modeOf(run.condition)] = adaptRun(run);
   } else {
     const run = await post<Cap1Run>('/chat', { message: query, condition: MODE_TO_CONDITION[mode] });
-    if (run.status === 'FAILED') throw new Error(run.answer || 'Lượt chạy thất bại.');
+    if (run.status === 'FAILED') throw new Error(explainFailure(run.answer));
     results[mode] = adaptRun(run);
   }
   return { project_name: 'CAP1 + C1SE.27', query, execution_timestamp: new Date().toISOString(), results };
+}
+
+// Lỗi pipeline CAP1 thường bằng tiếng Anh; thêm lời giải thích tiếng Việt, giữ nguyên thông báo gốc để tra cứu.
+export function explainFailure(answer?: string): string {
+  const raw = String(answer || 'Lượt chạy thất bại.');
+  if (/failed verification/i.test(raw)) return `Kế hoạch chia việc không qua được bước tự kiểm tra (thiếu hoặc giao sai nghĩa vụ) nên hệ thống dừng, không trả kết quả nửa vời. Thử chia yêu cầu thành câu ngắn, cụ thể hơn, hoặc dùng cách A (Vanilla RAG). (${raw})`;
+  if (/extraction failed|ConnectError|ConnectTimeout/i.test(raw)) return `Không gọi được mô hình ngôn ngữ (Ollama). Kiểm tra Ollama đang chạy. (${raw})`;
+  return raw;
 }
 
 export async function compareConditions(message: string, conditions: string[]): Promise<Cap1Run[]> {
@@ -227,3 +235,16 @@ export async function getDbDiagnostic(): Promise<DbDiagnosticResponse> {
 }
 
 export async function simulateLLMContention(..._args: unknown[]): Promise<LLMContentionSimulateResponse> { throw new Error(NOT_SUPPORTED); }
+
+// ---------------- Trò chuyện nhiều lượt (cuộc trò chuyện của CAP1, chế độ sản phẩm giống giao diện chat gốc)
+export interface Conversation { conversation_id: string; title: string; created_at: string; updated_at: string }
+export interface ConversationMessage { message_id: string; role: 'USER' | 'ASSISTANT' | string; content: string; created_at: string; run_id: string | null }
+
+export const listConversations = () => call<Conversation[]>('/conversations');
+export const getConversation = (id: string) => call<Conversation & { messages: ConversationMessage[] }>(`/conversations/${encodeURIComponent(id)}`);
+export const getRawRun = (id: string) => call<Cap1Run>(`/runs/${encodeURIComponent(id)}`);
+export const getChunk = (id: string) => call<{ chunk_id: string; source_name: string; text: string }>(`/chunks/${encodeURIComponent(id)}`);
+
+export async function sendChat(message: string, conversationId: string | null): Promise<Cap1Run> {
+  return post<Cap1Run>('/chat', { message, conversation_id: conversationId ?? undefined, product_mode: true });
+}

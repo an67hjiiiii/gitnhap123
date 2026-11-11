@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, LogIn, X, AlertCircle, UserCheck, ChevronsUpDown, UserPlus, Plus, Check, MessagesSquare, FlaskConical, Database } from 'lucide-react';
+import { LogOut, LogIn, X, AlertCircle, UserCheck, ChevronsUpDown, UserPlus, Plus, Check, MessagesSquare, MessageCircle, FlaskConical, Database } from 'lucide-react';
 import { HealthResponse, ExecutionMode, NavigationTab, User, Workspace } from '../types';
 import { BrandLogo } from './BrandLogo';
 
@@ -87,6 +87,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const nav: { id: NavigationTab; label: string; Icon: typeof MessagesSquare; show: boolean }[] = [
     { id: 'orchestration', label: 'Điều phối', Icon: MessagesSquare, show: true },
+    { id: 'chat', label: 'Trò chuyện', Icon: MessageCircle, show: true },
     { id: 'benchmarks', label: 'Thực nghiệm', Icon: FlaskConical, show: true },
     { id: 'db_explorer', label: 'Cơ sở dữ liệu', Icon: Database, show: user?.role === 'admin' },
   ];
@@ -102,11 +103,19 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="sb-pop" ref={wsRef}>
+          {workspaces.length <= 1 && !onCreateWorkspace ? (
+            // CAP1: mỗi người một kho tài liệu, không có gì để chuyển nên hiển thị nhãn tĩnh.
+            <div className="sb-ws is-static" title="Kho tài liệu riêng của tài khoản">
+              <span className="sb-ws-mark">{(currentWorkspace?.name || '?').charAt(0).toUpperCase()}</span>
+              <span className="sb-ws-name">{currentWorkspace?.name || 'Kho tài liệu'}</span>
+            </div>
+          ) : (
           <button className="sb-ws" onClick={() => setMenu(menu === 'ws' ? null : 'ws')} aria-expanded={menu === 'ws'} aria-haspopup="menu" title="Chuyển không gian làm việc">
             <span className="sb-ws-mark">{(currentWorkspace?.name || '?').charAt(0).toUpperCase()}</span>
             <span className="sb-ws-name">{currentWorkspace?.name || 'Chưa chọn không gian'}</span>
             <ChevronsUpDown size={15} />
           </button>
+          )}
           {menu === 'ws' && (
             <div className="pop" role="menu">
               <p className="pop-label">Không gian làm việc</p>
@@ -130,7 +139,6 @@ export const Header: React.FC<HeaderProps> = ({
               <Icon size={17} /><span>{label}</span>
             </button>
           ))}
-          <a className="sb-link" href="/chat" aria-label="Trò chuyện nhiều lượt (giao diện CAP1)"><MessagesSquare size={17} /><span>Trò chuyện</span></a>
         </nav>
 
         <div className="sb-section">{children}</div>

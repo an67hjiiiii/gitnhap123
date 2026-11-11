@@ -123,6 +123,8 @@ export interface ModeExecutionResult {
   agent_results: AgentResult[];
   final_answer: string;
   retrieved_chunks_count: number;
+  /** Bản ghi run gốc của CAP1 (events, tasks, provenance) để hiển thị đúng từng bước. */
+  raw?: Record<string, any>;
 }
 
 export interface AnalyzeResponse {
@@ -222,7 +224,7 @@ export interface HealthResponse {
 }
 
 export type ExecutionMode = 'proposed_adaptive' | 'naive_multi_agent' | 'vanilla_rag' | 'ablation_comparison';
-export type NavigationTab = 'orchestration' | 'benchmarks' | 'db_explorer';
+export type NavigationTab = 'orchestration' | 'chat' | 'benchmarks' | 'db_explorer';
 
 // Phase 6: Security Audit & Diagnostics Types
 export interface SecurityCheckpointItem {

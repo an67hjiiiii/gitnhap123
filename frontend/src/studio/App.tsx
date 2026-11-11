@@ -6,6 +6,7 @@ import { Menu } from 'lucide-react';
 import { Header } from './components/Header';
 import { LeftPanel } from './components/LeftPanel';
 import { RunHistory } from './components/RunHistory';
+import { ChatStudio } from './components/ChatStudio';
 import { CenterCanvas } from './components/CenterCanvas';
 import { BenchmarkLab } from './components/BenchmarkLab';
 import { DatabaseExplorer } from './components/DatabaseExplorer';
@@ -119,6 +120,7 @@ function DashboardWorkspace({
   // Execution Handlers
   const handleAnalyze = async (query: string) => {
     setViewingRun(null);
+    setCurrentResult(null); // không để kết quả lượt trước hiện lẫn khi lượt mới lỗi
     setIsAnalyzing(true);
     setRobotState('decomposing');
     robotSpeak('Đang xử lý yêu cầu. Chờ backend trả kết quả; chưa có trạng thái chi tiết từng bước.');
@@ -370,7 +372,7 @@ function DashboardWorkspace({
       <div className="st-main">
         <div className="st-mobilebar">
           <button className="icon-btn" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Mở thanh bên" aria-expanded={isMobileDrawerOpen}><Menu size={20} /></button>
-          <b>{activeTab === 'orchestration' ? 'Điều phối' : activeTab === 'benchmarks' ? 'Thực nghiệm' : 'Cơ sở dữ liệu'}</b>
+          <b>{activeTab === 'orchestration' ? 'Điều phối' : activeTab === 'chat' ? 'Trò chuyện' : activeTab === 'benchmarks' ? 'Thực nghiệm' : 'Cơ sở dữ liệu'}</b>
         </div>
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
         {!user && (
@@ -381,6 +383,7 @@ function DashboardWorkspace({
         )}
         {activeTab === 'orchestration' && <CenterCanvas onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} result={currentResult} mode={mode} onModeChange={handleModeChange} userName={user?.full_name} viewing={viewingRun} onNewChat={handleNewChat} />}
         {activeTab === 'benchmarks' && <div className="st-legacy"><BenchmarkLab resultsMap={resultsMap} telemetryLogs={telemetryLogs} onRefreshTelemetry={refreshState} onRunAblation={handleRunAblation} isAblationRunning={isAblationRunning} /></div>}
+        {activeTab === 'chat' && <ChatStudio />}
         {activeTab === 'db_explorer' && user?.role === 'admin' && <div className="st-legacy"><DatabaseExplorer /></div>}
       </div>
 

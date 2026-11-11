@@ -27,6 +27,8 @@ const PRESETS = [
   'Mẫu thiết kế Transactional Outbox đồng bộ phân tán với Kafka.',
 ];
 const MODE_KEY: Record<string, string> = { A: 'A', B: 'B', C: 'C', 'C-P': 'CP', 'C-N': 'CN', 'C-O': 'CO' };
+// Trạng thái CAP1: lượt bị từ chối vẫn có số đo nhưng không phải câu trả lời hoàn chỉnh.
+const STATUS_VI: Record<string, string> = { COMPLETE: 'Đủ bằng chứng', PARTIAL: 'Một phần', NO_EVIDENCE: 'Không có bằng chứng', FAILED: 'Thất bại' };
 const num = (v: number | null | undefined, digits = 0) => v == null ? null : v.toLocaleString('vi-VN', { maximumFractionDigits: digits });
 
 export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetryLogs, onRefreshTelemetry, onRunAblation, isAblationRunning = false }) => {
@@ -66,6 +68,7 @@ export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetr
   ), [telemetryLogs, filter, search]);
 
   const rows: { label: string; get: (r: ModeExecutionResult) => string | null; only?: string }[] = [
+    { label: 'Trạng thái', get: r => r.raw?.status ? (STATUS_VI[r.raw.status] ?? r.raw.status) : null },
     { label: 'Độ trễ', get: r => r.latency_ms == null ? null : `${num(r.latency_ms / 1000, 1)} giây` },
     { label: 'Tổng token', get: r => num(r.total_tokens) },
     { label: 'Token tiết kiệm', get: r => r.tokens_saved == null ? null : `${metric(r.tokens_saved)} (${percent(r.token_saving_ratio, 1)})`, only: 'proposed_adaptive' },
