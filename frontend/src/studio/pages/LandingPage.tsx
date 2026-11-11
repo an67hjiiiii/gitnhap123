@@ -549,7 +549,7 @@ export function LandingPage() {
       <section className="lp-agents-sec" id="chuyen-gia">
         <div className="lp-wrap">
           <div className="lp-sec-head">
-            <div><p className="lp-eyebrow">Ba tác tử chuyên môn</p><h2 className="lp-big lp-split">Mỗi tác tử, <span>một góc nhìn.</span></h2></div>
+            <div><p className="lp-eyebrow">Ba tác tử chuyên môn</p><h2 className="lp-big lp-split">Mỗi tác tử, <span className="is-hl">một góc nhìn.</span></h2></div>
             <p>Cùng chạy trên mô hình qwen3:4b, nhưng mỗi tác tử có nhiệm vụ, chỉ dẫn và phần tài liệu riêng. Nhờ vậy, chúng không giẫm lên phần việc của nhau.</p>
           </div>
           <div className="lp-stack">
@@ -679,7 +679,7 @@ export function LandingPage() {
       <section className="lp-mission" id="nghien-cuu">
         <div className="lp-wrap">
           <p className="lp-eyebrow">Nghiên cứu</p>
-          <h2 className="lp-big lp-split">Hiệu quả cần được đo,<br/><span>không chỉ được hứa hẹn.</span></h2>
+          <h2 className="lp-big lp-split">Hiệu quả cần được đo,<br/><span className="is-hl">không chỉ được hứa hẹn.</span></h2>
           <div className="lp-mission-rows">
             <div><span className="lp-mission-tag">Mục tiêu</span><p className="lp-fill" aria-label="Kiểm chứng bằng thực nghiệm việc phân bổ ngữ cảnh theo nhiệm vụ ảnh hưởng thế nào tới chất lượng, độ trễ và chi phí.">{fill('Kiểm chứng bằng thực nghiệm việc phân bổ ngữ cảnh theo nhiệm vụ ảnh hưởng thế nào tới chất lượng, độ trễ và chi phí.')}</p></div>
             <div><span className="lp-mission-tag">Cam kết</span><p className="lp-fill" aria-label="Không công bố con số nào chưa đo. Mọi lượt chạy, kể cả lượt lỗi, đều được giữ lại.">{fill('Không công bố con số nào chưa đo. Mọi lượt chạy, kể cả lượt lỗi, đều được giữ lại.')}</p></div>
