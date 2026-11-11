@@ -1,0 +1,396 @@
+.app-shell.product-app-shell {
+  --product-bg: #FFFFFF;
+  --product-surface: #FFFFFF;
+  --product-surface-muted: #F7F8FA;
+  --product-surface-hover: #F2F4F7;
+  --product-text: #111111;
+  --product-text-secondary: #5F6368;
+  --product-text-muted: #74777D;
+  --product-border: #E6E8EB;
+  --product-border-strong: #D8DDE3;
+  --product-blue: #3B82F6;
+  --product-blue-hover: #2563EB;
+  --product-blue-soft: #EAF2FF;
+  --product-blue-border: #C9DEFF;
+  --product-danger: #B42318;
+  --product-danger-soft: #FEF3F2;
+  --product-warning: #946200;
+  --product-warning-soft: #FFF8E6;
+  --ink: var(--product-text);
+  --ink-soft: var(--product-text-secondary);
+  --ink-faint: var(--product-text-muted);
+  --line: var(--product-border);
+  --line-strong: var(--product-border-strong);
+  --surface: var(--product-surface);
+  --surface-soft: var(--product-surface-muted);
+  --surface-warm: var(--product-bg);
+  --accent: var(--product-blue);
+  --accent-dark: var(--product-blue-hover);
+  --accent-soft: var(--product-blue-soft);
+  --danger: var(--product-danger);
+  --danger-soft: var(--product-danger-soft);
+  --warning: var(--product-warning);
+  --warning-soft: var(--product-warning-soft);
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  flex-direction: column;
+  background: var(--product-bg);
+  color: var(--product-text);
+}
+
+/* Product navigation is a persistent left rail; Research Mode keeps its own grid. */
+.app-shell.product-app-shell:has(> .product-sidebar) {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  transition: grid-template-columns 150ms ease;
+}
+
+.app-shell.product-app-shell:has(> .product-sidebar[data-collapsed="true"]) {
+  grid-template-columns: 68px minmax(0, 1fr);
+}
+
+.app-shell.product-app-shell:has(> .product-sidebar) > .product-app-content {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell.product-app-shell:has(> .product-sidebar) {
+    transition: none;
+  }
+}
+
+.product-app-content {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.product-main-content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.product-global-notice {
+  margin: 0;
+  padding: 11px clamp(20px, 5vw, 72px);
+  border-bottom: 1px solid var(--product-border);
+  background: var(--product-surface-muted);
+  color: var(--product-text-secondary);
+}
+
+.product-success-state {
+  margin: 0 0 18px;
+  padding: 11px 14px;
+  border: 1px solid var(--product-blue-border);
+  border-radius: 8px;
+  background: var(--product-blue-soft);
+  color: var(--product-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.product-chat-panel {
+  min-height: calc(100vh - 72px);
+}
+
+.product-chat-panel .chat-header {
+  box-sizing: border-box;
+  height: 54px;
+  min-height: 54px;
+  align-items: center;
+  padding: 0 clamp(20px, 5vw, 72px);
+  border-bottom: 0;
+}
+
+.product-chat-panel .chat-header > div {
+  width: 100%;
+  min-width: 0;
+}
+
+.product-chat-panel .chat-header .eyebrow {
+  color: var(--product-text-secondary);
+  font-size: 10px;
+  letter-spacing: .1em;
+}
+
+.product-chat-panel .chat-header h1 {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: #111111;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-chat-panel .chat-header-note {
+  padding-top: 0;
+}
+
+.product-chat-panel .conversation {
+  width: min(820px, calc(100% - 48px));
+  padding-top: 28px;
+}
+
+.product-chat-panel .product-conversation-thread {
+  gap: 18px;
+}
+
+.product-chat-panel .welcome-state {
+  margin-top: 10vh;
+}
+
+.product-chat-panel .welcome-state h2 {
+  font-size: clamp(28px, 3vw, 38px);
+  font-weight: 600;
+}
+
+.product-chat-panel .composer-dock {
+  padding: 0 clamp(20px, 5vw, 72px) 26px;
+}
+
+.product-chat-panel .composer-region {
+  width: min(820px, 100%);
+  margin: 0 auto;
+}
+
+.product-app-shell .product-page,
+.product-app-shell .product-account-page {
+  color: var(--product-text);
+}
+
+.product-app-shell :is(button, a, input, textarea, select):focus-visible {
+  outline: 3px solid var(--product-blue-border);
+  outline-offset: 2px;
+}
+
+.product-app-shell .product-error-state,
+.product-app-shell .status-failed {
+  border-color: #F4C7C3;
+  background: var(--product-danger-soft);
+  color: var(--product-danger);
+}
+
+.product-app-shell .product-success-state,
+.product-app-shell .status-complete,
+.product-app-shell .status-ready {
+  border-color: var(--product-blue-border);
+  background: var(--product-blue-soft);
+  color: var(--product-blue-hover);
+}
+
+.product-app-shell .status-complete .status-dot,
+.product-app-shell .status-ready .status-dot {
+  background: var(--product-blue);
+}
+
+.product-app-shell .status-partial,
+.product-app-shell .status-no-evidence {
+  border-color: #F0D99A;
+  background: var(--product-warning-soft);
+  color: var(--product-warning);
+}
+
+.product-app-shell .auth-required {
+  background: var(--product-bg);
+  color: var(--product-text);
+}
+
+.product-app-shell .auth-required-panel,
+.product-app-shell .auth-dialog {
+  border-color: var(--product-border);
+  border-radius: 12px;
+  background: var(--product-surface);
+  color: var(--product-text);
+  box-shadow: 0 16px 40px rgb(17 17 17 / 12%);
+}
+
+.product-app-shell .auth-required-panel .eyebrow,
+.product-app-shell .auth-dialog .eyebrow {
+  color: var(--product-blue-hover);
+  letter-spacing: .06em;
+  text-transform: none;
+}
+
+.product-app-shell .auth-required-panel .dialog-description,
+.product-app-shell .auth-dialog .dialog-description,
+.product-app-shell .auth-dialog .form-hint {
+  color: var(--product-text-secondary);
+}
+
+.product-app-shell .register-form label {
+  color: var(--product-text);
+}
+
+.product-app-shell .register-form input {
+  min-height: 44px;
+  border-color: var(--product-border-strong);
+  border-radius: 8px;
+  color: var(--product-text);
+}
+
+.product-app-shell .register-form input:focus-visible {
+  border-color: var(--product-blue);
+  outline-color: var(--product-blue-border);
+}
+
+.product-app-shell .button-primary {
+  border-color: var(--product-blue);
+  border-radius: 8px;
+  background: var(--product-blue);
+}
+
+.product-app-shell .button-primary:hover:not(:disabled) {
+  border-color: var(--product-blue-hover);
+  background: var(--product-blue-hover);
+}
+
+.product-app-shell .button-secondary {
+  border-color: var(--product-border-strong);
+  border-radius: 8px;
+  background: var(--product-surface);
+  color: var(--product-text);
+}
+
+.product-app-shell .button-secondary:hover:not(:disabled) {
+  background: var(--product-surface-muted);
+}
+
+.product-app-shell .form-error {
+  color: var(--product-danger);
+}
+
+.product-inspector-dialog {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(460px, 100vw);
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-left: 1px solid var(--product-border);
+  background: var(--product-surface);
+  color: var(--product-text);
+  box-shadow: -10px 0 28px rgb(17 17 17 / 8%);
+}
+
+.product-inspector-dialog::backdrop {
+  background: rgb(17 17 17 / 24%);
+}
+
+.product-inspector-drawer {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+}
+
+.product-inspector-drawer-header {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.product-inspector-drawer-header .product-eyebrow {
+  margin-bottom: 4px;
+}
+
+.product-inspector-drawer-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 620;
+  letter-spacing: -.025em;
+}
+
+.product-inspector-drawer-header button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.product-inspector-drawer-header button:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.product-inspector-drawer-header button:focus-visible {
+  outline: 3px solid var(--product-blue-border);
+  outline-offset: 2px;
+}
+
+.product-inspector-drawer > .inspector {
+  min-height: 0;
+  flex: 1;
+  border: 0;
+}
+
+.product-inspector-drawer > .inspector > .inspector-header {
+  display: none;
+}
+
+@media (max-width: 680px) {
+  .product-app-content,
+  .product-main-content,
+  .product-chat-panel {
+    min-height: 0;
+  }
+
+  .product-chat-panel .chat-header {
+    padding: 0 18px;
+  }
+
+  .product-chat-panel .chat-header-note {
+    font-size: 0;
+  }
+
+  .product-chat-panel .chat-header-note .status-badge {
+    font-size: 10px;
+  }
+
+  .product-chat-panel .conversation {
+    width: calc(100% - 36px);
+    padding-top: 20px;
+  }
+
+  .product-chat-panel .composer-dock {
+    padding: 0 14px 17px;
+  }
+
+  .product-inspector-dialog {
+    width: 100vw;
+  }
+}

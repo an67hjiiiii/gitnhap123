@@ -1,0 +1,2 @@
+Qdrant là index dẫn xuất có thể xây dựng lại sau khi restart. Xóa hoặc xây lại
+index không được làm mất bản ghi source/chunk có thẩm quyền trong PostgreSQL.

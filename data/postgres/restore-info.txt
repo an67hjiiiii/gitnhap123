@@ -1,0 +1,3 @@
+postgres (PostgreSQL) 16.15 (Debian 16.15-1.pgdg12+2)
+Database: cap1_midterm_sanitized
+Sanitized: one synthetic demo user; historical sessions, conversations, runs, and messages removed; corpus/chunks preserved.

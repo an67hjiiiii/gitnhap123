@@ -1,0 +1,2 @@
+resource_id không tự cấp quyền sở hữu. Nếu resource thuộc owner khác, API phải
+giữ kín dữ liệu và trả về 404 theo quy ước ẩn tài nguyên riêng tư.

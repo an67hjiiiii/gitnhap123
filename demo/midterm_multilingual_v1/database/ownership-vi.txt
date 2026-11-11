@@ -1,0 +1,2 @@
+Bản ghi source và chunk trong PostgreSQL gắn với owner_id. Chỉ dữ liệu của
+người dùng đã xác thực mới được dùng để tìm kiếm trong knowledge base riêng.

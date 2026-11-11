@@ -1,0 +1,2 @@
+Authorization kiểm tra quyền thực hiện hành động sau khi authentication xác
+định danh tính. Người dùng không được mặc nhiên truy cập dữ liệu owner khác.

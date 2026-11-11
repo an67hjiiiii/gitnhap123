@@ -1,0 +1,2 @@
+Điểm vào conversation đã xác thực giữ request hiện tại làm intent chính và
+chỉ giữ context trước đó trong giới hạn cho follow-up.

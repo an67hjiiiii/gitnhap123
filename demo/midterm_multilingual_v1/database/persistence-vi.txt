@@ -1,0 +1,2 @@
+Các bước lưu source và tạo chunk cần ranh giới transaction để bản ghi nhiều
+bước không bị lộ ở trạng thái chưa hoàn chỉnh.

@@ -1,0 +1,115 @@
+.product-header {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+  align-items: center;
+  min-height: 64px;
+  padding: 0 clamp(20px, 4vw, 48px);
+  border-bottom: 1px solid var(--line);
+  background: rgb(255 255 255 / 96%);
+  backdrop-filter: blur(12px);
+}
+
+.product-header-brand {
+  justify-self: start;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 720;
+  letter-spacing: -.035em;
+  text-decoration: none;
+}
+
+.product-header-nav,
+.product-header-actions { display: flex; align-items: center; }
+.product-header-nav { justify-self: center; gap: 4px; }
+
+.product-header-nav-item {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+
+.product-header-nav-item:hover { background: var(--surface-soft); color: var(--ink); }
+.product-header-nav-item.is-active { background: var(--accent-soft); color: var(--accent-dark); }
+.product-header-nav-item svg { flex: none; }
+.product-header-actions { justify-self: end; gap: 8px; }
+
+.product-header-new,
+.product-header-account {
+  display: inline-flex;
+  min-width: 40px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+
+.product-header-new { border-color: var(--line); color: var(--ink); }
+.product-header-new:hover,
+.product-header-account:hover { border-color: var(--line-strong); background: var(--surface-soft); color: var(--ink); }
+.product-header-account { list-style: none; }
+.product-header-account::-webkit-details-marker { display: none; }
+.product-header-account::marker { content: ""; }
+.product-account-avatar { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #DADCE0; border-radius: 50%; background: #F3F4F6; color: #202124; font-size: 12px; font-weight: 500; }
+.product-account-menu { position: relative; }
+.product-account-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(260px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 12px 28px rgb(17 24 39 / 12%);
+}
+
+.product-account-identity { display: grid; gap: 4px; padding: 10px; overflow-wrap: anywhere; }
+.product-account-identity strong { color: var(--ink); font-size: 13px; font-weight: 620; }
+.product-account-identity span { color: var(--ink-soft); font-size: 11px; }
+.product-account-divider { height: 1px; margin: 4px 2px; background: var(--line); }
+.product-account-popover button { display: flex; width: 100%; min-height: 38px; align-items: center; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer; font: inherit; font-size: 12px; text-align: left; }
+.product-account-popover button:hover { background: var(--surface-soft); }
+.product-account-popover .product-account-signout { color: var(--danger); }
+.product-account-popover .product-account-signout:hover { background: var(--danger-soft); }
+.product-header :is(button, a, summary):focus-visible { outline: 3px solid rgb(59 130 246 / 32%); outline-offset: 2px; }
+
+@media (max-width: 680px) {
+  .product-header { grid-template-columns: 1fr auto; min-height: auto; padding: 10px 16px 0; }
+  .product-header-brand { align-self: center; }
+  .product-header-nav { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; justify-content: space-around; margin-top: 8px; border-top: 1px solid var(--line); }
+  .product-header-nav-item { flex: 1; justify-content: center; min-height: 42px; padding-inline: 6px; font-size: 12px; }
+  .product-header-actions { grid-column: 2; grid-row: 1; }
+}
+
+@media (max-width: 380px) {
+  .product-header-nav-item { gap: 5px; padding-inline: 3px; font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .product-header-nav-item, .product-header-new, .product-header-account { transition: background-color 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out; }
+}

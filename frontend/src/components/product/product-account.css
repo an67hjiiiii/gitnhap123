@@ -1,0 +1,15 @@
+.product-account-page { width: min(840px, calc(100% - 48px)); margin: 0 auto; padding: 44px 0 64px; }
+.product-account-page-heading { margin-bottom: 22px; }
+.product-account-page-heading h1 { margin: 0; color: var(--ink); font-size: clamp(28px, 3.6vw, 36px); font-weight: 620; letter-spacing: -.045em; line-height: 1.12; }
+.product-account-fields { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.product-account-field { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(0, 1.3fr); gap: 24px; padding: 16px 18px; }
+.product-account-field + .product-account-field { border-top: 1px solid var(--line); }
+.product-account-field dt { color: var(--ink-soft); font-size: 12px; font-weight: 560; }
+.product-account-field dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 13px; }
+.product-account-empty { display: grid; justify-items: start; gap: 8px; padding: 22px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.product-account-empty h2 { margin: 0; color: var(--ink); font-size: 14px; font-weight: 620; }
+.product-account-empty p { margin: 0; color: var(--ink-soft); font-size: 13px; line-height: 1.55; }
+@media (max-width: 560px) {
+  .product-account-page { width: calc(100% - 32px); padding-top: 34px; }
+  .product-account-field { grid-template-columns: 1fr; gap: 6px; padding: 14px 15px; }
+}

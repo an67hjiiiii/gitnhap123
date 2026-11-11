@@ -1,0 +1,2 @@
+Backend FastAPI cung cấp ranh giới REST API đã xác thực. Request được
+kiểm tra trước khi đi vào luồng conversation và lỗi response phải rõ ràng.

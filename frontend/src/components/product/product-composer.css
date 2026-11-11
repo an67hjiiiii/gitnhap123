@@ -1,0 +1,72 @@
+.product-composer-region { width: 100%; margin: 0 auto; }
+.product-composer {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  align-items: end;
+  gap: 8px;
+  min-height: 64px;
+  padding: 7px 8px;
+  border: 1px solid #E6E8EB;
+  border-radius: 14px;
+  background: #fff;
+  transition: border-color .14s ease, box-shadow .14s ease;
+}
+.product-composer:focus-within { border-color: #C9D2DE; box-shadow: 0 0 0 3px rgb(59 130 246 / 9%); }
+.product-composer textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 160px;
+  align-self: end;
+  padding: 8px 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #202124;
+  font: inherit;
+  font-size: 15px;
+  line-height: 24px;
+}
+.product-composer textarea::placeholder { color: #80868B; opacity: 1; }
+.product-composer textarea:focus,
+.product-composer textarea:focus-visible { border: 0; outline: 0; box-shadow: none; background: transparent; }
+.product-app-shell .product-composer textarea:focus-visible { outline: 0; }
+.product-composer-button {
+  display: inline-flex;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  align-self: end;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #5F6368;
+  cursor: pointer;
+}
+.product-composer-attachment:hover:not(:disabled) { background: #F3F4F6; color: #202124; }
+.product-composer-attachment:disabled { cursor: progress; opacity: .62; }
+.product-composer-send { background: #3B82F6; color: #fff; transition: background-color .14s ease, color .14s ease; }
+.product-composer-send:hover:not(:disabled) { background: #2563EB; }
+.product-composer-send:disabled { background: #E6E8EB; color: #8A9099; cursor: not-allowed; }
+.product-composer-button:focus-visible { outline: 3px solid rgb(59 130 246 / 32%); outline-offset: 2px; }
+.product-composer-spinner { animation: product-composer-spin .9s linear infinite; }
+@keyframes product-composer-spin { to { transform: rotate(360deg); } }
+.product-composer-region .product-home-import-feedback { margin: 8px 4px 0; text-align: left; }
+.product-chat-panel .product-composer-region { width: min(820px, 100%); }
+.product-home .product-composer-region { width: 100%; }
+@media (max-width: 680px) {
+  .product-composer { gap: 6px; padding: 7px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .product-composer, .product-composer-send { transition: none; }
+  .product-composer-spinner { animation-duration: 2.4s; }
+}

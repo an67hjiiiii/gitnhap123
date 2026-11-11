@@ -1,0 +1,2 @@
+Frontend React được xây dựng bằng Vite và giao tiếp với backend FastAPI bằng
+REST API của sản phẩm; REST là công nghệ giao tiếp được tài liệu này nêu rõ.

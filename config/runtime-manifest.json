@@ -1,0 +1,42 @@
+{
+  "package": "CAP1_AI_MIDTERM_PORTABLE",
+  "created_at": "2026-11-11T02:14:58.0426663Z",
+  "frontend": {
+    "source_branch": "ui/codex-everyday-integration",
+    "source_head": "260ac409167cf62463702b60b2f745d513f64a57",
+    "snapshot_sha256": "3f6bd9a438742a8ca4e6a73e2b5c8e8cac0eff11ce679597e4c0df8c3ea27655"
+  },
+  "backend": {
+    "source_branch": "hardening/s1-s3-product-ui",
+    "source_head": "ad96bf3ab620cb2f58471e42dfb5b424d4b05f00",
+    "snapshot_sha256": "486bd3af9b90b88e1f5aef47bfa26271779a644416cdb427bae79e0b52e2e962",
+    "included_uncommitted": [
+      "app/research/pipeline.py",
+      "app/research/vanilla.py",
+      "app/retrieval/multilingual.py",
+      "tests/test_multilingual_grounding.py",
+      "datasets/demo/midterm_multilingual_v1",
+      "docs/MIDTERM_MULTILINGUAL_DEMO.md"
+    ]
+  },
+  "postgresql": {
+    "version": "PostgreSQL 16",
+    "database": "cap1_midterm_sanitized",
+    "dump": "data/postgres/cap1_midterm_sanitized.dump",
+    "dump_sha256": "6e4a65fbc31ee8d05cece2974d9ee69635b8a65ab52de814590ab7de765c8f51",
+    "alembic_revision": "20261010_03",
+    "sanitization": "synthetic demo user only; sessions/conversations/runs/messages removed"
+  },
+  "qdrant": {
+    "mode": "embedded/local",
+    "relative_path": "data/qdrant",
+    "files": 3,
+    "derived_from": "sanitized PostgreSQL corpus",
+    "authoritative": "PostgreSQL"
+  },
+  "ollama": {
+    "model": "qwen3:4b",
+    "base_url": "http://127.0.0.1:11434"
+  },
+  "task_plan_max_output_tokens": 1400
+}

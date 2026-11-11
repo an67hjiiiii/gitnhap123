@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: cap1-ai-midterm-postgres
+    environment:
+      POSTGRES_DB: cap1_ai_midterm_multilingual
+      POSTGRES_USER: cap1_ai
+      POSTGRES_PASSWORD: change-me-locally
+    ports:
+      - "55435:5432"
+    volumes:
+      - cap1_ai_midterm_pgdata:/var/lib/postgresql/data
+volumes:
+  cap1_ai_midterm_pgdata:

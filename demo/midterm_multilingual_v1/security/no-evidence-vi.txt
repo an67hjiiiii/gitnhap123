@@ -1,0 +1,2 @@
+Khi nguồn không chứa thông tin cần thiết, hệ thống phải nói rõ thiếu bằng chứng
+và giữ trạng thái NO_EVIDENCE hoặc PARTIAL thay vì suy diễn.
