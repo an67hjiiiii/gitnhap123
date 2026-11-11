@@ -97,7 +97,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 htmlFor="login-username" 
                 className="text-xs font-semibold text-slate-700 flex items-center justify-between"
               >
-                <span>Tên đăng nhập</span>
+                <span>Email hoặc tên đăng nhập</span>
 
               </label>
               <div className="relative rounded-xl border border-slate-300 focus-within:border-indigo-600 focus-within:ring-2 focus-within:ring-indigo-100 bg-white transition-colors shadow-2xs">
@@ -109,7 +109,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="ví dụ: chung_dev"
+                  placeholder="ví dụ: ban@truong.edu.vn"
                   autoComplete="username"
                   required
                   className="w-full pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none rounded-xl"
