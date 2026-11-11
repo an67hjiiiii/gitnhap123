@@ -83,6 +83,7 @@ export const AssistantRobot: React.FC<AssistantRobotProps> = ({
   // Phản ứng với sự kiện Poke
   useEffect(() => {
     if (pokeTrigger > 0 && controllerRef.current) {
+      controllerRef.current.expression = pokeTrigger - 1; // mỗi lần chạm một biểu cảm
       controllerRef.current.poke();
     }
   }, [pokeTrigger]);

@@ -35,10 +35,12 @@ Phụ thuộc mới: `tokenizers==0.22.2`. Tokenizer Qwen3 offline nằm ở `ba
 - `/`: trang giới thiệu, Robot C27.
 - `/login`, `/register`: dùng phiên cookie của CAP1.
 - `/studio`: **không gian làm việc thống nhất** (một trang thay cho Điều phối + Trò chuyện riêng):
-  - lúc đầu chỉ là khung chat nhỏ cạnh Robot C27; bấm vào thì khung phóng to, Robot hướng dẫn, hiện 3 gợi ý;
+  - màn hình đầu: Robot C27 lớn với bong bóng lời thoại (chữ hiện dần), tình trạng kho (tên không gian, số tài liệu và đoạn của không gian đó, mô hình), khung chat bấm vào thì phóng to và hiện 3 gợi ý, 4 lối tắt (Hỏi nhanh, Phân tích thiết kế, Thử tìm kiếm, Thêm tài liệu), 3 cuộc trò chuyện gần nhất; kho trống thì có nút dùng bộ mẫu;
+  - mỗi lần chạm Robot đổi một trong 5 biểu cảm (mắt lấp lánh, cười híp, mắt tim, mắt sao, nháy mắt) kèm một câu nói;
   - trong cùng một cuộc trò chuyện có thể **Hỏi nhanh** (chế độ sản phẩm CAP1, nhớ ngữ cảnh) hoặc **Phân tích** (điều kiện A/B/C);
   - mỗi câu trả lời có trạng thái bằng chứng, nút nguồn (xem đoạn tài liệu), **8 bước** (sự kiện thật của CAP1) và **Theo tác tử**;
   - thanh bên: kho tài liệu (tải lên, xem đoạn, thử truy xuất, **xóa**) và danh sách **cuộc trò chuyện** (một lịch sử chung, không trùng lặp).
+- **Không gian làm việc** (bảng `studio_workspaces`, `studio_workspace_items`, migration `20261111_04`): tạo, chuyển và xóa trong menu tên không gian ở thanh bên. Mỗi không gian có tài liệu và cuộc trò chuyện riêng; câu hỏi chỉ truy xuất trong tài liệu của không gian đang mở (gửi `source_ids`). Xóa không gian: chọn chuyển tài liệu sang không gian còn lại hoặc xóa luôn; không xóa được không gian cuối cùng.
 - Thực nghiệm (so sánh A/B/C, cấu hình chỉ đọc, nhật ký) và Cơ sở dữ liệu (chỉ ADMIN).
 - `/chat`: **giao diện trò chuyện gốc của CAP1, giữ nguyên**.
 - Hai giao diện nạp CSS riêng (`ChatRoute.tsx`, `studio/StudioRoot.tsx`) nên không ảnh hưởng nhau.
@@ -68,6 +70,7 @@ cd frontend; npm run dev -- --host 127.0.0.1
   - Bộ chạy 6 lượt (D01–D03 × A, C) đạt kiểm tra cấu trúc. Lưu vết có model digest và context policy trong bảng `runs`.
   - So sánh A, B, C, C-O chạy được. Chỉ C có bước `adaptive_budget_plan`.
   - API quản trị: tài khoản thường nhận 403, không lộ cột mật khẩu.
+- Không gian làm việc (Playwright, 1440 px): tạo không gian mới thì thấy 0 tài liệu, xóa thì quay về Kho chính với 3 tài liệu; 5 lần chạm Robot cho 5 câu nói khác nhau; màn hình đầu ở 390 px không tràn ngang.
 - Trình duyệt (Playwright, 1440 và 390 px): trang chủ, đăng nhập, Studio, xem mẩu, thử truy xuất, mở lại lịch sử, 8 bước, chạy điều kiện A, thực nghiệm, quản trị, và trang `/chat` gốc. Không lỗi mạng ngoài 401 kiểm tra phiên trước khi đăng nhập, không tràn ngang.
 
 ## Phân quyền
@@ -80,8 +83,7 @@ Các giá trị đổi theo cuộn (chương câu chuyện, bước đường ra
 
 ## Chưa có hoặc chưa làm
 
-- Không gian làm việc nhiều kho (tạo/chuyển kho tài liệu như bản C1SE.27) chưa có: mô hình dữ liệu CAP1 gắn tài liệu trực tiếp với người dùng; thêm kho cần migration cho nguồn, cuộc trò chuyện, lượt chạy và bộ lọc truy xuất.
-
+- Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.
 - Chưa có tạo hoặc khóa cấu hình. Cấu hình CAP1 lấy từ biến môi trường; Studio chỉ hiển thị kèm `config_hash`.
 - Chưa có token theo từng tác tử, token tiết kiệm, độ phủ. Studio hiện "Chưa đo".
 - Chưa có diễn tập nghẽn LLM và đăng nhập Google/GitHub. Đã bỏ khỏi giao diện, không giả lập.

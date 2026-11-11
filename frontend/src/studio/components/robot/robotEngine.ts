@@ -90,6 +90,8 @@ export interface RobotFaceData {
   blink: number;
   time: number;
   side: number;
+  /** Chỉ số biểu cảm khi được chạm (đổi sau mỗi lần chạm). */
+  variant?: number;
 }
 
 export class RobotController {
@@ -98,6 +100,7 @@ export class RobotController {
   previousState: RobotState = 'idle';
   time: number = 0;
   switchedTime: number = 10;
+  expression: number = 0;
   
   // Lò xo vật lý điều khiển góc quay
   yaw = new DampedSpring(0);
@@ -339,7 +342,8 @@ export class RobotController {
         lookY: eyeLookY,
         blink: this.shownState === 'sleeping' ? 1 : blinkValue,
         time: this.time,
-        side: 1
+        side: 1,
+        variant: this.expression
       }
     };
   }
@@ -437,21 +441,46 @@ export function drawLEDMatrix(
       setPix(7 + i, i % 2 === 0 ? 11 : 12, 0.85);
     }
   } else if (state === 'happy') {
-    // Khi được chạm/tương tác: mắt tròn to có đốm sáng long lanh, má hồng, miệng cười nhỏ, nhún nhẹ.
+    // Khi được chạm: mỗi lần chạm một biểu cảm dễ thương khác (face.variant), nhún nhẹ theo nhịp.
     const bob = Math.sin(face.time * 7) > 0.2 ? -1 : 0;
-    const eyeR = 5 + bob;
-    const h = Math.max(1, Math.round(3 * (1 - face.blink)));
-    for (const c0 of [eyeLeftC, eyeRightC]) {
-      drawRectLED(c0, eyeR + (3 - h), 3, h, 1);
-      if (h === 3) setPix(c0 + 2, eyeR, 0.3); // đốm sáng ở góc mắt
+    // Vẽ mẫu ký tự ('#' sáng, '+' mờ) tại góc (c, r).
+    const sprite = (rows: string[], c: number, r: number) => rows.forEach((line, i) => [...line].forEach((ch, j) => {
+      if (ch === '#') setPix(c + j, r + i, 1); else if (ch === '+') setPix(c + j, r + i, 0.35);
+    }));
+    const L = 5, R = 13, top = 4 + bob; // mắt 4-5 ô, rộng hơn mắt thường cho dễ nhìn
+    const blush = () => { drawRectLED(L - 2, 9 + bob, 2, 1, 0.4); drawRectLED(R + 4, 9 + bob, 2, 1, 0.4); };
+    const shut = face.blink > 0.5;
+    switch ((face.variant ?? 0) % 5) {
+      case 0: { // Mắt tròn long lanh + má hồng + cười chữ U
+        const eye = shut ? ['', '', '####'] : ['.##.', '#+##', '####', '.##.'];
+        sprite(eye, L, top); sprite(eye, R, top); blush();
+        sprite(['#..#', '.##.'], 9, 10 + bob);
+        break;
+      }
+      case 1: { // Cười tít mắt ^ ^ + miệng cười tươi
+        sprite(['.##.', '#..#'], L, top + 1); sprite(['.##.', '#..#'], R, top + 1); blush();
+        sprite(['######', '.####.'], 8, 10 + bob);
+        break;
+      }
+      case 2: { // Mắt trái tim (nhịp nhấp nháy) + cười nhỏ
+        const heart = ['##.##', '#####', '.###.', '..#..'];
+        sprite(heart, L - 1, top); sprite(heart, R, top);
+        if (Math.sin(face.time * 9) > 0) { setPix(L, top + 1, 0.35); setPix(R + 1, top + 1, 0.35); } // đốm sáng đập theo nhịp tim
+        sprite(['#..#', '.##.'], 9, 10 + bob);
+        break;
+      }
+      case 3: { // Mắt ngôi sao lấp lánh + miệng "o" ngạc nhiên vui
+        const star = ['..#..', '.###.', '#####', '.###.', '..#..'];
+        sprite(star, L - 1, top - 1); sprite(star, R, top - 1);
+        sprite(['.##.', '#..#', '.##.'], 9, 9 + bob);
+        break;
+      }
+      default: { // Nháy mắt: một mắt cong, một mắt tròn + cười lém lỉnh
+        sprite(['.##.', '#..#'], L, top + 1);
+        sprite(shut ? ['', '', '####'] : ['.##.', '#+##', '####', '.##.'], R, top); blush();
+        sprite(['#....#', '.####.'], 8, 10 + bob);
+      }
     }
-    // Má hồng hai bên (đèn mờ)
-    drawRectLED(eyeLeftC - 2, 9 + bob, 2, 1, 0.4);
-    drawRectLED(eyeRightC + 3, 9 + bob, 2, 1, 0.4);
-    // Miệng cười nhỏ hình chữ U
-    setPix(9, 10 + bob, 0.85);
-    setPix(12, 10 + bob, 0.85);
-    drawRectLED(10, 11 + bob, 2, 1, 0.95);
   } else if (state === 'completed') {
     // Mắt cong hình vòng cung cười ^ ^
     const happyEyes = [

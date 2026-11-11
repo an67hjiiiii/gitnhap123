@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, BookOpen, ChevronDown, Footprints, Sparkles, Users, Volume2, VolumeX, Zap, Microscope } from 'lucide-react';
+import { ArrowRight, ArrowUp, BookOpen, ChevronDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Microscope, Search, Sparkles, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
 import { ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure } from '../services/api';
 import { adaptRun, answerText, Cap1Run, CONDITION_LABEL } from '../services/adapt';
 import { Markdown } from '../utils/markdown';
@@ -33,14 +33,36 @@ const citationsOf = (run?: Cap1Run) => [...new Set((run?.task_results || []).fla
 const firstName = (name?: string) => name?.trim().split(/\s+/).slice(-1)[0];
 const busy = (s: RobotState) => !['idle', 'happy', 'completed', 'error', 'sleeping', 'speaking'].includes(s);
 
+// Lời thoại hiện dần từng chữ; tôn trọng giảm chuyển động.
+function useTyped(text: string) {
+  const [shown, setShown] = useState(text);
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setShown(text); return; }
+    let i = 0; setShown('');
+    const t = window.setInterval(() => { i += 2; setShown(text.slice(0, i)); if (i >= text.length) window.clearInterval(t); }, 18);
+    return () => window.clearInterval(t);
+  }, [text]);
+  return shown;
+}
+
 interface WorkspaceProps {
+  workspaceId: number | string;
   conversationId: string | null;
   onConversation: (id: string | null) => void;
   onChanged: () => void;
   userName?: string;
+  /** Số liệu kho đang mở và lối tắt cho màn hình đầu. */
+  docCount?: number;
+  chunkCount?: number;
+  modelOk?: boolean;
+  workspaceName?: string;
+  recent?: { conversation_id: string; title: string; updated_at: string }[];
+  onSeed?: () => void;
+  onUploadFile?: (file: File) => void;
+  onOpenPlayground?: () => void;
 }
 
-export const Workspace: React.FC<WorkspaceProps> = ({ conversationId, onConversation, onChanged, userName }) => {
+export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationId, onConversation, onChanged, userName, docCount = 0, chunkCount = 0, modelOk, workspaceName, recent = [], onSeed, onUploadFile, onOpenPlayground }) => {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [runs, setRuns] = useState<Record<string, Cap1Run>>({});
   const [draft, setDraft] = useState('');
@@ -54,9 +76,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ conversationId, onConversa
   const [agentsOf, setAgentsOf] = useState<string | null>(null);
   const [chunk, setChunk] = useState<{ id: string; source?: string; text?: string; error?: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const skipLoad = useRef<string | null>(null);
-  const { state, speechText, soundEnabled, toggleSound, poke, speak, setState } = useRobotAssistant();
+  const { state, speechText, soundEnabled, toggleSound, speak, setState } = useRobotAssistant();
+  const typed = useTyped(speechText);
 
   const load = useCallback(async (id: string) => {
     try {
@@ -107,7 +131,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ conversationId, onConversa
     setState(mode === 'quick' ? 'searching' : 'decomposing');
     speak(mode === 'quick' ? 'Đang tìm trong tài liệu…' : 'Đang lập kế hoạch và chia việc cho các tác tử…');
     try {
-      const run = mode === 'quick' ? await sendChat(text, conversationId) : await sendAnalysis(text, mode, conversationId);
+      const run = mode === 'quick' ? await sendChat(text, conversationId, workspaceId) : await sendAnalysis(text, mode, conversationId, workspaceId);
       setRuns(prev => ({ ...prev, [run.run_id]: run }));
       if (run.conversation_id) {
         await load(run.conversation_id);
@@ -167,20 +191,49 @@ export const Workspace: React.FC<WorkspaceProps> = ({ conversationId, onConversa
   return (
     <main className={`mn ws${fresh ? ' is-fresh' : ''}`}>
       <div className="ws-top">
-        <button type="button" className={`ws-bot${busyNow ? ' is-busy' : ''}`} onClick={poke} aria-label="Chạm vào Trợ lý C27" title="Chạm để C27 phản hồi">
-          <AssistantRobot size={fresh ? 88 : 44} interactive colorConfig={{ shell: '#1d344a', trim: '#d5dde6', screen: state === 'error' ? '#ff8a8a' : busyNow ? '#ffd27a' : '#8fdcff' }} />
-        </button>
-        <p className="ws-say" aria-live="polite" key={speechText}>{speechText}</p>
+        <div className={`ws-bot${busyNow ? ' is-busy' : ''}`} aria-label="Chạm vào Trợ lý C27" title="Chạm để C27 phản hồi">
+          <AssistantRobot size={fresh ? 132 : 44} interactive colorConfig={{ shell: '#1d344a', trim: '#d5dde6', screen: state === 'error' ? '#ff8a8a' : busyNow ? '#ffd27a' : '#8fdcff' }} />
+        </div>
+        <p className="ws-say" aria-live="polite"><span className="sr">{speechText}</span><span aria-hidden="true">{typed}<i className="ws-caret" /></span></p>
         <button type="button" onClick={toggleSound} className="icon-btn is-sm ws-sound" aria-label={soundEnabled ? 'Tắt âm thanh' : 'Bật âm thanh'}>{soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}</button>
       </div>
 
       {fresh ? (
         <div className="ws-hero">
-          <h1>Chào {firstName(userName) || 'bạn'}, cần tìm gì hôm nay?</h1>
+          <div className="ws-glow" aria-hidden="true"><i /><i /><i /></div>
+          <h1>Chào {firstName(userName) || 'bạn'}, <span>cần tìm gì hôm nay?</span></h1>
+          <div className="ws-stats" aria-label="Tình trạng kho">
+            <span><FolderOpen size={14} />{workspaceName || 'Kho tài liệu'}</span>
+            <span><FileText size={14} />{docCount} tài liệu · {chunkCount} đoạn</span>
+            <span className={modelOk ? 'is-ok' : 'is-warn'}><i />{modelOk ? 'Mô hình sẵn sàng' : 'Chưa kết nối mô hình'}</span>
+          </div>
           {composer}
           <div className={`ws-chips${open ? ' is-in' : ''}`}>
             {PRESETS.map(p => <button key={p.label} type="button" onClick={() => { setOpen(true); setDraft(p.text); setMode('C'); speak('Đã điền ví dụ. Nhấn gửi để phân tích.'); }}>{p.label}</button>)}
           </div>
+          {docCount === 0 && onSeed && <div className="ws-empty-kb"><Inbox size={18} /><span>Kho đang trống.</span><button type="button" onClick={onSeed}>Dùng bộ tài liệu mẫu</button><button type="button" onClick={() => fileRef.current?.click()}>Tải tài liệu lên</button></div>}
+          <div className="ws-actions">
+            {[
+              { Icon: Zap, title: 'Hỏi nhanh', sub: 'Trả lời ngắn có nguồn', run: () => { setOpen(true); pickMode('quick'); } },
+              { Icon: Microscope, title: 'Phân tích thiết kế', sub: 'Ba tác tử chia việc', run: () => { setOpen(true); pickMode('C'); } },
+              { Icon: Search, title: 'Thử tìm kiếm', sub: 'Xem đoạn khớp nhất', run: () => onOpenPlayground?.() },
+              { Icon: Upload, title: 'Thêm tài liệu', sub: 'PDF, MD, SQL, TXT', run: () => fileRef.current?.click() },
+            ].map(({ Icon, title, sub, run }, i) => (
+              <button key={title} type="button" className="ws-action" style={{ animationDelay: `${0.08 * i}s` }} onClick={run}>
+                <i><Icon size={18} /></i><b>{title}</b><span>{sub}</span>
+              </button>
+            ))}
+          </div>
+          {recent.length > 0 && <div className="ws-recent">
+            <p>Tiếp tục</p>
+            {recent.slice(0, 3).map(c => (
+              <button key={c.conversation_id} type="button" onClick={() => onConversation(c.conversation_id)}>
+                <MessageSquareText size={15} /><span>{c.title || 'Không tên'}</span><ArrowRight size={14} />
+              </button>
+            ))}
+          </div>}
+          <input ref={fileRef} type="file" hidden accept=".pdf,.md,.markdown,.sql,.txt"
+            onChange={e => { const f = e.target.files?.[0]; if (f) onUploadFile?.(f); e.target.value = ''; }} />
         </div>
       ) : (
         <div className="ws-thread">

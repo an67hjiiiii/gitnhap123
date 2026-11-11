@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, LogIn, X, AlertCircle, UserCheck, ChevronsUpDown, UserPlus, Plus, Check, MessagesSquare, MessageCircle, FlaskConical, Database } from 'lucide-react';
+import { LogOut, LogIn, X, AlertCircle, UserCheck, ChevronsUpDown, UserPlus, Plus, Check, MessagesSquare, FlaskConical, Database, Trash2 } from 'lucide-react';
 import { HealthResponse, ExecutionMode, NavigationTab, User, Workspace } from '../types';
 import { BrandLogo } from './BrandLogo';
+import { StudioModal } from './StudioModal';
 
 interface HeaderProps {
   health: HealthResponse | null;
@@ -14,8 +15,9 @@ interface HeaderProps {
   onTabChange: (tab: NavigationTab) => void;
   user: User | null;
   workspaces: Workspace[];
-  currentWorkspaceId: number;
-  onWorkspaceChange: (wsId: number) => void;
+  currentWorkspaceId: number | string;
+  onWorkspaceChange: (wsId: number | string) => void;
+  onDeleteWorkspace?: (wsId: number | string, deleteSources: boolean) => Promise<void>;
   onCreateWorkspace?: (name: string, description: string) => Promise<void>;
   onLogout: () => void;
   isMobileDrawerOpen?: boolean;
@@ -48,9 +50,12 @@ export function useDismiss(open: boolean, close: () => void) {
 // Thanh bên: không gian làm việc, điều hướng, kho tri thức (children) và tài khoản.
 export const Header: React.FC<HeaderProps> = ({
   health, activeTab, onTabChange, user, workspaces, currentWorkspaceId, onWorkspaceChange,
-  onCreateWorkspace, onLogout, isMobileDrawerOpen = false, onToggleMobileDrawer, children,
+  onCreateWorkspace, onDeleteWorkspace, onLogout, isMobileDrawerOpen = false, onToggleMobileDrawer, children,
 }) => {
   const [menu, setMenu] = useState<'ws' | 'profile' | null>(null);
+  const [wsToDelete, setWsToDelete] = useState<Workspace | null>(null);
+  const [deleteDocs, setDeleteDocs] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const closeMenu = React.useCallback(() => setMenu(null), []);
   const wsRef = useDismiss(menu === 'ws', closeMenu);
   const profileRef = useDismiss(menu === 'profile', closeMenu);
@@ -120,11 +125,17 @@ export const Header: React.FC<HeaderProps> = ({
               <p className="pop-label">Không gian làm việc</p>
               <div className="pop-scroll">
                 {workspaces.map(ws => (
-                  <button key={ws.id} role="menuitem" className="pop-item" onClick={() => { onWorkspaceChange(ws.id); setMenu(null); }}>
-                    <span className="sb-ws-mark is-sm">{ws.name.charAt(0).toUpperCase()}</span>
-                    <span className="pop-text"><b>{ws.name}</b><small>{ws.documents_count} tài liệu · {ws.runs_count} lượt chạy</small></span>
-                    {ws.id === currentWorkspaceId && <Check size={15} className="pop-check" />}
-                  </button>
+                  <div key={ws.id} className="pop-row">
+                    <button role="menuitem" className="pop-item" onClick={() => { onWorkspaceChange(ws.id); setMenu(null); }}>
+                      <span className="sb-ws-mark is-sm">{ws.name.charAt(0).toUpperCase()}</span>
+                      <span className="pop-text"><b>{ws.name}</b><small>{ws.documents_count} tài liệu · {ws.runs_count} cuộc trò chuyện</small></span>
+                      {ws.id === currentWorkspaceId && <Check size={15} className="pop-check" />}
+                    </button>
+                    {onDeleteWorkspace && workspaces.length > 1 && (
+                      <button className="pop-del" aria-label={`Xóa không gian ${ws.name}`} title="Xóa không gian"
+                        onClick={() => { setMenu(null); setDeleteDocs(false); setWsToDelete(ws); }}><Trash2 size={14} /></button>
+                    )}
+                  </div>
                 ))}
               </div>
               {onCreateWorkspace && <button className="pop-item is-add" onClick={() => { setMenu(null); setIsCreateModalOpen(true); }}><Plus size={15} />Tạo không gian mới</button>}
@@ -168,6 +179,23 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
       </aside>
+
+      {wsToDelete && onDeleteWorkspace && (
+        <StudioModal labelId="ws-del-title" size="md" icon={<Trash2 size={18} />} title={`Xóa không gian "${wsToDelete.name}"?`}
+          subtitle="Cuộc trò chuyện được chuyển sang không gian còn lại." onClose={() => setWsToDelete(null)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setWsToDelete(null)}>Hủy</button>
+            <button className="btn btn-danger" disabled={deleting} onClick={async () => {
+              setDeleting(true);
+              try { await onDeleteWorkspace(wsToDelete.id, deleteDocs); setWsToDelete(null); } finally { setDeleting(false); }
+            }}>{deleting ? 'Đang xóa…' : 'Xóa không gian'}</button>
+          </>}>
+          <label className="ws-del-opt">
+            <input type="checkbox" checked={deleteDocs} onChange={e => setDeleteDocs(e.target.checked)} data-autofocus />
+            <span><b>Xóa luôn {wsToDelete.documents_count} tài liệu</b> trong không gian này. Không chọn thì tài liệu được chuyển sang không gian còn lại.</span>
+          </label>
+        </StudioModal>
+      )}
 
       {isCreateModalOpen && (
         <div className="dlg-backdrop">
