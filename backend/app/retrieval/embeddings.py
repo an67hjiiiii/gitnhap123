@@ -56,4 +56,57 @@ class LocalHashEmbedder:
         return tuple(round(value / norm, 8) for value in values)
 
 
-__all__ = ["EMBEDDING_VERSION", "LocalHashEmbedder", "TextEmbedder"]
+@dataclass(frozen=True)
+class OllamaEmbedder:
+    """Embedding ngữ nghĩa qua Ollama (mặc định nomic-embed-text, 768 chiều), chạy cục bộ.
+
+    Chuyển từ C1SE.27. Bật bằng EMBEDDING_BACKEND=ollama. Đổi embedder thì phải dùng
+    VECTOR_COLLECTION mới (hoặc index lại), không trộn vector hash với vector ngữ nghĩa.
+    """
+
+    dimension: int = 768
+    model: str = "nomic-embed-text"
+    base_url: str = "http://127.0.0.1:11434"
+    timeout: float = 60.0
+
+    @property
+    def version(self) -> str:
+        return f"ollama:{self.model}:{self.dimension}"
+
+    def embed(self, text: str) -> tuple[float, ...]:
+        if not isinstance(text, str):
+            raise TypeError("text must be a string")
+        import httpx
+
+        response = httpx.post(
+            f"{self.base_url.rstrip('/')}/api/embed",
+            json={"model": self.model, "input": text or " "},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        vectors = response.json().get("embeddings") or []
+        if not vectors or len(vectors[0]) != self.dimension:
+            raise ValueError(
+                f"Ollama embedding {self.model} returned dimension "
+                f"{len(vectors[0]) if vectors else 0}, expected {self.dimension}"
+            )
+        return tuple(float(v) for v in vectors[0])
+
+
+def make_embedder(dimension: int = 768) -> TextEmbedder:
+    """Chọn embedder theo EMBEDDING_BACKEND (hash | ollama). Mặc định hash, giữ hành vi cũ."""
+    import os
+
+    backend = os.getenv("EMBEDDING_BACKEND", "hash").strip().lower()
+    if backend == "hash":
+        return LocalHashEmbedder(dimension=dimension)
+    if backend == "ollama":
+        return OllamaEmbedder(
+            dimension=dimension,
+            model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text").strip(),
+            base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+        )
+    raise ValueError(f"Unsupported EMBEDDING_BACKEND={backend}")
+
+
+__all__ = ["EMBEDDING_VERSION", "LocalHashEmbedder", "OllamaEmbedder", "TextEmbedder", "make_embedder"]

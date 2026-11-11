@@ -1,0 +1,2 @@
+# Tokenizer Qwen3 được kiểm SHA-256 lúc chạy: không cho Git đổi kiểu xuống dòng.
+backend/app/assets/qwen3/** -text

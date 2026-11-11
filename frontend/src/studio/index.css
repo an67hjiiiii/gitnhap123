@@ -1,0 +1,168 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f8fafc;
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  /* Sleek modern scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+/* Custom Studio Utility Classes */
+.studio-glass {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+}
+
+.studio-border {
+  border-color: #e2e8f0;
+}
+
+.studio-card {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.studio-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.06);
+}
+
+/* Landing Page Animations - GPU accelerated & crash-proof */
+@keyframes heroFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes heroFadeInRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes robotFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes orbitSpinCw {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orbitSpinCcw {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.anim-hero-badge {
+  animation: heroFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.anim-hero-title {
+  animation: heroFadeIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+}
+.anim-hero-subtitle {
+  animation: heroFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+}
+.anim-hero-desc {
+  animation: heroFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both;
+}
+.anim-hero-cta {
+  animation: heroFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+}
+.anim-hero-stats {
+  animation: heroFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.38s both;
+}
+.anim-hero-robot {
+  animation: heroFadeInRight 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+}
+.anim-robot-floating {
+  animation: robotFloat 3.6s ease-in-out infinite;
+}
+.anim-orbit-cw {
+  animation: orbitSpinCw 28s linear infinite;
+  transform-origin: center;
+}
+.anim-orbit-ccw {
+  animation: orbitSpinCcw 20s linear infinite;
+  transform-origin: center;
+}
+
+.code-editor {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ========================================================================= */
+/* PHASE 7: WCAG 2.1 ACCESSIBILITY & REDUCED MOTION STYLES                  */
+/* ========================================================================= */
+
+/* Accessible Focus Rings for Keyboard Navigation */
+:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Respect OS Reduced Motion Preferences */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.research-v3[data-motion="full"], .research-v3[data-motion="full"] *, .lp[data-motion="on"], .lp[data-motion="on"] *),
+  *:not(.research-v3[data-motion="full"], .research-v3[data-motion="full"] *, .lp[data-motion="on"], .lp[data-motion="on"] *)::before,
+  *:not(.research-v3[data-motion="full"], .research-v3[data-motion="full"] *, .lp[data-motion="on"], .lp[data-motion="on"] *)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

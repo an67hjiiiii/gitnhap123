@@ -17,7 +17,7 @@ from app.ingestion.documents import (
 )
 from app.providers.ollama import OllamaProvider
 from app.retrieval.candidate_index import CandidateIndex, IndexingError
-from app.retrieval.embeddings import LocalHashEmbedder
+from app.retrieval.embeddings import make_embedder
 from app.research.pipeline import ResearchPipeline
 from app.research.conversation_context import build_conversation_context
 from app.storage.run_store import RunStore
@@ -97,8 +97,8 @@ def owner_pipeline(user: dict, conversation_id: str | None = None) -> ResearchPi
                 sources,
                 vector_store,
                 owner_user_id=str(user["user_id"]),
-                embedder=LocalHashEmbedder(
-                    dimension=int(getattr(vector_store, "vector_size", 768) or 768)
+                embedder=make_embedder(
+                    int(getattr(vector_store, "vector_size", 768) or 768)
                 ),
             )
     return ResearchPipeline(
@@ -153,8 +153,8 @@ def _index_imported_source(user: dict, source_store, imported: dict) -> dict:
             source_store,
             vector_store,
             owner_user_id=str(user["user_id"]),
-            embedder=LocalHashEmbedder(
-                dimension=int(getattr(vector_store, "vector_size", 768) or 768)
+            embedder=make_embedder(
+                int(getattr(vector_store, "vector_size", 768) or 768)
             ),
         )
         result = index.index_source(source_id)
@@ -396,3 +396,13 @@ def get_conversation(conversation_id: str, request: Request):
     if conversation is None:
         raise HTTPException(404, "conversation not found")
     return conversation
+
+
+# API bổ sung cho giao diện Studio (C1SE.27): thử truy xuất, so sánh điều kiện, trang quản trị.
+from app.api.studio import build_router as _build_studio_router
+
+app.include_router(_build_studio_router(
+    current_user=current_user,
+    owner_pipeline=owner_pipeline,
+    session_factory=lambda: app.state.session_factory,
+))

@@ -10,6 +10,8 @@ from app.core.telemetry import process_rss_mb, gpu_memory_mb
 from app.core.types import SourceChunk, Task, TaskPlan, TaskResult, RunMetrics
 from app.providers.factory import get_provider
 from app.research.context_controller import ContextController
+from app.research.provenance import build_provenance
+from app.research.token_context import TokenContextController, context_policy, plan_task_budgets
 from app.research.conversation_context import ConversationContext
 from app.research.decomposer import (
     canonicalize_task_plan,
@@ -173,6 +175,15 @@ class ResearchPipeline:
             "conversation_id": conversation_id,
             "conversation_context": conversation_context.to_trace(),
         }
+        policy = context_policy()
+        effective["context_policy"] = policy
+        embedder = getattr(self.candidate_index, "embedder", None)
+        provenance = build_provenance(
+            provider_name=provider.name,
+            model=provider.model,
+            embedding_version=getattr(embedder, "version", None) if embedder else "lexical",
+            context_policy=policy,
+        )
 
         def event(stage: str, **data):
             events.append({"stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **data})
@@ -198,6 +209,7 @@ class ResearchPipeline:
                 "metrics": metrics.to_dict(),
                 "events": events,
                 "effective_config": effective,
+                "provenance": provenance,
             }
 
         def persist_lifecycle(status: str) -> None:
@@ -579,6 +591,22 @@ class ResearchPipeline:
                 completed: dict[str, TaskResult] = {}
                 per_task_budget = max(256, cfg.max_context_tokens // max(1, len(tasks)))
                 controller = ContextController(max_chars=per_task_budget * 3)
+                budget_plan = None
+                if flags["O"] and policy == "adaptive_qwen":
+                    # Nhu cầu ước từ lượt truy xuất sơ bộ (chưa có ngữ cảnh phụ thuộc); trần áp vào lượt truy xuất thật bên dưới.
+                    preview = {
+                        task.task_id: self._retrieve_candidates(
+                            f"{task.goal} {' '.join(task.evidence_needs)}".strip(),
+                            all_chunks,
+                            top_k=cfg.task_top_k,
+                            min_score=cfg.retrieval_min_score,
+                            source_ids=source_ids,
+                            fallback_trace={},
+                        )
+                        for task in ordered
+                    }
+                    budget_plan = plan_task_budgets(preview, cfg.max_context_tokens)
+                    event("adaptive_budget_plan", **budget_plan)
                 for task in ordered:
                     dependency_context = " ".join(completed[d].answer for d in task.depends_on if d in completed)
                     retrieval_query = f"{task.goal} {' '.join(task.evidence_needs)} {dependency_context}".strip()
@@ -594,12 +622,15 @@ class ResearchPipeline:
                     )
                     metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                     metrics.retrieved_chunks += len(candidates)
-                    if flags["O"]:
+                    if budget_plan is not None:
+                        selected, dropped = TokenContextController(budget_plan["limits"][task.task_id]).select(candidates)
+                    elif flags["O"]:
                         selected, dropped = controller.select(candidates)
                     else:
                         selected, dropped = candidates, []
-                    selected, hard_dropped = apply_token_budget(selected, per_task_budget)
-                    dropped = [*dropped, *hard_dropped]
+                    if budget_plan is None:
+                        selected, hard_dropped = apply_token_budget(selected, per_task_budget)
+                        dropped = [*dropped, *hard_dropped]
                     metrics.selected_chunks += len(selected)
                     metrics.dropped_chunks += len(dropped)
                     metrics.context_chars += sum(len(c.text) for c in selected)

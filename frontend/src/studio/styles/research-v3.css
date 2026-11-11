@@ -1,0 +1,11 @@
+/* Landing C27: bố cục biên tập và minh họa giải thích cơ chế. */
+/* Vùng nhập cao hơn màn hình cần cuộn được để tới các nút thao tác. */
+@media(max-height:950px){.studio-shell .command-panel{position:static}}
+
+/* Vòng 4: sửa màu kế thừa, thống nhất chữ tiếng Việt và chuyển động trong bố cục. */
+
+/* Tiêu đề quy trình sau khi gỡ mô hình Spline. */
+
+/* Chuyển động theo cuộn và phản hồi chuột, chỉ trong landing page. */
+
+/* Khoảng thở cho chuyển động phối cảnh trong chính minh họa hiện có. */
