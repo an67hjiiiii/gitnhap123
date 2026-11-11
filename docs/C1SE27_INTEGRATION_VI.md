@@ -46,8 +46,7 @@ Phụ thuộc mới: `tokenizers==0.22.2`. Tokenizer Qwen3 offline nằm ở `ba
 - Hai giao diện nạp CSS riêng (`ChatRoute.tsx`, `studio/StudioRoot.tsx`) nên không ảnh hưởng nhau.
 - Mã Studio nằm trong `frontend/src/studio`. Lớp `studio/services/api.ts` gọi API CAP1. `studio/services/adapt.ts` chuyển bản ghi run của CAP1 sang dạng màn hình Studio dùng.
 - Ánh xạ cách làm: Vanilla = A, Multi-Agent cơ bản = B, Điều phối đầy đủ = C.
-- Thêm phụ thuộc: `react-router-dom`, `lucide-react`, `gsap`, `@gsap/react`, `three` (0.180).
-- Phần câu chuyện của landing dùng máy tính bảng 3D (`components/landing/Tablet3D.ts`, Three.js): màn hình vẽ theo cuộn (tài liệu nạp dần, thanh ngữ cảnh đỏ khi quá tải), xoay theo cuộn, nghiêng theo chuột. Three.js tách thành chunk riêng (~125 KB gzip), chỉ nạp khi tới phần này trên màn hình rộng; chỉ vẽ lại khi có thay đổi. Máy không có GPU (WebGL phần mềm), WebGL lỗi, hoặc 3D chạy dưới ~25 khung/giây thì tự dùng lại máy tính bảng CSS.
+- Thêm phụ thuộc: `react-router-dom`, `lucide-react`, `gsap`, `@gsap/react`.
 
 ## Chạy thử
 

@@ -339,7 +339,6 @@ export function LandingPage() {
         .from('.lp-float', { y: 50, opacity: 0, duration: 1.1, stagger: 0.12 }, '-=1.1');
       gsap.utils.toArray<HTMLElement>('.lp-float').forEach((el, i) => gsap.to(el, { y: i % 2 ? 10 : -10, duration: 3 + i * 0.4, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.6 }));
 
-      let tabletCleanup: (() => void) | null = null;
       const splits = gsap.utils.toArray<HTMLElement>('.lp-split').map(el => {
         const split = SplitText.create(el, { type: 'words', mask: 'words' });
         gsap.from(split.words, { yPercent: 110, duration: 0.9, ease: 'expo.out', stagger: 0.04, scrollTrigger: { trigger: el, start: 'top 85%', once: true } });
@@ -377,19 +376,10 @@ export function LandingPage() {
           const tray = { db: 20, api: 50, sec: 80 } as Record<string, number>;
           const count: Record<string, number> = {};
           const sorted = PAPERS.map(p => { count[p.kind] = (count[p.kind] ?? 0) + 1; return count[p.kind] - 1; });
-          // Máy tính bảng 3D: nạp Three.js khi cần; GSAP điều khiển trạng thái, cảnh 3D đọc lại mỗi khung hình.
-          const dev = { ry: -24, rx: 10, docs: 2, meter: 0.18 };
-          const wrap = stage.querySelector<HTMLElement>('.v4-device-wrap');
-          let tablet: { update(s: typeof dev): void; dispose(): void } | null = null, gone = false;
-          if (wrap) import('../components/landing/Tablet3D').then(m => {
-            if (gone) return;
-            tablet = m.mountTablet3D(wrap, dev, () => { if (!gone) wrap.classList.add('is-3d'); });
-          }).catch(() => undefined);
-          tabletCleanup = () => { gone = true; tablet?.dispose(); tablet = null; wrap?.classList.remove('is-3d'); };
           gsap.fromTo(sheets, { x: (i: number) => W() * jit(i, 1) / 100, y: () => -H() * 0.9, rotation: (i: number) => jit(i, 2) * 4, opacity: 0 },
             { x: (i: number) => W() * jit(i, 3) / 120, y: (i: number) => H() * (jit(i, 4) / 160 + 0.18), rotation: (i: number) => jit(i, 5) * 1.6, opacity: 1, stagger: 0.03, ease: 'power3.out',
               scrollTrigger: { trigger: '.v4-paper', start: 'top 85%', end: 'top 15%', scrub: 0.8, invalidateOnRefresh: true, onEnter: () => sfx.paper(5) } });
-          gsap.timeline({ defaults: { ease: 'power2.inOut' }, onUpdate: () => tablet?.update(dev), scrollTrigger: {
+          gsap.timeline({ defaults: { ease: 'power2.inOut' }, scrollTrigger: {
             trigger: '.v4-paper', start: 'top top', end: '+=4000', pin: true, scrub: 0.8, anticipatePin: 1, invalidateOnRefresh: true,
             onUpdate: self => {
               const p = self.progress * 4;
@@ -399,10 +389,6 @@ export function LandingPage() {
           } })
             .fromTo('.v4-device', { rotationY: -24, rotationX: 10 }, { rotationY: -9, rotationX: 4, duration: 2, ease: 'none' }, 0)
             .fromTo('.v4-floor', { scaleX: 0.82, opacity: 0.55 }, { scaleX: 1, opacity: 1, duration: 2, ease: 'none' }, 0)
-            .fromTo(dev, { ry: -24, rx: 10 }, { ry: -8, rx: 3, duration: 2, ease: 'none' }, 0)
-            .fromTo(dev, { docs: 2 }, { docs: 7, duration: 0.6, ease: 'none' }, 0.15)
-            .fromTo(dev, { meter: 0.18 }, { meter: 0.74, duration: 0.8, ease: 'none' }, 0.1)
-            .to(dev, { meter: 1, duration: 0.4 }, 1.05)
             // Chương 1: tài liệu lần lượt bị nạp vào màn hình, thanh ngữ cảnh đầy dần.
             .to(sheets, { x: () => W() * 0.2, y: () => -H() * 0.08, scale: 0.3, rotation: 0, opacity: 0, stagger: 0.045, duration: 0.45, ease: 'power2.in' }, 0.05)
             .fromTo('.v4-scr-docs li:nth-child(n+3)', { opacity: 0, x: 18 }, { opacity: 1, x: 0, stagger: 0.08, duration: 0.3 }, 0.15)
@@ -446,7 +432,7 @@ export function LandingPage() {
       // Mỗi bước sáng từ lúc đầu nó qua mốc 62% đến khi bước kế tiếp tới mốc đó, không có khoảng trống giữa hai thẻ.
       railSteps.forEach((el, i) => ScrollTrigger.create({ trigger: el, start: 'top 62%', ...(railSteps[i + 1] ? { endTrigger: railSteps[i + 1], end: 'top 62%' } : { end: 'bottom 62%' }),
         onToggle: self => { el.classList.toggle('is-active', self.isActive); if (self.isActive) setValue(railStore, i); } }));
-      return () => { tabletCleanup?.(); splits.forEach(s => s.revert()); smoother?.kill(); };
+      return () => { splits.forEach(s => s.revert()); smoother?.kill(); };
     });
     return () => mm.revert();
   }, { scope: root, dependencies: [fullMotion, wide], revertOnUpdate: true });
