@@ -16,7 +16,14 @@ def _extract_json(text: str) -> dict:
         return json.loads(m.group(0))
 
 
-async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metrics: RunMetrics) -> TaskResult:
+# Nhắc ngôn ngữ ở cuối prompt (mô hình nhỏ dễ trả lời theo ngôn ngữ của bằng chứng). Chỉ dùng cho chế độ sản phẩm.
+REPLY_LANGUAGE_HINT = {
+    "vi": 'NGÔN NGỮ: Viết trường "answer" hoàn toàn bằng tiếng Việt, kể cả khi bằng chứng là tiếng Anh. Trả lời gọn, tối đa khoảng 150 từ. Giữ nguyên tên kỹ thuật, mã, giá trị và chunk ID.',
+    "en": 'LANGUAGE: Write the "answer" field in English. Keep it concise, at most about 150 words. Keep technical names, code, values and chunk IDs unchanged.',
+}
+
+
+async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None) -> TaskResult:
     if not evidence:
         return TaskResult(
             task_id="T1",
@@ -42,6 +49,8 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         'Schema: {"status":"COMPLETE|PARTIAL|NO_EVIDENCE","answer":"...",'
         '"citations":["chunk_id"],"missing_information":[]}'
     )
+    if reply_language in REPLY_LANGUAGE_HINT:
+        user += "\n\n" + REPLY_LANGUAGE_HINT[reply_language]
     grounded = getattr(provider, "generate_grounded", None)
     result = (
         await grounded(system=system, user=user, evidence_ids=[c.chunk_id for c in evidence])
