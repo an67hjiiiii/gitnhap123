@@ -96,3 +96,10 @@
 .v4-chapter.is-on>p:last-child{opacity:1;transform:none;transition-delay:.38s}
 .v4-device{will-change:transform}
 @media (prefers-reduced-motion:reduce){.lp:not([data-motion=on]) .v4-rw>span,.lp:not([data-motion=on]) .v4-chapter>p:last-child{transform:none;opacity:1;transition:none}}
+
+/* Máy tính bảng 3D (Three.js): canvas rộng hơn khung để máy xoay không bị cắt; ẩn thiết bị CSS khi 3D đã chạy */
+.v4-gl{position:absolute;left:-14%;top:-16%;width:128%;height:136%;pointer-events:none;opacity:0}
+.v4-device-wrap.is-3d .v4-gl{animation:v4-gl-in .7s var(--ease) forwards,v4-gl-float 6s ease-in-out .7s infinite}
+@keyframes v4-gl-float{0%,100%{translate:0 0}50%{translate:0 -8px}}
+@keyframes v4-gl-in{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}
+.v4-device-wrap.is-3d .v4-device,.v4-device-wrap.is-3d .v4-floor{visibility:hidden}
