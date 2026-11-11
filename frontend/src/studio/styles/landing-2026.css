@@ -154,7 +154,7 @@
 /* Bốn phương pháp */
 .lp-methods{padding-block:clamp(110px,12vw,170px)}
 .lp-methods-box{background:#fff;border:1px solid var(--line);border-radius:32px;padding:clamp(16px,2vw,24px);box-shadow:0 30px 60px -40px rgba(15,29,43,.25)}
-.lp-methods-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;background:var(--bg);border-radius:20px;padding:6px}
+.lp-methods-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;background:var(--bg);border-radius:20px;padding:6px}
 .lp-methods-tabs button{position:relative;display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:15px;text-align:left;font-size:15px;font-weight:600;color:var(--text);transition:background .3s,color .3s,box-shadow .3s;overflow:hidden}
 .lp-methods-tabs button b{flex:none;width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:#fff;color:var(--ink);font-size:15px}
 .lp-methods-tabs button[aria-selected=true]{background:#fff;color:var(--ink);box-shadow:0 8px 20px -12px rgba(15,29,43,.3)}
@@ -528,7 +528,7 @@
   .lp-tech-row em b{font-size:17px}
   .lp-mission-rows>div{grid-template-columns:1fr;gap:14px}
   .lp-road ol{grid-template-columns:1fr 1fr}
-  .lp-methods-tabs{grid-template-columns:1fr 1fr}
+  .lp-methods-tabs{grid-template-columns:1fr}
   .lp-methods-tabs button{padding:10px;gap:8px}
   .lp-methods-tabs button b{width:28px;height:28px}
   .lp-methods-tabs button span{font-size:12.5px;line-height:1.35}
@@ -541,3 +541,30 @@
 }
 
 .lp-hero-actions{margin-bottom:8px}
+
+/* background-clip:text cắt phần dấu tràn ngoài hộp dòng (dấu nặng, dấu móc): nới vùng nền rồi bù lại khoảng cách */
+.lp-night-line.is-accent{padding:.16em .04em .2em;margin:-.16em 0 -.2em}
+
+/* Nghiên cứu: bản ghi một lượt chạy + bốn thứ được đo */
+.lp-measure{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:clamp(20px,3vw,36px);margin-top:clamp(40px,5vw,64px);align-items:stretch}
+.lp-measure-run{position:relative;overflow:hidden;border-radius:28px;padding:28px 28px 24px;background:var(--night);color:#cfe0ec;box-shadow:0 40px 80px -48px rgba(7,17,28,.7);font-family:ui-monospace,Consolas,monospace;font-size:14px}
+.lp-measure-run::before{content:"";position:absolute;inset:-40% -20% auto auto;width:360px;height:360px;border-radius:50%;background:radial-gradient(circle,rgba(43,125,233,.35),transparent 65%);pointer-events:none}
+.lp-measure-cap{position:relative;display:flex;align-items:center;gap:10px;margin:0 0 18px;font-family:'Be Vietnam Pro',system-ui,sans-serif;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
+.lp-measure-cap i{width:8px;height:8px;border-radius:50%;background:#34d399;box-shadow:0 0 0 4px rgba(52,211,153,.18);animation:lp-measure-pulse 2s ease-in-out infinite}
+@keyframes lp-measure-pulse{50%{box-shadow:0 0 0 8px rgba(52,211,153,0)}}
+.lp-measure-line{position:relative;display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px;padding:10px 0;border-top:1px solid rgba(127,211,255,.1)}
+.lp-measure-line b{font-weight:600;color:#7fd3ff}
+.lp-measure-line span{color:#e6eef5;overflow-wrap:anywhere}
+.lp-measure-line.is-null span{color:#f5c26b}
+.lp-measure-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(12px,1.6vw,18px)}
+.lp-measure-card{padding:22px;border-radius:22px;background:var(--white);border:1px solid var(--line);transition:transform .35s var(--ease),box-shadow .35s var(--ease),border-color .35s}
+.lp-measure-card:hover{transform:translateY(-4px);border-color:#c9d9ec;box-shadow:0 24px 48px -32px rgba(29,102,201,.45)}
+.lp-measure-card i{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--blue-soft);color:var(--blue);margin-bottom:14px}
+.lp-measure-card h3{margin:0 0 6px;font-size:18px;letter-spacing:-.01em}
+.lp-measure-card p{margin:0;font-size:15px;line-height:1.6;color:var(--text)}
+@media (max-width:900px){.lp-measure{grid-template-columns:1fr}.lp-measure-line{grid-template-columns:120px minmax(0,1fr)}}
+@media (max-width:560px){.lp-measure-grid{grid-template-columns:1fr}.lp-measure-run{padding:22px 18px}.lp-measure-line{grid-template-columns:1fr;gap:2px}}
+@media (prefers-reduced-motion:reduce){.lp-measure-cap i{animation:none}}
+.lp-btn{white-space:nowrap}
+@media (max-width:420px){.lp-header .lp-btn:not(.lp-btn-lg){padding:8px 12px;font-size:14px}.lp-header .lp-btn:not(.lp-btn-lg) svg{display:none}.lp-header-actions{gap:6px}}
+@media (max-width:380px){.lp-header-actions{gap:4px}.lp-header .lp-sound,.lp-header .lp-menu-btn{width:36px;height:36px}.lp-header .lp-btn:not(.lp-btn-lg){padding:8px 10px}}

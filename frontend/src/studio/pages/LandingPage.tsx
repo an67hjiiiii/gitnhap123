@@ -35,7 +35,6 @@ const STEPS = [
 const METHODS = [
   { key: 'A', v: 'V', name: 'Vanilla RAG', body: 'Một lượt truy xuất rồi trả lời ngay, không lập kế hoạch. Làm mốc đối chứng.' },
   { key: 'B', v: 'M', name: 'Multi-Agent cơ bản', body: 'Có chia việc cho các tác tử, nhưng không kiểm tra kế hoạch, không chuẩn hóa và không tối ưu ngữ cảnh.' },
-  { key: 'C-O', v: 'F', name: 'Bỏ tối ưu ngữ cảnh', body: 'Giống điều phối đầy đủ nhưng mọi nhiệm vụ nhận cùng một phần ngân sách. Dùng để tách riêng tác dụng của phần tối ưu.' },
   { key: 'C', v: 'A', name: 'Điều phối đầy đủ', body: 'Phương pháp đề xuất: lập kế hoạch có kiểm tra, chuẩn hóa nhiệm vụ, rồi chia ngân sách token theo nhu cầu truy xuất của từng nhiệm vụ.' },
 ];
 const CASES = [
@@ -175,9 +174,9 @@ function RailCount({ store }: { store: ScrollValue }) {
   return <div className="lp-rail-count" aria-hidden="true"><b>{String(rail + 1).padStart(2, '0')}</b><span>/ 08</span><em>{STEPS[rail].title}</em></div>;
 }
 
-// Hộp bốn phương pháp tự chuyển mỗi 4,5 giây: giữ trạng thái riêng để không render lại cả trang.
+// Hộp ba điều kiện tự chuyển mỗi 4,5 giây: giữ trạng thái riêng để không render lại cả trang.
 function MethodsBox({ motionOn }: { motionOn: boolean }) {
-  const [method, setMethod] = useState(3);
+  const [method, setMethod] = useState(2);
   const [autoMethod, setAutoMethod] = useState(true);
   useEffect(() => {
     if (!motionOn || !autoMethod) return;
@@ -336,6 +335,7 @@ export function LandingPage() {
       gsap.utils.toArray<HTMLElement>('.lp-reveal').forEach(el => {
         gsap.from(el, { y: 44, opacity: 0, duration: 0.9, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 88%', once: true } });
       });
+      gsap.from('.lp-measure-line', { x: -14, opacity: 0, duration: 0.5, ease: 'power2.out', stagger: 0.07, scrollTrigger: { trigger: '.lp-measure-run', start: 'top 80%', once: true } });
       gsap.utils.toArray<HTMLElement>('.lp-stagger').forEach(group => {
         gsap.from(group.children, { y: 50, opacity: 0, duration: 0.9, ease: 'power3.out', stagger: 0.1, scrollTrigger: { trigger: group, start: 'top 85%', once: true } });
       });
@@ -352,8 +352,8 @@ export function LandingPage() {
         // Khung tối nở từ thẻ bo góc ra toàn màn hình, rồi hiện từng dòng.
         const film = gsap.timeline({ scrollTrigger: { trigger: '.lp-film', start: 'top top', end: '+=1800', pin: true, scrub: 0.6, anticipatePin: 1, onEnter: () => sfx.swell() } });
         film.fromTo('.lp-night', { clipPath: 'inset(9% 8% 9% 8% round 36px)' }, { clipPath: 'inset(0% 0% 0% 0% round 0px)', duration: 1, ease: 'none' })
-          .from('.lp-night-line:not(.is-accent)', { opacity: 0, y: 50, filter: 'blur(12px)', stagger: 0.45, duration: 0.8 }, 0.4)
-          .from('.lp-night-line.is-accent', { opacity: 0, y: 50, duration: 0.8 }, 1.25)
+          .from('.lp-night-line:not(.is-accent)', { opacity: 0, y: 50, filter: 'blur(12px)', stagger: 0.45, duration: 0.8 }, 0.1)
+          .from('.lp-night-line.is-accent', { opacity: 0, y: 50, duration: 0.8 }, 0.95)
           .fromTo('.lp-night-glow', { scale: 0.7, opacity: 0.3 }, { scale: 1.4, opacity: 1, duration: 2.2 }, 0)
           .to({}, { duration: 0.9 });
         // Chồng tài liệu là vật thể xuyên suốt bốn chương; giấy rơi vào khung ngay khi cảnh hiện lên.
@@ -599,7 +599,7 @@ export function LandingPage() {
       <section className="lp-methods lp-wrap" id="phuong-phap">
         <div className="lp-sec-head">
           <div><p className="lp-eyebrow">Các điều kiện được so sánh</p><h2 className="lp-big lp-split">Cùng câu hỏi.<br/><span>Nhiều cách điều phối.</span></h2></div>
-          <p>Để biết điều phối đầy đủ có thật sự giúp ích hay không, nhóm so sánh nó với các cách làm khác trên cùng mô hình, cùng tài liệu. Ngoài C-O còn có C-P (bỏ lập kế hoạch) và C-N (bỏ chuẩn hóa).</p>
+          <p>Để biết điều phối đầy đủ có thật sự giúp ích hay không, nhóm so sánh nó với các cách làm khác trên cùng mô hình, cùng tài liệu. Ba điều kiện này cũng là ba cách trả lời bạn chọn được trong Studio.</p>
         </div>
         <MethodsBox motionOn={motionOn}/>
       </section>
@@ -630,7 +630,7 @@ export function LandingPage() {
           </article>
           <article className="lp-cap">
             <div className="lp-cap-art lp-art-lab">
-              {[['V', 'Vanilla RAG'], ['M', 'Multi-Agent cơ bản'], ['F', 'Phân bổ cố định'], ['A', 'Phân bổ thích ứng']].map(([k, t]) => <div key={k} className={`lp-lab-row${k === 'A' ? ' is-a' : ''}`}><b>{k}</b><span>{t}</span><em>Chờ đo</em></div>)}
+              {[['A', 'Vanilla RAG'], ['B', 'Multi-Agent cơ bản'], ['C', 'Điều phối đầy đủ']].map(([k, t]) => <div key={k} className={`lp-lab-row${k === 'C' ? ' is-a' : ''}`}><b>{k}</b><span>{t}</span><em>Chờ đo</em></div>)}
             </div>
             <h3>Phòng thực nghiệm</h3>
             <p>Chạy cùng câu hỏi qua các điều kiện A, B, C. Ô nào chưa có số đo thật sẽ ghi rõ là chưa đo.</p>
@@ -665,6 +665,22 @@ export function LandingPage() {
         <div className="lp-wrap">
           <p className="lp-eyebrow">Nghiên cứu</p>
           <h2 className="lp-big lp-split">Hiệu quả cần được đo,<br/><span>không chỉ được hứa hẹn.</span></h2>
+          <div className="lp-measure">
+            <div className="lp-measure-run lp-reveal" aria-hidden="true">
+              <p className="lp-measure-cap"><i/>Bản ghi một lượt chạy</p>
+              {[['condition', '"C"'], ['model', '"qwen3:4b" · digest'], ['context_policy', '"adaptive_qwen"'], ['tokens', 'prompt + output · từ Ollama'], ['latency_ms', 'truy xuất · sinh'], ['citations', 'hợp lệ / không hợp lệ'], ['events', '8 bước · đầu vào, kết quả'], ['quality', 'null · chờ rubric']].map(([k, v], i) => (
+                <div key={k} className={`lp-measure-line${k === 'quality' ? ' is-null' : ''}`} style={{ '--i': i } as React.CSSProperties}><b>{k}</b><span>{v}</span></div>
+              ))}
+            </div>
+            <div className="lp-measure-grid">
+              {[
+                { Icon: Cpu, t: 'Token thật', d: 'Đếm từ phản hồi của Ollama cho từng lần gọi mô hình, không ước lượng theo độ dài chữ.' },
+                { Icon: RefreshCw, t: 'Độ trễ từng phần', d: 'Tách thời gian truy xuất và thời gian sinh để biết chậm ở đâu.' },
+                { Icon: FileCheck2, t: 'Trích dẫn kiểm được', d: 'Mỗi nguồn phải trỏ tới một đoạn tài liệu có thật; nguồn sai được đếm riêng.' },
+                { Icon: Shield, t: 'Giữ cả lượt lỗi', d: 'Kế hoạch bị từ chối, lượt thất bại đều được lưu kèm lý do để phân tích.' },
+              ].map(({ Icon, t, d }) => <article key={t} className="lp-measure-card lp-reveal"><i><Icon size={18}/></i><h3>{t}</h3><p>{d}</p></article>)}
+            </div>
+          </div>
           <div className="lp-mission-rows">
             <div><span className="lp-mission-tag">Mục tiêu</span><p className="lp-fill" aria-label="Kiểm chứng bằng thực nghiệm việc phân bổ ngữ cảnh theo nhiệm vụ ảnh hưởng thế nào tới chất lượng, độ trễ và chi phí.">{fill('Kiểm chứng bằng thực nghiệm việc phân bổ ngữ cảnh theo nhiệm vụ ảnh hưởng thế nào tới chất lượng, độ trễ và chi phí.')}</p></div>
             <div><span className="lp-mission-tag">Cam kết</span><p className="lp-fill" aria-label="Không công bố con số nào chưa đo. Mọi lượt chạy, kể cả lượt lỗi, đều được giữ lại.">{fill('Không công bố con số nào chưa đo. Mọi lượt chạy, kể cả lượt lỗi, đều được giữ lại.')}</p></div>
