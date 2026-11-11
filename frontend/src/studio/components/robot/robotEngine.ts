@@ -75,7 +75,7 @@ export const STATE_STYLES: Record<RobotState, { ball: [number, number, number]; 
   listening: { ball: [52, 211, 153], pulse: () => 0.95 },
   speaking: { ball: [255, 255, 255], pulse: (t) => 0.55 + 0.45 * Math.abs(Math.sin(t * 10)) },
   working: { ball: [139, 92, 246], pulse: (t) => (t * 2 % 1 < 0.5 ? 1 : 0.4) },
-  happy: { ball: [244, 114, 182], pulse: (t) => 0.8 + 0.2 * Math.sin(t * 8) },
+  happy: { ball: [244, 114, 182], pulse: (t) => 0.88 + 0.12 * Math.sin(t * 3) },
   error: { ball: [239, 68, 68], pulse: (t) => (t * 3 % 1 < 0.5 ? 1 : 0.2) },
   sleeping: { ball: [148, 163, 184], pulse: () => 0.15 },
 };
@@ -441,45 +441,25 @@ export function drawLEDMatrix(
       setPix(7 + i, i % 2 === 0 ? 11 : 12, 0.85);
     }
   } else if (state === 'happy') {
-    // Khi được chạm: mỗi lần chạm một biểu cảm dễ thương khác (face.variant), nhún nhẹ theo nhịp.
-    const bob = Math.sin(face.time * 7) > 0.2 ? -1 : 0;
-    // Vẽ mẫu ký tự ('#' sáng, '+' mờ) tại góc (c, r).
-    const sprite = (rows: string[], c: number, r: number) => rows.forEach((line, i) => [...line].forEach((ch, j) => {
-      if (ch === '#') setPix(c + j, r + i, 1); else if (ch === '+') setPix(c + j, r + i, 0.35);
-    }));
-    const L = 5, R = 13, top = 4 + bob; // mắt 4-5 ô, rộng hơn mắt thường cho dễ nhìn
-    const blush = () => { drawRectLED(L - 2, 9 + bob, 2, 1, 0.4); drawRectLED(R + 4, 9 + bob, 2, 1, 0.4); };
-    const shut = face.blink > 0.5;
+    // Khi được chạm: 5 biểu cảm nhẹ, cùng kiểu mắt chữ nhật của mặt gốc, vẫn chớp mắt và nhìn theo con trỏ.
+    const eye = (c: number, r: number, h: number) => drawRectLED(c, r, 3, Math.max(1, Math.min(h, eyeHeight)), 1);
+    const smile = (v = 0.9) => { setPix(8, 10, v * 0.7); setPix(13, 10, v * 0.7); drawRectLED(9, 11, 4, 1, v); };
     switch ((face.variant ?? 0) % 5) {
-      case 0: { // Mắt tròn long lanh + má hồng + cười chữ U
-        const eye = shut ? ['', '', '####'] : ['.##.', '#+##', '####', '.##.'];
-        sprite(eye, L, top); sprite(eye, R, top); blush();
-        sprite(['#..#', '.##.'], 9, 10 + bob);
+      case 0: // Mỉm cười: mắt hơi khép, miệng cười nhẹ
+        eye(eyeLeftC, eyeBaseR + 1, 3); eye(eyeRightC, eyeBaseR + 1, 3); smile();
         break;
-      }
-      case 1: { // Cười tít mắt ^ ^ + miệng cười tươi
-        sprite(['.##.', '#..#'], L, top + 1); sprite(['.##.', '#..#'], R, top + 1); blush();
-        sprite(['######', '.####.'], 8, 10 + bob);
+      case 1: // Tò mò: nhìn lên một bên, một mắt hơi nheo
+        eye(eyeLeftC + 1, eyeBaseR - 1, 4); eye(eyeRightC + 1, eyeBaseR, 3);
         break;
-      }
-      case 2: { // Mắt trái tim (nhịp nhấp nháy) + cười nhỏ
-        const heart = ['##.##', '#####', '.###.', '..#..'];
-        sprite(heart, L - 1, top); sprite(heart, R, top);
-        if (Math.sin(face.time * 9) > 0) { setPix(L, top + 1, 0.35); setPix(R + 1, top + 1, 0.35); } // đốm sáng đập theo nhịp tim
-        sprite(['#..#', '.##.'], 9, 10 + bob);
+      case 2: // Ngạc nhiên nhẹ: mắt mở, miệng tròn nhỏ
+        eye(eyeLeftC, eyeBaseR - 1, 4); eye(eyeRightC, eyeBaseR - 1, 4); drawRectLED(10, 10, 2, 2, 0.75);
         break;
-      }
-      case 3: { // Mắt ngôi sao lấp lánh + miệng "o" ngạc nhiên vui
-        const star = ['..#..', '.###.', '#####', '.###.', '..#..'];
-        sprite(star, L - 1, top - 1); sprite(star, R, top - 1);
-        sprite(['.##.', '#..#', '.##.'], 9, 9 + bob);
+      case 3: // Hài lòng: mắt cong ^ ^, cười nhẹ
+        for (const c of [eyeLeftC, eyeRightC]) { setPix(c + 1, eyeBaseR + 1, 1); setPix(c, eyeBaseR + 2, 1); setPix(c + 2, eyeBaseR + 2, 1); }
+        smile(0.75);
         break;
-      }
-      default: { // Nháy mắt: một mắt cong, một mắt tròn + cười lém lỉnh
-        sprite(['.##.', '#..#'], L, top + 1);
-        sprite(shut ? ['', '', '####'] : ['.##.', '#+##', '####', '.##.'], R, top); blush();
-        sprite(['#....#', '.####.'], 8, 10 + bob);
-      }
+      default: // Nháy mắt: một mắt mở, một mắt khép
+        eye(eyeLeftC, eyeBaseR, 4); drawRectLED(eyeRightC, eyeBaseR + 2, 3, 1, 1); smile(0.8);
     }
   } else if (state === 'completed') {
     // Mắt cong hình vòng cung cười ^ ^
