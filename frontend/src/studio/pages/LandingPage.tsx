@@ -18,25 +18,25 @@ gsap.registerPlugin(useGSAP, ScrollTrigger, ScrollSmoother, SplitText);
 // Nội dung bám theo chức năng đã có trong mã; không có số đo kết quả vì thực nghiệm chưa xong.
 const NAV = [['#cau-chuyen', 'Câu chuyện'], ['#chuyen-gia', 'Tác tử'], ['#kich-ban', 'Kịch bản'], ['#phuong-phap', 'Phương pháp'], ['#nghien-cuu', 'Nghiên cứu']];
 const AGENTS = [
-  { Icon: Database, label: 'Dữ liệu', name: 'DatabaseAgent', task: 'Lược đồ giao dịch', tone: 'db', role: 'Mô hình dữ liệu, chỉ mục, giao dịch và lưu trữ.', reads: ['Lược đồ bảng', 'Khóa và ràng buộc', 'Quy tắc giao dịch'], gives: 'Thiết kế bảng, khóa chống lặp và ranh giới giao dịch.', files: ['luoc-do-giao-dich.sql', 'bang-payments.sql', 'khoa-idempotency.sql'] },
-  { Icon: Code2, label: 'API', name: 'APIAgent', task: 'Hợp đồng API', tone: 'api', role: 'Hợp đồng API, định tuyến và luồng giao tiếp.', reads: ['Đặc tả endpoint', 'Request / response', 'Luồng gọi lại'], gives: 'Hợp đồng endpoint và cách phản hồi khi yêu cầu bị gửi lặp.', files: ['dac-ta-thanh-toan.md', 'webhook-api.md', 'rang-buoc-chung.md'] },
-  { Icon: Shield, label: 'Bảo mật', name: 'SecurityAgent', task: 'Phân quyền', tone: 'sec', role: 'Xác thực, phân quyền và bảo vệ dữ liệu.', reads: ['Chính sách xác thực', 'Phân quyền', 'Chữ ký webhook'], gives: 'Quy tắc truy cập và cách kiểm tra nguồn gửi.', files: ['chinh-sach-bao-mat.md', 'phan-quyen-rbac.md', 'chu-ky-hmac.md'] },
+  { Icon: Database, label: 'Dữ liệu', name: 'Database Analyst', task: 'Lược đồ giao dịch', tone: 'db', role: 'Mô hình dữ liệu, chỉ mục, giao dịch và lưu trữ.', reads: ['Lược đồ bảng', 'Khóa và ràng buộc', 'Quy tắc giao dịch'], gives: 'Thiết kế bảng, khóa chống lặp và ranh giới giao dịch.', files: ['luoc-do-giao-dich.sql', 'bang-payments.sql', 'khoa-idempotency.sql'] },
+  { Icon: Code2, label: 'API / kiến trúc', name: 'API/Architecture Analyst', task: 'Hợp đồng API', tone: 'api', role: 'Hợp đồng API, định tuyến và luồng giao tiếp.', reads: ['Đặc tả endpoint', 'Request / response', 'Luồng gọi lại'], gives: 'Hợp đồng endpoint và cách phản hồi khi yêu cầu bị gửi lặp.', files: ['dac-ta-thanh-toan.md', 'webhook-api.md', 'rang-buoc-chung.md'] },
+  { Icon: Shield, label: 'Bảo mật', name: 'Security Analyst', task: 'Phân quyền', tone: 'sec', role: 'Xác thực, phân quyền và bảo vệ dữ liệu.', reads: ['Chính sách xác thực', 'Phân quyền', 'Chữ ký webhook'], gives: 'Quy tắc truy cập và cách kiểm tra nguồn gửi.', files: ['chinh-sach-bao-mat.md', 'phan-quyen-rbac.md', 'chu-ky-hmac.md'] },
 ];
 const STEPS = [
-  { Icon: Search, title: 'Truy xuất kế hoạch', body: 'Tìm tài liệu định hướng trước khi lập kế hoạch.' },
-  { Icon: ListTree, title: 'Phân rã nhiệm vụ', body: 'Mô hình lập kế hoạch JSON theo cấu trúc chặt; kế hoạch sai bị từ chối.' },
-  { Icon: Filter, title: 'Chuẩn hóa & khử lặp', body: 'Gộp nhiệm vụ trùng, kiểm tra mọi yêu cầu gốc đều được phủ.' },
-  { Icon: Users, title: 'Phân công tác tử', body: 'Giao nhiệm vụ theo chuyên môn và thứ tự phụ thuộc.' },
-  { Icon: Database, title: 'Truy xuất riêng', body: 'Mỗi nhiệm vụ một câu truy vấn, chỉ trong không gian làm việc của bạn.' },
-  { Icon: Layers, title: 'Phân bổ Shared Brief', body: 'Gom phần chung, chia ngân sách ngữ cảnh theo nhu cầu.' },
-  { Icon: Cpu, title: 'Thực thi tác tử', body: 'Ba vai trò chạy trên mô hình cục bộ, không cắt ngầm prompt.' },
-  { Icon: FileCheck2, title: 'Tổng hợp kiến trúc', body: 'Ghép kết quả và lưu lại lượt chạy để đối chiếu.' },
+  { Icon: Search, art: 0, title: 'Hiểu yêu cầu', body: 'Đọc câu hỏi, rút ra những nghĩa vụ bắt buộc phải đáp ứng và các mối quan tâm.' },
+  { Icon: Database, art: 4, title: 'Truy xuất để lập kế hoạch', body: 'Tìm tài liệu định hướng trong kho của bạn trước khi lập kế hoạch.' },
+  { Icon: ListTree, art: 1, title: 'Lập kế hoạch', body: 'Mô hình sinh kế hoạch JSON theo cấu trúc chặt và phân rã thành nhiệm vụ.' },
+  { Icon: FileCheck2, art: 3, title: 'Kiểm tra kế hoạch', body: 'Kế hoạch được kiểm tra; sai thì sửa một lần, vẫn sai thì từ chối, không đoán bừa.' },
+  { Icon: Filter, art: 2, title: 'Chuẩn hóa nhiệm vụ', body: 'Gộp nhiệm vụ trùng, kiểm tra mọi nghĩa vụ đều có nhiệm vụ phủ rồi mới bàn giao.' },
+  { Icon: Layers, art: 5, title: 'Truy xuất và chia ngân sách', body: 'Mỗi nhiệm vụ truy xuất riêng; ngân sách token chia theo nhu cầu của từng nhiệm vụ.' },
+  { Icon: Cpu, art: 6, title: 'Thực thi nhiệm vụ', body: 'Tác tử bảo mật, cơ sở dữ liệu, API/kiến trúc làm phần việc của mình trên mô hình cục bộ.' },
+  { Icon: Users, art: 7, title: 'Tổng hợp', body: 'Ghép kết quả thành một câu trả lời có trích dẫn và lưu lại lượt chạy để đối chiếu.' },
 ];
 const METHODS = [
-  { key: 'V', name: 'Vanilla RAG', body: 'Một mô hình nhận một lượt truy xuất rồi trả lời ngay. Đơn giản, làm mốc đối chứng.' },
-  { key: 'M', name: 'Multi-Agent cơ bản', body: 'Có ba tác tử, nhưng ai cũng nhận gần như cùng một đống tài liệu.' },
-  { key: 'F', name: 'Phân bổ cố định', body: 'Phần chung được gom lại; ngân sách ngữ cảnh chia đều cho mọi tác tử.' },
-  { key: 'A', name: 'Phân bổ thích ứng', body: 'Phương pháp đề xuất: phần bắt buộc giữ trước, phần còn lại chia theo nhu cầu từng nhiệm vụ.' },
+  { key: 'A', v: 'V', name: 'Vanilla RAG', body: 'Một lượt truy xuất rồi trả lời ngay, không lập kế hoạch. Làm mốc đối chứng.' },
+  { key: 'B', v: 'M', name: 'Multi-Agent cơ bản', body: 'Có chia việc cho các tác tử, nhưng không kiểm tra kế hoạch, không chuẩn hóa và không tối ưu ngữ cảnh.' },
+  { key: 'C-O', v: 'F', name: 'Bỏ tối ưu ngữ cảnh', body: 'Giống điều phối đầy đủ nhưng mọi nhiệm vụ nhận cùng một phần ngân sách. Dùng để tách riêng tác dụng của phần tối ưu.' },
+  { key: 'C', v: 'A', name: 'Điều phối đầy đủ', body: 'Phương pháp đề xuất: lập kế hoạch có kiểm tra, chuẩn hóa nhiệm vụ, rồi chia ngân sách token theo nhu cầu truy xuất của từng nhiệm vụ.' },
 ];
 const CASES = [
   { Icon: CreditCard, title: 'Cổng thanh toán', q: 'Thiết kế luồng thanh toán không xử lý trùng, có kiểm soát quyền truy cập.', tags: ['Khóa chống lặp', 'Giao dịch', 'Webhook'], tone: 'blue', files: ['dac-ta-thanh-toan.md', 'luoc-do-giao-dich.sql'] },
@@ -45,13 +45,13 @@ const CASES = [
   { Icon: KeyRound, title: 'Xác thực webhook', q: 'Xác thực webhook bằng chữ ký HMAC và chống phát lại yêu cầu cũ.', tags: ['HMAC', 'Chống phát lại', 'Khóa bí mật'], tone: 'amber', files: ['chu-ky-hmac.md', 'chinh-sach-khoa.md'] },
   { Icon: Route, title: 'API Gateway', q: 'Đặc tả API Gateway với định tuyến, token và phân quyền theo vai trò.', tags: ['Định tuyến', 'Token', 'RBAC'], tone: 'rose', files: ['dac-ta-gateway.md', 'phan-quyen-rbac.md'] },
 ];
-const STACK = [['Ollama', 'chạy mô hình cục bộ'], ['Qwen3:4b', 'mô hình sinh'], ['nomic-embed-text', 'embedding'], ['Qdrant', 'kho vector'], ['FastAPI', 'điều phối'], ['SQLAlchemy', 'lưu lượt chạy'], ['SQLite', 'cơ sở dữ liệu'], ['React', 'giao diện']];
+const STACK = [['Ollama', 'chạy mô hình cục bộ'], ['Qwen3:4b', 'mô hình sinh'], ['nomic-embed-text', 'embedding'], ['Qdrant', 'kho vector'], ['FastAPI', 'điều phối'], ['SQLAlchemy', 'lưu lượt chạy'], ['PostgreSQL', 'cơ sở dữ liệu'], ['React', 'giao diện']];
 const FAQS = [
   ['OrchestrIQ Studio dành cho ai?', 'Kỹ sư phần mềm, trưởng nhóm kỹ thuật và người nghiên cứu cần phân tích một yêu cầu liên quan nhiều chuyên môn, và muốn thấy tài liệu nào đứng sau câu trả lời.'],
-  ['Dữ liệu của tôi có bị gửi ra ngoài không?', 'Luồng phân tích dùng Ollama, Qdrant và SQLite chạy trên máy của bạn. Việc vận hành thực tế phụ thuộc cấu hình và các dịch vụ bạn đang bật.'],
+  ['Dữ liệu của tôi có bị gửi ra ngoài không?', 'Luồng phân tích dùng Ollama, Qdrant và PostgreSQL chạy trên máy của bạn. Việc vận hành thực tế phụ thuộc cấu hình và các dịch vụ bạn đang bật.'],
   ['Ba tác tử có phải ba mô hình khác nhau?', 'Không. Cả ba dùng chung mô hình qwen3:4b, khác nhau ở nhiệm vụ, chỉ dẫn và phần tài liệu được giao.'],
   ['Phương pháp mới đã được chứng minh tốt hơn chưa?', 'Chưa. Nhóm đang chạy thực nghiệm thử. Kết quả chỉ được công bố khi thực nghiệm chính hoàn tất theo quy trình đã khóa trước, kể cả khi kết quả không như kỳ vọng.'],
-  ['Tôi cần gì để chạy Studio?', 'Một máy tính có Ollama với mô hình qwen3:4b và nomic-embed-text, cùng backend FastAPI và giao diện React của dự án. Hướng dẫn vận hành nằm trong tài liệu của nhóm.'],
+  ['Tôi cần gì để chạy Studio?', 'Một máy tính có Ollama với mô hình qwen3:4b và nomic-embed-text, PostgreSQL, cùng backend FastAPI và giao diện React của dự án. Hướng dẫn vận hành nằm trong tài liệu của nhóm.'],
 ];
 const MARQUEE = ['Phân rã', 'Truy xuất', 'Phân bổ', 'Kiểm chứng', 'Tổng hợp'];
 
@@ -60,12 +60,12 @@ type Variant = 'overload' | 'split' | 'alloc' | 'final' | 'V' | 'M' | 'F' | 'A';
 const FLOW: Record<Variant, { fill: number[]; docs: number; brief: boolean; tasks: boolean; final: boolean; alert?: string; tone: 'bad' | 'ok' | 'done' }> = {
   overload: { fill: [1, 1, 1], docs: 8, brief: false, tasks: false, final: false, alert: 'Ngữ cảnh quá tải', tone: 'bad' },
   split: { fill: [0.08, 0.08, 0.08], docs: 0, brief: false, tasks: true, final: false, tone: 'ok' },
-  alloc: { fill: [0.62, 0.4, 0.82], docs: 3, brief: true, tasks: true, final: false, tone: 'ok' },
-  final: { fill: [1, 1, 1], docs: 3, brief: true, tasks: true, final: true, tone: 'done' },
+  alloc: { fill: [0.62, 0.4, 0.82], docs: 3, brief: false, tasks: true, final: false, tone: 'ok' },
+  final: { fill: [1, 1, 1], docs: 3, brief: false, tasks: true, final: true, tone: 'done' },
   V: { fill: [1], docs: 9, brief: false, tasks: false, final: false, alert: 'Một ngữ cảnh cho mọi chuyên môn', tone: 'bad' },
   M: { fill: [1, 1, 1], docs: 8, brief: false, tasks: true, final: false, alert: 'Cùng tài liệu bị gửi lặp ba lần', tone: 'bad' },
-  F: { fill: [0.6, 0.6, 0.6], docs: 3, brief: true, tasks: true, final: false, tone: 'ok' },
-  A: { fill: [0.62, 0.4, 0.82], docs: 3, brief: true, tasks: true, final: false, tone: 'ok' },
+  F: { fill: [0.6, 0.6, 0.6], docs: 3, brief: false, tasks: true, final: false, tone: 'ok' },
+  A: { fill: [0.62, 0.4, 0.82], docs: 3, brief: false, tasks: true, final: false, tone: 'ok' },
 };
 const X3 = [108, 300, 492];
 
@@ -108,7 +108,7 @@ function StepArt({ k }: { k: number }) {
   if (k === 2) return <div className="lp-art lp-art-dedup"><span>Thiết kế bảng giao dịch</span><span className="is-dup">Thiết kế bảng giao dịch</span><small>r1 r2 r3 · đã phủ đủ <Check size={12}/></small></div>;
   if (k === 3) return <div className="lp-art lp-art-assign">{AGENTS.map(({ Icon, task, tone }) => <span key={tone}><i className={`is-${tone}`}><Icon size={12}/></i>{task}</span>)}</div>;
   if (k === 4) return <div className="lp-art lp-art-retrieve">{AGENTS.map(({ tone }, i) => <span key={tone} className={`is-${tone}`}>{Array.from({ length: [3, 2, 3][i] }, (_, j) => <i key={j}/>)}</span>)}</div>;
-  if (k === 5) return <div className="lp-art lp-art-brief"><span className="lp-mini-sticky">Ghi chú chung</span><div>{[62, 40, 82].map((w, i) => <b key={i}><i style={{ width: `${w}%` }}/></b>)}</div></div>;
+  if (k === 5) return <div className="lp-art lp-art-brief"><span className="lp-mini-sticky">Ngân sách token</span><div>{[62, 40, 82].map((w, i) => <b key={i}><i style={{ width: `${w}%` }}/></b>)}</div></div>;
   if (k === 6) return <div className="lp-art lp-art-exec">{AGENTS.map(({ tone }, i) => <span key={tone}><i className={`is-${tone}`}/><b style={{ '--w': `${[78, 60, 86][i]}%`, '--i': i } as React.CSSProperties}/></span>)}</div>;
   return <div className="lp-art lp-art-synth"><strong>Bản thiết kế</strong>{['Dữ liệu', 'API', 'Bảo mật'].map(t => <span key={t}><Check size={12}/>{t}</span>)}</div>;
 }
@@ -195,10 +195,10 @@ function MethodsBox({ motionOn }: { motionOn: boolean }) {
           </div>
           <div className="lp-methods-panel" role="tabpanel" id="lp-m-panel" aria-labelledby={`lp-m-${method}`}>
             <div className="lp-methods-text" key={method}>
-              <h3>{METHODS[method].name}{METHODS[method].key === 'A' && <em>Đề xuất</em>}</h3>
+              <h3>{METHODS[method].name}{METHODS[method].key === 'C' && <em>Đề xuất</em>}</h3>
               <p>{METHODS[method].body}</p>
             </div>
-            <Flow v={METHODS[method].key as Variant} key={`m${method}`}/>
+            <Flow v={METHODS[method].v as Variant} key={`m${method}`}/>
           </div>
   </div>;
 }
@@ -324,9 +324,8 @@ export function LandingPage() {
       gsap.timeline({ defaults: { ease: 'expo.out' } })
         .from('.lp-hero h1 .lp-line > span', { yPercent: 110, duration: 1.1, stagger: 0.09 })
         .fromTo('.lp-brush path', { strokeDashoffset: 620 }, { strokeDashoffset: 0, duration: 1, ease: 'power2.inOut' }, '-=0.5')
-        .from('.lp-hero-sub, .lp-hero-actions, .lp-hero-stats', { y: 20, opacity: 0, duration: 0.8, stagger: 0.08 }, '-=0.8')
-        .from('.lp-float', { y: 50, opacity: 0, duration: 1.1, stagger: 0.12 }, '-=1.1')
-        .from('.lp-hero-stats b', { textContent: 0, duration: 1.2, ease: 'power2.out', snap: { textContent: 1 } }, '-=1');
+        .from('.lp-hero-sub, .lp-hero-actions', { y: 20, opacity: 0, duration: 0.8, stagger: 0.08 }, '-=0.8')
+        .from('.lp-float', { y: 50, opacity: 0, duration: 1.1, stagger: 0.12 }, '-=1.1');
       gsap.utils.toArray<HTMLElement>('.lp-float').forEach((el, i) => gsap.to(el, { y: i % 2 ? 10 : -10, duration: 3 + i * 0.4, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.6 }));
 
       const splits = gsap.utils.toArray<HTMLElement>('.lp-split').map(el => {
@@ -353,9 +352,10 @@ export function LandingPage() {
         // Khung tối nở từ thẻ bo góc ra toàn màn hình, rồi hiện từng dòng.
         const film = gsap.timeline({ scrollTrigger: { trigger: '.lp-film', start: 'top top', end: '+=1800', pin: true, scrub: 0.6, anticipatePin: 1, onEnter: () => sfx.swell() } });
         film.fromTo('.lp-night', { clipPath: 'inset(9% 8% 9% 8% round 36px)' }, { clipPath: 'inset(0% 0% 0% 0% round 0px)', duration: 1, ease: 'none' })
-          .from('.lp-night-line', { opacity: 0, y: 50, filter: 'blur(12px)', stagger: 0.55, duration: 0.9 }, 0.5)
+          .from('.lp-night-line:not(.is-accent)', { opacity: 0, y: 50, filter: 'blur(12px)', stagger: 0.45, duration: 0.8 }, 0.4)
+          .from('.lp-night-line.is-accent', { opacity: 0, y: 50, duration: 0.8 }, 1.25)
           .fromTo('.lp-night-glow', { scale: 0.7, opacity: 0.3 }, { scale: 1.4, opacity: 1, duration: 2.2 }, 0)
-          .to({}, { duration: 0.5 });
+          .to({}, { duration: 0.9 });
         // Chồng tài liệu là vật thể xuyên suốt bốn chương; giấy rơi vào khung ngay khi cảnh hiện lên.
         const stage = root.current?.querySelector<HTMLElement>('.v4-paper-stage');
         if (stage) {
@@ -466,11 +466,6 @@ export function LandingPage() {
             <button type="button" className="lp-link lp-play-link" onClick={() => { setVideoOpen(true); sfx.tick(); }}><span><Play size={14} fill="currentColor"/></span>Xem video 1 phút</button>
           </div>
           {systemReduced && !fullMotion && <p className="lp-motion-notice">Thiết bị đang bật giảm chuyển động. <button type="button" onClick={() => setFullMotion(true)}>Bật hiệu ứng cho trang này</button></p>}
-          <div className="lp-hero-stats">
-            <div><b>3</b><span>tác tử<br/>chuyên môn</span></div>
-            <div><b>8</b><span>bước trong<br/>một lượt chạy</span></div>
-            <div><b>4</b><span>phương pháp<br/>đối chứng</span></div>
-          </div>
         </div>
         <div className="lp-hero-art" aria-hidden="true" onPointerMove={parallax}>
           <div className="lp-float lp-card lp-card-ghost" style={{ '--d': 0.4 } as React.CSSProperties}><span/><span/><span/><span/></div>
@@ -569,10 +564,10 @@ export function LandingPage() {
           </div>
           <div className="lp-rail-steps">
             <span className="lp-rail-line" aria-hidden="true"><b/></span>
-            {STEPS.map(({ Icon, title, body }, i) => <article key={title} className="lp-rail-step">
+            {STEPS.map(({ Icon, art, title, body }, i) => <article key={title} className="lp-rail-step">
               <span className="lp-rail-dot" aria-hidden="true"><Icon size={15}/></span>
               <div className="lp-rail-text"><span className="lp-run-num">Bước {String(i + 1).padStart(2, '0')}</span><h3>{title}</h3><p>{body}</p></div>
-              <StepArt k={i}/>
+              <StepArt k={art}/>
             </article>)}
           </div>
         </div>
@@ -603,8 +598,8 @@ export function LandingPage() {
 
       <section className="lp-methods lp-wrap" id="phuong-phap">
         <div className="lp-sec-head">
-          <div><p className="lp-eyebrow">Bốn phương pháp được so sánh</p><h2 className="lp-big lp-split">Cùng câu hỏi.<br/><span>Bốn cách chia ngữ cảnh.</span></h2></div>
-          <p>Để biết phân bổ thích ứng có thật sự giúp ích hay không, nhóm so sánh nó với ba cách làm khác trên cùng mô hình, cùng tài liệu.</p>
+          <div><p className="lp-eyebrow">Các điều kiện được so sánh</p><h2 className="lp-big lp-split">Cùng câu hỏi.<br/><span>Nhiều cách điều phối.</span></h2></div>
+          <p>Để biết điều phối đầy đủ có thật sự giúp ích hay không, nhóm so sánh nó với các cách làm khác trên cùng mô hình, cùng tài liệu. Ngoài C-O còn có C-P (bỏ lập kế hoạch) và C-N (bỏ chuẩn hóa).</p>
         </div>
         <MethodsBox motionOn={motionOn}/>
       </section>
@@ -638,7 +633,7 @@ export function LandingPage() {
               {[['V', 'Vanilla RAG'], ['M', 'Multi-Agent cơ bản'], ['F', 'Phân bổ cố định'], ['A', 'Phân bổ thích ứng']].map(([k, t]) => <div key={k} className={`lp-lab-row${k === 'A' ? ' is-a' : ''}`}><b>{k}</b><span>{t}</span><em>Chờ đo</em></div>)}
             </div>
             <h3>Phòng thực nghiệm</h3>
-            <p>Chạy cùng câu hỏi qua bốn phương pháp. Ô nào chưa có số đo thật sẽ ghi rõ là chưa đo.</p>
+            <p>Chạy cùng câu hỏi qua các điều kiện A, B, C. Ô nào chưa có số đo thật sẽ ghi rõ là chưa đo.</p>
           </article>
           <article className="lp-cap is-wide">
             <div className="lp-cap-art lp-art-stack">
