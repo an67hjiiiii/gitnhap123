@@ -1,0 +1,182 @@
+[
+  {
+    "id": "D01",
+    "family": "Thanh toán",
+    "question": "Hai yêu cầu cùng khóa nhưng khác số tiền phải được xử lý thế nào?",
+    "source_id": "SPEC-D01",
+    "source_text": "Khi khóa trùng nhưng số tiền khác, API trả 409 và không tạo giao dịch mới.",
+    "rubric_focus": "Điều kiện xung đột và tác dụng phụ",
+    "split": "dev"
+  },
+  {
+    "id": "D02",
+    "family": "Thanh toán",
+    "question": "Khi nào khóa hết hạn và đơn vị của khoảng giữ khóa là gì?",
+    "source_id": "SPEC-D02",
+    "source_text": "Khóa được giữ 37 giờ kể từ khi yêu cầu được chấp nhận lần đầu, kể cả khi client thử lại.",
+    "rubric_focus": "Mốc bắt đầu và đơn vị",
+    "split": "dev"
+  },
+  {
+    "id": "D03",
+    "family": "Thanh toán",
+    "question": "Sau timeout, client thử lại trong khi giao dịch chưa kết thúc thì nhận gì?",
+    "source_id": "SPEC-D03",
+    "source_text": "Khi giao dịch còn đang xử lý, yêu cầu thử lại nhận 202 và mã giao dịch ban đầu.",
+    "rubric_focus": "Trạng thái đang xử lý và điều kiện thử lại",
+    "split": "dev"
+  },
+  {
+    "id": "D04",
+    "family": "Thanh toán",
+    "question": "Ngoại lệ hoàn tiền ảnh hưởng thế nào đến quy tắc chống trùng?",
+    "source_id": "SPEC-D04",
+    "source_text": "Hoàn tiền dùng khóa riêng và tham chiếu giao dịch gốc; không dùng lại khóa thanh toán.",
+    "rubric_focus": "Ngoại lệ và giới hạn phạm vi",
+    "split": "dev"
+  },
+  {
+    "id": "D05",
+    "family": "Phân quyền",
+    "question": "Vai trò nào được đọc dữ liệu tenant khác theo quy trình hỗ trợ?",
+    "source_id": "SPEC-D05",
+    "source_text": "Chỉ vai trò hỗ trợ đã có phê duyệt theo tenant và còn trong thời hạn cấp quyền được đọc dữ liệu tenant đó.",
+    "rubric_focus": "Quyền, phạm vi và phê duyệt",
+    "split": "dev"
+  },
+  {
+    "id": "D06",
+    "family": "Phân quyền",
+    "question": "Khi thu hồi vai trò, phiên đang mở còn dùng quyền cũ đến khi nào?",
+    "source_id": "SPEC-D06",
+    "source_text": "Quyền bị thu hồi có hiệu lực ở yêu cầu kế tiếp; máy chủ kiểm phiên bản quyền mỗi lần truy cập.",
+    "rubric_focus": "Mốc hiệu lực và cơ chế kiểm tra",
+    "split": "dev"
+  },
+  {
+    "id": "D07",
+    "family": "Phân quyền",
+    "question": "Khi không xác định tenant, API và tầng dữ liệu cần làm gì?",
+    "source_id": "SPEC-D07",
+    "source_text": "Thiếu định danh tenant thì API từ chối yêu cầu và tầng dữ liệu không trả hàng nào.",
+    "rubric_focus": "Hành vi từ chối và điều kiện lọc",
+    "split": "dev"
+  },
+  {
+    "id": "D08",
+    "family": "Phân quyền",
+    "question": "Tài liệu cũ và mới khác nhau về quyền xuất dữ liệu; quy tắc nào áp dụng?",
+    "source_id": "SPEC-D08",
+    "source_text": "Từ phiên bản 2, xuất dữ liệu cần quyền export và phê duyệt; quyền read của phiên bản 1 không đủ.",
+    "rubric_focus": "Phiên bản và ngày hiệu lực",
+    "split": "dev"
+  },
+  {
+    "id": "D09",
+    "family": "Outbox",
+    "question": "Nếu ghi đơn hàng thành công nhưng ghi sự kiện thất bại, trạng thái sau giao dịch là gì?",
+    "source_id": "SPEC-D09",
+    "source_text": "Đơn hàng và sự kiện phải ghi trong cùng giao dịch; ghi sự kiện thất bại thì hoàn tác cả hai.",
+    "rubric_focus": "Ranh giới transaction",
+    "split": "dev"
+  },
+  {
+    "id": "D10",
+    "family": "Outbox",
+    "question": "Consumer nhận lại sự kiện sau lỗi xác nhận thì tránh tác dụng phụ lặp bằng cách nào?",
+    "source_id": "SPEC-D10",
+    "source_text": "Consumer lưu ID sự kiện đã xử lý trong cùng giao dịch với tác dụng phụ, trước khi xác nhận thông điệp.",
+    "rubric_focus": "Khóa chống trùng và thời điểm ghi",
+    "split": "dev"
+  },
+  {
+    "id": "D11",
+    "family": "Outbox",
+    "question": "Hai sự kiện cùng aggregate đến sai thứ tự thì xử lý ra sao?",
+    "source_id": "SPEC-D11",
+    "source_text": "Sự kiện có sequence vượt số kế tiếp được giữ chờ; chỉ áp dụng sau khi đã xử lý số liền trước.",
+    "rubric_focus": "Sequence và quy tắc chờ hoặc từ chối",
+    "split": "dev"
+  },
+  {
+    "id": "D12",
+    "family": "Outbox",
+    "question": "Khi broker hồi phục, các sự kiện nào có thể phát lại?",
+    "source_id": "SPEC-D12",
+    "source_text": "Sau phục hồi broker, phát lại sự kiện chưa xác nhận, kể cả khi broker có thể đã nhận bản trước.",
+    "rubric_focus": "Trạng thái bản ghi và điều kiện retry",
+    "split": "dev"
+  },
+  {
+    "id": "D13",
+    "family": "Migration",
+    "question": "Trong giai đoạn hai phiên bản API cùng chạy, khi nào được xóa cột cũ?",
+    "source_id": "SPEC-D13",
+    "source_text": "Chỉ xóa cột cũ khi mọi phiên bản đang phục vụ và đường rollback được hỗ trợ đều thôi đọc cột.",
+    "rubric_focus": "Điều kiện tương thích",
+    "split": "dev"
+  },
+  {
+    "id": "D14",
+    "family": "Migration",
+    "question": "Nếu backfill dừng giữa chừng, làm thế nào để tiếp tục an toàn?",
+    "source_id": "SPEC-D14",
+    "source_text": "Backfill lưu khóa cuối của lô đã commit và dùng phép cập nhật lặp lại an toàn khi tiếp tục.",
+    "rubric_focus": "Checkpoint và tính lặp lại",
+    "split": "dev"
+  },
+  {
+    "id": "D15",
+    "family": "Migration",
+    "question": "Phiên bản nào của schema cho phép bật ràng buộc mới?",
+    "source_id": "SPEC-D15",
+    "source_text": "Schema v3 cho phép bật ràng buộc sau khi kiểm tra toàn bộ hàng hiện có đều hợp lệ.",
+    "rubric_focus": "Điều kiện kiểm tra dữ liệu và phiên bản",
+    "split": "dev"
+  },
+  {
+    "id": "D16",
+    "family": "Migration",
+    "question": "Nếu rollback ứng dụng sau chuyển đổi, dữ liệu nào phải còn đọc được?",
+    "source_id": "SPEC-D16",
+    "source_text": "Trong cửa sổ rollback, duy trì biểu diễn dữ liệu mà cả phiên bản ứng dụng cũ và mới đọc được.",
+    "rubric_focus": "Hướng tương thích và phạm vi rollback",
+    "split": "dev"
+  },
+  {
+    "id": "D17",
+    "family": "Nhật ký",
+    "question": "Trường nào bắt buộc phải che trước khi ghi log yêu cầu?",
+    "source_id": "SPEC-D17",
+    "source_text": "Trước khi ghi log yêu cầu phải che authorization, cookie phiên và nội dung trường mật khẩu.",
+    "rubric_focus": "Danh mục trường và ngoại lệ",
+    "split": "dev"
+  },
+  {
+    "id": "D18",
+    "family": "Nhật ký",
+    "question": "Log kiểm toán và log chẩn đoán có cùng thời hạn lưu không?",
+    "source_id": "SPEC-D18",
+    "source_text": "Log kiểm toán lưu 180 ngày, log chẩn đoán lưu 48 giờ tính từ lúc ghi.",
+    "rubric_focus": "Thời hạn, đơn vị và loại log",
+    "split": "dev"
+  },
+  {
+    "id": "D19",
+    "family": "Nhật ký",
+    "question": "Nếu xóa tài khoản nhưng có yêu cầu bảo toàn hồ sơ, xử lý thế nào?",
+    "source_id": "SPEC-D19",
+    "source_text": "Lệnh bảo toàn hồ sơ do người quản trị kiểm toán phê duyệt hoãn xóa đúng tập hồ sơ trong phạm vi lệnh.",
+    "rubric_focus": "Ngoại lệ và thẩm quyền",
+    "split": "dev"
+  },
+  {
+    "id": "D20",
+    "family": "Nhật ký",
+    "question": "Nếu tài liệu không quy định thời hạn lưu cho loại sự kiện mới, trả lời thế nào?",
+    "source_id": "SPEC-D20",
+    "source_text": "Bảng thời hạn hiện chỉ liệt kê log kiểm toán và log chẩn đoán.",
+    "rubric_focus": "Nhận diện thiếu nguồn và tránh tự đặt thời hạn",
+    "split": "dev"
+  }
+]
