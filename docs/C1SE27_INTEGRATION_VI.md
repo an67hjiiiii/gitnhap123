@@ -51,6 +51,8 @@ Phụ thuộc mới: `tokenizers==0.22.2`. Tokenizer Qwen3 offline nằm ở `ba
 
 ## Chạy thử
 
+Cách đơn giản: xem `docs/HUONG_DAN_CHAY_DU_AN.md` (cài một lần, sau đó Ctrl+Shift+B trong VS Code chạy Ollama, backend, frontend). Chạy tay:
+
 ```powershell
 # backend (PostgreSQL theo docker/docker-compose.yml, Ollama có qwen3:4b và nomic-embed-text)
 $env:DATABASE_URL="postgresql+psycopg://cap1_ai:<mật-khẩu>@127.0.0.1:55435/cap1_ai_midterm_multilingual"
