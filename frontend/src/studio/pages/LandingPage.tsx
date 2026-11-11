@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Children, cloneElement, isValidElement, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import gsap from 'gsap';
@@ -157,10 +157,22 @@ function useValue(s: ScrollValue) {
   return useSyncExternalStore(cb => { s.subs.add(cb); return () => { s.subs.delete(cb); }; }, () => s.v);
 }
 
+// Tách tiêu đề chương thành từng từ (giữ thẻ <i>) để mỗi từ lật lên lần lượt khi chương mở.
+function riseWords(node: ReactNode): ReactNode {
+  let w = 0;
+  const split = (n: ReactNode): ReactNode => {
+    if (typeof n === 'string') return n.split(/(\s+)/).map((t, k) => !t || /^\s+$/.test(t) ? t
+      : <span key={k} className="v4-rw"><span style={{ '--w': w++ } as React.CSSProperties}>{t}</span></span>);
+    if (isValidElement<{ children?: ReactNode }>(n)) return cloneElement(n, undefined, Children.map(n.props.children, split));
+    return n;
+  };
+  return split(node);
+}
+
 function ChapterCopy({ store }: { store: ScrollValue }) {
   const pch = useValue(store);
   return <>{PAPER_CHAPTERS.map((c, i) => <div key={c.tag} className={`v4-chapter${i === pch ? ' is-on' : ''}${i >= 2 ? ' is-dark' : ''}`} aria-hidden={i !== pch}>
-    <p className="v4-kicker">0{i + 1} — {c.tag}</p><h2>{c.title}</h2><p>{c.body}</p>
+    <p className="v4-kicker">0{i + 1} — {c.tag}</p><h2>{riseWords(c.title)}</h2><p>{c.body}</p>
   </div>)}</>;
 }
 
@@ -372,9 +384,11 @@ export function LandingPage() {
             onUpdate: self => {
               const p = self.progress * 4;
               setValue(pchStore, p < 1 ? 0 : p < 2.2 ? 1 : p < 3.25 ? 2 : 3);
-              gsap.utils.toArray<HTMLElement>('.v4-tab b').forEach((b, i) => gsap.set(b, { scaleX: gsap.utils.clamp(0, 1, p - i) }));
+              gsap.utils.toArray<HTMLElement>('.v4-tabs b').forEach((b, i) => gsap.set(b, { scaleX: gsap.utils.clamp(0, 1, p - i) }));
             },
           } })
+            .fromTo('.v4-device', { rotationY: -24, rotationX: 10 }, { rotationY: -9, rotationX: 4, duration: 2, ease: 'none' }, 0)
+            .fromTo('.v4-floor', { scaleX: 0.82, opacity: 0.55 }, { scaleX: 1, opacity: 1, duration: 2, ease: 'none' }, 0)
             // Chương 1: tài liệu lần lượt bị nạp vào màn hình, thanh ngữ cảnh đầy dần.
             .to(sheets, { x: () => W() * 0.2, y: () => -H() * 0.08, scale: 0.3, rotation: 0, opacity: 0, stagger: 0.045, duration: 0.45, ease: 'power2.in' }, 0.05)
             .fromTo('.v4-scr-docs li:nth-child(n+3)', { opacity: 0, x: 18 }, { opacity: 1, x: 0, stagger: 0.08, duration: 0.3 }, 0.15)

@@ -44,7 +44,7 @@ export function PaperStage() {
       <div className="v4-floor"/>
     </div>
     {TONES.map(t => { const { Icon, label } = AGENT[t]; return <div key={t} className={`v4-tray is-${t}`}><span className="v4-tray-head"><Icon size={15}/>{label}</span></div>; })}
-    <div className="v4-note"><i/>Ghi chú chung<small>nguyên văn · có id nguồn</small></div>
+    <div className="v4-note"><i/>Kế hoạch đã kiểm tra<small>3 nhiệm vụ · đủ nghĩa vụ</small></div>
     <svg className="v4-threads" viewBox="0 0 100 100" preserveAspectRatio="none">
       {[[20, 22], [80, 20], [14, 70], [86, 74], [50, 92]].map(([x, y], i) => <path key={i} d={`M50 50 Q ${(50 + x) / 2} ${y < 50 ? y - 6 : y + 6} ${x} ${y}`} pathLength={1}/>)}
     </svg>
