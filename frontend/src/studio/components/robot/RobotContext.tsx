@@ -91,12 +91,12 @@ class RetroAudioSynth {
 const synth = new RetroAudioSynth();
 
 const POKE_LINES = [
-  'Chào bạn! Mình là C27, sẵn sàng giúp bạn đây.',
-  'Hihi, nhột quá! Hỏi mình gì đi nào.',
-  'Mình thích làm việc cùng bạn lắm!',
-  'Wow! Hôm nay mình tìm tài liệu siêu nhanh luôn.',
-  'Bí mật nhé: mình chỉ đọc tài liệu trong máy của bạn thôi.',
-];
+  'Chào bạn, mình là C27. Cần tìm gì cứ hỏi nhé.',
+  'Hửm? Bạn muốn xem tài liệu nào?',
+  'Ồ, mình đây! Mình vẫn đang sẵn sàng.',
+  'Hôm nay làm việc cùng bạn vui ghê.',
+  'Nhỏ thôi nhé: mình chỉ đọc tài liệu trong máy của bạn.',
+]
 
 export const RobotProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<RobotState>('idle');

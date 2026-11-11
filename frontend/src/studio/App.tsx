@@ -320,7 +320,7 @@ function DashboardWorkspace({
         {activeTab === 'orchestration' && <WorkspaceView workspaceId={currentWorkspaceId} conversationId={activeConversationId} onConversation={setActiveConversationId} onChanged={refreshConversations} userName={user?.full_name}
           docCount={documents.length} chunkCount={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)} modelOk={health?.ollama_status === 'CONNECTED'}
           workspaceName={workspaces.find(w => w.id === currentWorkspaceId)?.name} recent={conversations}
-          onSeed={handleSeedDocs} onUploadFile={handleUpload} onOpenPlayground={() => handleOpenPlayground()} />}
+          onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} />}
         {activeTab === 'benchmarks' && <div className="st-legacy"><BenchmarkLab resultsMap={resultsMap} telemetryLogs={telemetryLogs} onRefreshTelemetry={refreshTelemetry} onRunAblation={handleRunAblation} isAblationRunning={isAblationRunning} /></div>}
         {activeTab === 'db_explorer' && user?.role === 'admin' && <div className="st-legacy"><DatabaseExplorer /></div>}
       </div>

@@ -725,3 +725,22 @@
 .ws-recent{grid-template-columns:minmax(0,1fr)}
 .ws-hero .ws-chips:not(.is-in){display:none}
 .ws-hero .ws-chips.is-in{animation:ws-rise .35s var(--ease)}
+
+/* Khung chat phóng to chậm hơn, mềm hơn; dải tài liệu thay 4 thẻ lối tắt */
+.mn.ws.is-fresh .ws-composer{transition:width .65s cubic-bezier(.45,0,.2,1),border-radius .65s cubic-bezier(.45,0,.2,1),box-shadow .3s}
+.ws-hero .ws-composer.is-open textarea{animation:ws-rise .45s var(--ease) .12s both}
+.ws-hero .ws-composer.is-open .ws-bar{animation:ws-rise .45s var(--ease) .2s both}
+.ws-docs{display:grid;gap:8px;width:min(780px,100%);grid-template-columns:minmax(0,1fr)}
+.ws-docs p{margin:6px 0 0;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+.ws-docs p small{margin-left:8px;font-weight:500;letter-spacing:0;text-transform:none}
+.ws-docs-row{display:flex;flex-wrap:wrap;gap:8px}
+.ws-docs-row button{display:inline-flex;align-items:center;gap:8px;max-width:260px;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit;font-size:13.5px;color:var(--text);cursor:pointer;opacity:0;animation:ws-rise .45s var(--ease) forwards;transition:border-color .15s,transform .15s,box-shadow .15s}
+.ws-docs-row button span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-docs-row button small{flex:none;color:var(--faint);font-size:12px}
+.ws-docs-row button svg{flex:none;color:var(--accent)}
+.ws-docs-row button:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 10px 22px -18px rgba(29,102,201,.6)}
+.ws-docs-row button.is-add{border-style:dashed;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.ws-docs-row button,.ws-hero .ws-composer.is-open textarea,.ws-hero .ws-composer.is-open .ws-bar{animation:none;opacity:1}}
+.ws-docs-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.ws-docs-row button{max-width:none}
+.ws-docs-row button span{flex:1;text-align:left}

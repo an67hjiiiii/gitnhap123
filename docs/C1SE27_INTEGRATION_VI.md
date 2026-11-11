@@ -35,8 +35,8 @@ Phụ thuộc mới: `tokenizers==0.22.2`. Tokenizer Qwen3 offline nằm ở `ba
 - `/`: trang giới thiệu, Robot C27.
 - `/login`, `/register`: dùng phiên cookie của CAP1.
 - `/studio`: **không gian làm việc thống nhất** (một trang thay cho Điều phối + Trò chuyện riêng):
-  - màn hình đầu: Robot C27 lớn với bong bóng lời thoại (chữ hiện dần), tình trạng kho (tên không gian, số tài liệu và đoạn của không gian đó, mô hình), khung chat bấm vào thì phóng to và hiện 3 gợi ý, 4 lối tắt (Hỏi nhanh, Phân tích thiết kế, Thử tìm kiếm, Thêm tài liệu), 3 cuộc trò chuyện gần nhất; kho trống thì có nút dùng bộ mẫu;
-  - mỗi lần chạm Robot đổi một trong 5 biểu cảm (mắt lấp lánh, cười híp, mắt tim, mắt sao, nháy mắt) kèm một câu nói;
+  - màn hình đầu: Robot C27 lớn với bong bóng lời thoại (chữ hiện dần), tình trạng kho (tên không gian, số tài liệu và đoạn của không gian đó, mô hình), khung chat bấm vào thì phóng to dần (khoảng 0,6 giây) và hiện 6 câu hỏi phổ biến (tóm tắt, quy trình, điều kiện, người phê duyệt, thuật ngữ, rủi ro), dải tài liệu của không gian (bấm để hỏi về tài liệu đó), 3 cuộc trò chuyện gần nhất; kho trống thì có nút dùng bộ mẫu;
+  - mỗi lần chạm Robot đổi một trong 5 biểu cảm nhẹ cùng kiểu mắt gốc (mỉm cười, tò mò, ngạc nhiên nhẹ, hài lòng, nháy mắt); biểu cảm khi đọc tài liệu, làm việc giữ nguyên kèm một câu nói;
   - trong cùng một cuộc trò chuyện có thể **Hỏi nhanh** (chế độ sản phẩm CAP1, nhớ ngữ cảnh) hoặc **Phân tích** (điều kiện A/B/C);
   - mỗi câu trả lời có trạng thái bằng chứng, nút nguồn (xem đoạn tài liệu), **8 bước** (sự kiện thật của CAP1) và **Theo tác tử**;
   - thanh bên: kho tài liệu (tải lên, xem đoạn, thử truy xuất, **xóa**) và danh sách **cuộc trò chuyện** (một lịch sử chung, không trùng lặp).

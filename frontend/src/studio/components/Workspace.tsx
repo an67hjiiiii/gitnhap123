@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, ChevronDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Microscope, Search, Sparkles, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowRight, ArrowUp, BookOpen, ChevronDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Microscope, Sparkles, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
 import { ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure } from '../services/api';
 import { adaptRun, answerText, Cap1Run, CONDITION_LABEL } from '../services/adapt';
 import { Markdown } from '../utils/markdown';
@@ -21,10 +21,13 @@ const MODE_INFO: Record<Mode, { label: string; hint: string }> = {
 };
 const STATUS_LABEL: Record<string, string> = { COMPLETE: 'Đủ bằng chứng', PARTIAL: 'Một phần', NO_EVIDENCE: 'Không có bằng chứng', FAILED: 'Thất bại' };
 const PRESETS = [
-  { label: 'Chống trừ tiền hai lần', text: 'Thiết kế cổng thanh toán không xử lý trùng bằng khóa idempotency' },
-  { label: 'Phân quyền theo vai trò', text: 'Thiết kế phân quyền RBAC cho hệ thống nhiều tổ chức' },
-  { label: 'Đồng bộ bằng Outbox', text: 'Mẫu Transactional Outbox để đồng bộ dữ liệu giữa các dịch vụ' },
-];
+  { label: 'Tóm tắt ý chính', text: 'Tóm tắt các ý chính trong tài liệu giúp tôi.' },
+  { label: 'Quy trình gồm bước nào?', text: 'Quy trình này gồm những bước nào và ai phụ trách từng bước?' },
+  { label: 'Điều kiện, hạn mức', text: 'Có những điều kiện, hạn mức hoặc thời hạn nào cần lưu ý?' },
+  { label: 'Ai được phê duyệt?', text: 'Ai có quyền phê duyệt hoặc thực hiện việc này?' },
+  { label: 'Giải thích thuật ngữ', text: 'Giải thích các thuật ngữ quan trọng trong tài liệu bằng lời dễ hiểu.' },
+  { label: 'Rủi ro cần lưu ý', text: 'Những rủi ro hoặc lỗi thường gặp cần lưu ý là gì?' },
+]
 
 // Nguồn đã hiện thành nút bên dưới nên bỏ dòng "Nguồn: [...]" trong thân câu trả lời.
 const stripSources = (t: string) => t.replace(/\n?\s*Nguồn:\s*(\[[^\]]+\][,\s]*)+$/u, '').trim();
@@ -52,6 +55,7 @@ interface WorkspaceProps {
   onChanged: () => void;
   userName?: string;
   /** Số liệu kho đang mở và lối tắt cho màn hình đầu. */
+  docs?: { id?: number | string; source_file: string; chunks_count: number }[];
   docCount?: number;
   chunkCount?: number;
   modelOk?: boolean;
@@ -59,10 +63,9 @@ interface WorkspaceProps {
   recent?: { conversation_id: string; title: string; updated_at: string }[];
   onSeed?: () => void;
   onUploadFile?: (file: File) => void;
-  onOpenPlayground?: () => void;
 }
 
-export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationId, onConversation, onChanged, userName, docCount = 0, chunkCount = 0, modelOk, workspaceName, recent = [], onSeed, onUploadFile, onOpenPlayground }) => {
+export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationId, onConversation, onChanged, userName, docs = [], docCount = 0, chunkCount = 0, modelOk, workspaceName, recent = [], onSeed, onUploadFile }) => {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [runs, setRuns] = useState<Record<string, Cap1Run>>({});
   const [draft, setDraft] = useState('');
@@ -77,6 +80,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const [chunk, setChunk] = useState<{ id: string; source?: string; text?: string; error?: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const closedH = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
   const skipLoad = useRef<string | null>(null);
   const { state, speechText, soundEnabled, toggleSound, speak, setState } = useRobotAssistant();
@@ -112,8 +117,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   }, [draft, open]);
 
+  useLayoutEffect(() => {
+    const el = formRef.current;
+    if (!open || !el || !closedH.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    el.animate([{ height: `${closedH.current}px`, overflow: 'hidden' }, { height: `${el.offsetHeight}px`, overflow: 'hidden' }],
+      { duration: 650, easing: 'cubic-bezier(.45,0,.2,1)' });
+    closedH.current = 0;
+  }, [open]);
+
   const expand = () => {
     if (open) return;
+    closedH.current = formRef.current?.offsetHeight ?? 0;
     setOpen(true);
     speak(`Chào ${firstName(userName) || 'bạn'}! Hỏi nhanh về tài liệu, hoặc chọn Phân tích để mình chia việc cho ba tác tử.`);
   };
@@ -155,7 +169,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const busyNow = busy(state) || !!pending;
 
   const composer = (
-    <form className={`ws-composer${open || !fresh ? ' is-open' : ''}${pending ? ' is-busy' : ''}`} onSubmit={send} onClick={expand}>
+    <form ref={formRef} className={`ws-composer${open || !fresh ? ' is-open' : ''}${pending ? ' is-busy' : ''}`} onSubmit={send} onClick={expand}>
       {!(open || !fresh) ? (
         <button type="button" className="ws-launch" onClick={expand} aria-label="Mở khung hỏi đáp">
           <Sparkles size={16} /><span>Hỏi C27 về tài liệu của bạn…</span><kbd>Nhấn để bắt đầu</kbd>
@@ -209,21 +223,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
           </div>
           {composer}
           <div className={`ws-chips${open ? ' is-in' : ''}`}>
-            {PRESETS.map(p => <button key={p.label} type="button" onClick={() => { setOpen(true); setDraft(p.text); setMode('C'); speak('Đã điền ví dụ. Nhấn gửi để phân tích.'); }}>{p.label}</button>)}
+            {PRESETS.map(p => <button key={p.label} type="button" onClick={() => { setOpen(true); setDraft(p.text); setMode('quick'); inputRef.current?.focus(); speak('Đã điền câu hỏi. Bạn sửa thêm hoặc nhấn gửi nhé.'); }}>{p.label}</button>)}
           </div>
           {docCount === 0 && onSeed && <div className="ws-empty-kb"><Inbox size={18} /><span>Kho đang trống.</span><button type="button" onClick={onSeed}>Dùng bộ tài liệu mẫu</button><button type="button" onClick={() => fileRef.current?.click()}>Tải tài liệu lên</button></div>}
-          <div className="ws-actions">
-            {[
-              { Icon: Zap, title: 'Hỏi nhanh', sub: 'Trả lời ngắn có nguồn', run: () => { setOpen(true); pickMode('quick'); } },
-              { Icon: Microscope, title: 'Phân tích thiết kế', sub: 'Ba tác tử chia việc', run: () => { setOpen(true); pickMode('C'); } },
-              { Icon: Search, title: 'Thử tìm kiếm', sub: 'Xem đoạn khớp nhất', run: () => onOpenPlayground?.() },
-              { Icon: Upload, title: 'Thêm tài liệu', sub: 'PDF, MD, SQL, TXT', run: () => fileRef.current?.click() },
-            ].map(({ Icon, title, sub, run }, i) => (
-              <button key={title} type="button" className="ws-action" style={{ animationDelay: `${0.08 * i}s` }} onClick={run}>
-                <i><Icon size={18} /></i><b>{title}</b><span>{sub}</span>
-              </button>
-            ))}
-          </div>
+          {docs.length > 0 && <div className="ws-docs">
+            <p>Tài liệu trong không gian <small>Bấm để hỏi về tài liệu</small></p>
+            <div className="ws-docs-row">
+              {docs.slice(0, 5).map((d, i) => (
+                <button key={d.id ?? d.source_file} type="button" style={{ animationDelay: `${0.06 * i}s` }} title={d.source_file}
+                  onClick={() => { closedH.current = open ? 0 : formRef.current?.offsetHeight ?? 0; setOpen(true); setMode('quick'); setDraft(`Tóm tắt nội dung chính của tài liệu ${d.source_file}.`); speak(`Mình sẽ đọc ${d.source_file}. Nhấn gửi nhé.`); }}>
+                  <FileText size={16} /><span>{d.source_file}</span><small>{d.chunks_count} đoạn</small>
+                </button>
+              ))}
+              <button type="button" className="is-add" onClick={() => fileRef.current?.click()}><Upload size={16} /><span>Thêm tài liệu</span></button>
+            </div>
+          </div>}
           {recent.length > 0 && <div className="ws-recent">
             <p>Tiếp tục</p>
             {recent.slice(0, 3).map(c => (
