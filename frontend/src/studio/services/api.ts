@@ -8,8 +8,6 @@ import {
 import { adaptRun, Cap1Run, MODE_TO_CONDITION, modeOf } from './adapt';
 
 const API = '/api';
-// CAP1 không có "không gian làm việc": mỗi người có một kho riêng. Studio dùng một không gian ảo cố định.
-export const VIRTUAL_WORKSPACE_ID = 1;
 export const NOT_SUPPORTED = 'Chức năng này chưa có trong backend CAP1.';
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -57,12 +55,32 @@ export async function logout(): Promise<void> {
   await fetch(`${API}/auth/logout`, { method: 'POST', credentials: 'same-origin' }).catch(() => undefined);
 }
 
-// ---------------- Không gian làm việc (ảo)
+// ---------------- Không gian làm việc (bảng studio_workspaces): nhóm tài liệu và cuộc trò chuyện
+export type WorkspaceId = number | string;
+const wsReady = (ws?: WorkspaceId) => typeof ws === 'string' && ws.startsWith('ws_');
+
 export async function getWorkspaces(): Promise<Workspace[]> {
-  return [{ id: VIRTUAL_WORKSPACE_ID, name: 'Kho tài liệu của tôi', created_at: '', documents_count: 0, runs_count: 0 }];
+  const rows = await call<any[]>('/studio/workspaces');
+  return rows.map(w => ({ id: w.workspace_id, name: w.name, description: w.description, created_at: w.created_at,
+    documents_count: w.source_count, runs_count: w.conversation_count }));
 }
-export async function createWorkspace(_name: string, _description: string): Promise<Workspace> {
-  throw new Error(NOT_SUPPORTED);
+export async function createWorkspace(name: string, description: string): Promise<Workspace> {
+  const w = await post<any>('/studio/workspaces', { name, description });
+  return { id: w.workspace_id, name: w.name, description: w.description, created_at: '', documents_count: 0, runs_count: 0 };
+}
+export async function renameWorkspace(id: WorkspaceId, name: string, description = ''): Promise<void> {
+  await call(`/studio/workspaces/${encodeURIComponent(String(id))}`, { method: 'PATCH', body: JSON.stringify({ name, description }) });
+}
+export async function deleteWorkspace(id: WorkspaceId, deleteSources: boolean): Promise<{ moved_to: string; sources_deleted: number }> {
+  return call(`/studio/workspaces/${encodeURIComponent(String(id))}?delete_sources=${deleteSources}`, { method: 'DELETE' });
+}
+export async function workspaceItems(id: WorkspaceId): Promise<{ source_ids: string[]; conversation_ids: string[] }> {
+  if (!wsReady(id)) return { source_ids: [], conversation_ids: [] };
+  return call(`/studio/workspaces/${encodeURIComponent(String(id))}/items`);
+}
+export async function assignToWorkspace(id: WorkspaceId, itemType: 'source' | 'conversation', itemId: string): Promise<void> {
+  if (!wsReady(id)) return;
+  await post(`/studio/workspaces/${encodeURIComponent(String(id))}/items`, { item_type: itemType, item_id: itemId });
 }
 
 // ---------------- Cấu hình: CAP1 cấu hình bằng biến môi trường, chỉ đọc (định danh bằng config_hash)
@@ -74,7 +92,7 @@ export async function createConfig(_c: Partial<ExperimentConfig>): Promise<Exper
 export async function toggleConfigLock(_id: number): Promise<ExperimentConfig> { throw new Error(NOT_SUPPORTED); }
 
 // ---------------- Điều phối
-export async function analyzeQuery(query: string, mode: ExecutionMode, _topK = 4, _ws?: number, _userId?: number | string): Promise<AnalyzeResponse> {
+export async function analyzeQuery(query: string, mode: ExecutionMode, _topK = 4, _ws?: WorkspaceId, _userId?: number | string): Promise<AnalyzeResponse> {
   const results: Record<string, ModeExecutionResult> = {};
   if (mode === 'ablation_comparison') {
     const data = await post<any>('/studio/compare', { message: query, conditions: ['A', 'B', 'C'] });
@@ -100,8 +118,10 @@ export async function compareConditions(message: string, conditions: string[]): 
 }
 
 // ---------------- Kho tài liệu
-export async function getDocuments(_ws?: number): Promise<DocumentInfo[]> {
-  const data = await call<any>('/sources');
+export async function getDocuments(ws?: WorkspaceId): Promise<DocumentInfo[]> {
+  const [data, items] = await Promise.all([call<any>('/sources'), wsReady(ws) ? workspaceItems(ws!) : Promise.resolve(null)]);
+  const allow = items ? new Set(items.source_ids) : null;
+  data.sources = (data.sources || []).filter((s: any) => !allow || allow.has(s.source_id));
   return (data.sources || []).map((s: any) => ({
     id: s.source_id, source_file: s.source_name, chunks_count: s.chunk_count, file_type: (s.source_name.split('.').pop() || '').toLowerCase(),
     domain_tags: [], status: String(s.status || '').toLowerCase() === 'failed' ? 'failed' : 'indexed',
@@ -116,18 +136,20 @@ export async function getDocumentChunks(docId: number | string): Promise<ChunkIn
   })) as unknown as ChunkInfo[];
 }
 
-export async function uploadDocument(file: File, _ws?: number): Promise<{ filename: string; chunks_created: number; status: string; message: string }> {
+export async function uploadDocument(file: File, ws?: WorkspaceId): Promise<{ filename: string; chunks_created: number; status: string; message: string }> {
   const form = new FormData();
   form.append('file', file);
   const data = await call<any>('/sources/file', { method: 'POST', body: form });
+  if (data.source_id) await assignToWorkspace(ws ?? '', 'source', data.source_id);
   return { filename: file.name, chunks_created: data.chunks_added ?? 0, status: 'ok', message: '' };
 }
 
 const SAMPLES = ['schema_e_commerce_ledger.sql', 'api_spec_payment_gateway.md', 'security_auth_policy.md'];
-export async function seedSampleDocs(_ws?: number): Promise<{ status: string; message: string }> {
+export async function seedSampleDocs(ws?: WorkspaceId): Promise<{ status: string; message: string }> {
   for (const name of SAMPLES) {
     const text = await fetch(`/samples/${name}`).then(r => { if (!r.ok) throw new Error(`Thiếu tài liệu mẫu ${name}`); return r.text(); });
-    await post('/sources/text', { source_name: name, text });
+    const r = await post<any>('/sources/text', { source_name: name, text });
+    if (r.source_id) await assignToWorkspace(ws ?? '', 'source', r.source_id);
   }
   return { status: 'ok', message: `Đã nạp ${SAMPLES.length} tài liệu mẫu.` };
 }
@@ -136,14 +158,15 @@ export async function deleteDocument(docId: number | string): Promise<{ status: 
   const r = await call<any>(`/studio/sources/${encodeURIComponent(String(docId))}`, { method: 'DELETE' });
   return { status: 'ok', message: `Đã xóa tài liệu và ${r.chunks_removed} đoạn.` };
 }
-export async function clearDocuments(_ws?: number): Promise<{ status: string; message: string }> {
-  const docs = await getDocuments();
+export async function clearDocuments(ws?: WorkspaceId): Promise<{ status: string; message: string }> {
+  const docs = await getDocuments(ws);
   for (const d of docs) await deleteDocument(d.id as unknown as string);
   return { status: 'ok', message: `Đã xóa ${docs.length} tài liệu.` };
 }
 
 export async function testRetrieval(req: RetrievalTestRequest): Promise<RetrievalTestResponse> {
-  const data = await post<any>('/studio/retrieval-test', { query: req.query, top_k: req.top_k });
+  const scope = wsReady(req.workspace_id) ? (await workspaceItems(req.workspace_id!)).source_ids : undefined;
+  const data = await post<any>('/studio/retrieval-test', { query: req.query, top_k: req.top_k, source_ids: scope });
   return {
     query: data.query, top_k: data.top_k, domain_filter: null, latency_ms: data.latency_ms, total_indexed_chunks: data.total_chunks,
     results: data.results.map((h: any) => ({
@@ -154,7 +177,7 @@ export async function testRetrieval(req: RetrievalTestRequest): Promise<Retrieva
 }
 
 // ---------------- Lịch sử, nhật ký
-export async function getTelemetry(_ws?: number): Promise<TelemetryRecord[]> {
+export async function getTelemetry(_ws?: WorkspaceId): Promise<TelemetryRecord[]> {
   const list = await call<any[]>('/runs');
   const details = await Promise.all(list.map(r => call<Cap1Run>(`/runs/${encodeURIComponent(r.run_id)}`).catch(() => null)));
   return list.map((r, i) => {
@@ -174,7 +197,7 @@ export async function getRunDetail(runId: number | string): Promise<RunDetail> {
   return { id: run.run_id, created_at: run.created_at, user_query: run.query, execution_mode: run.condition, result: adaptRun(run) } as unknown as RunDetail;
 }
 
-export async function getHealth(_ws?: number): Promise<HealthResponse> {
+export async function getHealth(_ws?: WorkspaceId): Promise<HealthResponse> {
   const [h, model, src] = await Promise.all([
     call<any>('/health'), call<any>('/local-model/health').catch(() => ({ ok: false })), call<any>('/sources').catch(() => ({ sources: [] })),
   ]);
@@ -247,16 +270,28 @@ export async function simulateLLMContention(..._args: unknown[]): Promise<LLMCon
 export interface Conversation { conversation_id: string; title: string; created_at: string; updated_at: string }
 export interface ConversationMessage { message_id: string; role: 'USER' | 'ASSISTANT' | string; content: string; created_at: string; run_id: string | null }
 
-export const listConversations = () => call<Conversation[]>('/conversations');
+export async function listConversations(ws?: WorkspaceId): Promise<Conversation[]> {
+  const [all, items] = await Promise.all([call<Conversation[]>('/conversations'), wsReady(ws) ? workspaceItems(ws!) : Promise.resolve(null)]);
+  if (!items) return all;
+  const allow = new Set(items.conversation_ids);
+  return all.filter(c => allow.has(c.conversation_id));
+}
 export const getConversation = (id: string) => call<Conversation & { messages: ConversationMessage[] }>(`/conversations/${encodeURIComponent(id)}`);
 export const getRawRun = (id: string) => call<Cap1Run>(`/runs/${encodeURIComponent(id)}`);
 export const getChunk = (id: string) => call<{ chunk_id: string; source_name: string; text: string }>(`/chunks/${encodeURIComponent(id)}`);
 
-export async function sendChat(message: string, conversationId: string | null): Promise<Cap1Run> {
-  return post<Cap1Run>('/chat', { message, conversation_id: conversationId ?? undefined, product_mode: true });
+// Mỗi câu hỏi chỉ dùng tài liệu của không gian đang mở; cuộc trò chuyện mới được gán vào không gian đó.
+async function chatInWorkspace(body: Record<string, unknown>, ws?: WorkspaceId, conversationId?: string | null): Promise<Cap1Run> {
+  const scope = wsReady(ws) ? (await workspaceItems(ws!)).source_ids : undefined;
+  const run = await post<Cap1Run>('/chat', { ...body, conversation_id: conversationId ?? undefined, source_ids: scope });
+  if (run.conversation_id && run.conversation_id !== conversationId) await assignToWorkspace(ws ?? '', 'conversation', run.conversation_id);
+  return run;
+}
+export async function sendChat(message: string, conversationId: string | null, ws?: WorkspaceId): Promise<Cap1Run> {
+  return chatInWorkspace({ message, product_mode: true }, ws, conversationId);
 }
 
 // Phân tích sâu trong cùng cuộc trò chuyện (điều kiện A/B/C, không dùng chế độ sản phẩm).
-export async function sendAnalysis(message: string, condition: string, conversationId: string | null): Promise<Cap1Run> {
-  return post<Cap1Run>('/chat', { message, condition, conversation_id: conversationId ?? undefined });
+export async function sendAnalysis(message: string, condition: string, conversationId: string | null, ws?: WorkspaceId): Promise<Cap1Run> {
+  return chatInWorkspace({ message, condition }, ws, conversationId);
 }

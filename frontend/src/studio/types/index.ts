@@ -8,7 +8,7 @@ export interface User {
 }
 
 export interface Workspace {
-  id: number;
+  id: number | string;
   name: string;
   description?: string;
   owner_id?: number;
@@ -170,7 +170,7 @@ export interface RetrievalResultItem {
 export interface RetrievalTestRequest {
   query: string;
   top_k: number;
-  workspace_id?: number;
+  workspace_id?: number | string;
   domain_tag?: string;
 }
 

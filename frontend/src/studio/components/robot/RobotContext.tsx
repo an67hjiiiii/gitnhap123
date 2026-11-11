@@ -90,6 +90,14 @@ class RetroAudioSynth {
 
 const synth = new RetroAudioSynth();
 
+const POKE_LINES = [
+  'Chào bạn! Mình là C27, sẵn sàng giúp bạn đây.',
+  'Hihi, nhột quá! Hỏi mình gì đi nào.',
+  'Mình thích làm việc cùng bạn lắm!',
+  'Wow! Hôm nay mình tìm tài liệu siêu nhanh luôn.',
+  'Bí mật nhé: mình chỉ đọc tài liệu trong máy của bạn thôi.',
+];
+
 export const RobotProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<RobotState>('idle');
   const [speechText, setSpeechText] = useState<string>(
@@ -110,10 +118,13 @@ export const RobotProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   // Chức năng Poke: Nhảy xoay vòng và vui vẻ
+  const pokeCount = useRef(0);
   const poke = useCallback(() => {
-    setPokeTrigger(prev => prev + 1);
+    // Câu nói đi theo biểu cảm sẽ hiện (cùng thứ tự với robotEngine: tròn, cười tít, trái tim, ngôi sao, nháy mắt).
+    setSpeechText(POKE_LINES[pokeCount.current % POKE_LINES.length]);
+    pokeCount.current += 1;
+    setPokeTrigger(pokeCount.current);
     setState('happy');
-    setSpeechText('Hì! Cảm ơn bạn đã tương tác cùng tôi! 😊');
     if (soundEnabled) {
       synth.playChirp();
     }

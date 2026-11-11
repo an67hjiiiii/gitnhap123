@@ -9,9 +9,10 @@ Router được dựng bằng các hàm phụ thuộc của main.py để không
 from __future__ import annotations
 
 import os
+import secrets
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -34,6 +35,16 @@ class RetrievalTestRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=4, ge=1, le=20)
     source_ids: list[str] | None = None
+
+
+class WorkspaceBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default="", max_length=500)
+
+
+class WorkspaceItemBody(BaseModel):
+    item_type: Literal["source", "conversation"]
+    item_id: str = Field(min_length=1, max_length=160)
 
 
 class CompareRequest(BaseModel):
@@ -90,28 +101,132 @@ def build_router(
             ],
         }
 
-    @router.delete("/sources/{source_id}")
-    def delete_source(source_id: str, request: Request) -> dict:
-        """Xóa một tài liệu của chính người dùng: bản ghi nguồn, các đoạn (CASCADE) và vector dẫn xuất."""
-        user = current_user(request)
+    def _require_postgres() -> None:
         if owner_source_store is None or session_factory() is None:
-            raise HTTPException(503, "Xóa tài liệu cần APP_STORAGE_BACKEND=postgres.")
+            raise HTTPException(503, "Chức năng này cần APP_STORAGE_BACKEND=postgres.")
+
+    def _delete_source(user: dict, source_id: str) -> int:
+        """Xóa nguồn của chính người dùng: vector dẫn xuất, bản ghi nguồn, các đoạn (CASCADE). Trả số đoạn đã xóa."""
         item = owner_source_store(user).source(source_id)
         if not item:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
         chunk_ids = [c["chunk_id"] for c in item.get("chunks", [])]
-        store = None
         try:
             store = vector_store() if vector_store else None
         except Exception:
-            store = None  # chỉ mục dẫn xuất không mở được: vẫn xóa nguồn có thẩm quyền, vector mồ côi bị lọc theo chunk.
+            store = None  # chỉ mục dẫn xuất không mở được: vẫn xóa nguồn có thẩm quyền.
         if store is not None and chunk_ids:
             store.delete([f"{user['user_id']}:{cid}" for cid in chunk_ids])
         with session_factory()() as db:
             db.execute(text("DELETE FROM knowledge_sources WHERE source_id = :s AND owner_user_id = :o"),
                        {"s": source_id, "o": str(user["user_id"])})
+            db.execute(text("DELETE FROM studio_workspace_items WHERE item_type = 'source' AND item_id = :s"), {"s": source_id})
             db.commit()
-        return {"deleted": source_id, "chunks_removed": len(chunk_ids), "vectors_removed": bool(store is not None and chunk_ids)}
+        return len(chunk_ids)
+
+    @router.delete("/sources/{source_id}")
+    def delete_source(source_id: str, request: Request) -> dict:
+        """Xóa một tài liệu của chính người dùng."""
+        user = current_user(request)
+        _require_postgres()
+        return {"deleted": source_id, "chunks_removed": _delete_source(user, source_id)}
+
+    # ---------------- Không gian làm việc: nhóm tài liệu và cuộc trò chuyện của một người dùng
+    def _sync_workspaces(db, owner: str) -> None:
+        """Bảo đảm có ít nhất một không gian; gán mục chưa thuộc không gian nào vào không gian cũ nhất."""
+        first = db.execute(text("SELECT workspace_id FROM studio_workspaces WHERE owner_user_id = :o ORDER BY created_at, workspace_id LIMIT 1"), {"o": owner}).scalar()
+        if first is None:
+            first = "ws_" + secrets.token_hex(8)
+            db.execute(text("INSERT INTO studio_workspaces (workspace_id, owner_user_id, name, description) VALUES (:w, :o, 'Kho chính', '')"), {"w": first, "o": owner})
+        db.execute(text("""INSERT INTO studio_workspace_items (workspace_id, item_type, item_id)
+            SELECT :w, 'source', s.source_id FROM knowledge_sources s
+            WHERE s.owner_user_id = :o AND NOT EXISTS (SELECT 1 FROM studio_workspace_items i WHERE i.item_type = 'source' AND i.item_id = s.source_id)"""), {"w": first, "o": owner})
+        db.execute(text("""INSERT INTO studio_workspace_items (workspace_id, item_type, item_id)
+            SELECT :w, 'conversation', c.conversation_id FROM conversations c
+            WHERE c.owner_user_id = :o AND NOT EXISTS (SELECT 1 FROM studio_workspace_items i WHERE i.item_type = 'conversation' AND i.item_id = c.conversation_id)"""), {"w": first, "o": owner})
+
+    def _owned_workspace(db, owner: str, workspace_id: str) -> None:
+        if db.execute(text("SELECT 1 FROM studio_workspaces WHERE workspace_id = :w AND owner_user_id = :o"), {"w": workspace_id, "o": owner}).scalar() is None:
+            raise HTTPException(404, "Không tìm thấy không gian làm việc.")
+
+    @router.get("/workspaces")
+    def list_workspaces(request: Request) -> list[dict]:
+        user = current_user(request); _require_postgres(); owner = str(user["user_id"])
+        with session_factory()() as db:
+            _sync_workspaces(db, owner)
+            db.commit()
+            rows = db.execute(text("""SELECT w.workspace_id, w.name, w.description, w.created_at,
+                    COUNT(*) FILTER (WHERE i.item_type = 'source') AS source_count,
+                    COUNT(*) FILTER (WHERE i.item_type = 'conversation') AS conversation_count
+                FROM studio_workspaces w LEFT JOIN studio_workspace_items i ON i.workspace_id = w.workspace_id
+                WHERE w.owner_user_id = :o GROUP BY w.workspace_id ORDER BY w.created_at, w.workspace_id"""), {"o": owner}).mappings().all()
+        return [{**dict(r), "created_at": r["created_at"].isoformat()} for r in rows]
+
+    @router.post("/workspaces")
+    def create_workspace(body: WorkspaceBody, request: Request) -> dict:
+        user = current_user(request); _require_postgres()
+        wid = "ws_" + secrets.token_hex(8)
+        with session_factory()() as db:
+            db.execute(text("INSERT INTO studio_workspaces (workspace_id, owner_user_id, name, description) VALUES (:w, :o, :n, :d)"),
+                       {"w": wid, "o": str(user["user_id"]), "n": body.name.strip(), "d": (body.description or "").strip()})
+            db.commit()
+        return {"workspace_id": wid, "name": body.name.strip(), "description": (body.description or "").strip(), "source_count": 0, "conversation_count": 0}
+
+    @router.patch("/workspaces/{workspace_id}")
+    def rename_workspace(workspace_id: str, body: WorkspaceBody, request: Request) -> dict:
+        user = current_user(request); _require_postgres(); owner = str(user["user_id"])
+        with session_factory()() as db:
+            _owned_workspace(db, owner, workspace_id)
+            db.execute(text("UPDATE studio_workspaces SET name = :n, description = :d WHERE workspace_id = :w"),
+                       {"n": body.name.strip(), "d": (body.description or "").strip(), "w": workspace_id})
+            db.commit()
+        return {"workspace_id": workspace_id, "name": body.name.strip()}
+
+    @router.get("/workspaces/{workspace_id}/items")
+    def workspace_items(workspace_id: str, request: Request) -> dict:
+        user = current_user(request); _require_postgres(); owner = str(user["user_id"])
+        with session_factory()() as db:
+            _owned_workspace(db, owner, workspace_id)
+            rows = db.execute(text("SELECT item_type, item_id FROM studio_workspace_items WHERE workspace_id = :w"), {"w": workspace_id}).all()
+        return {"source_ids": [r[1] for r in rows if r[0] == "source"], "conversation_ids": [r[1] for r in rows if r[0] == "conversation"]}
+
+    @router.post("/workspaces/{workspace_id}/items")
+    def assign_item(workspace_id: str, body: WorkspaceItemBody, request: Request) -> dict:
+        user = current_user(request); _require_postgres(); owner = str(user["user_id"])
+        table, key = {"source": ("knowledge_sources", "source_id"), "conversation": ("conversations", "conversation_id")}[body.item_type]
+        with session_factory()() as db:
+            _owned_workspace(db, owner, workspace_id)
+            if db.execute(text(f"SELECT 1 FROM {table} WHERE {key} = :i AND owner_user_id = :o"), {"i": body.item_id, "o": owner}).scalar() is None:
+                raise HTTPException(404, "Không tìm thấy mục cần gán.")
+            db.execute(text("""INSERT INTO studio_workspace_items (workspace_id, item_type, item_id) VALUES (:w, :t, :i)
+                ON CONFLICT (item_type, item_id) DO UPDATE SET workspace_id = EXCLUDED.workspace_id"""), {"w": workspace_id, "t": body.item_type, "i": body.item_id})
+            db.commit()
+        return {"workspace_id": workspace_id, "item_type": body.item_type, "item_id": body.item_id}
+
+    @router.delete("/workspaces/{workspace_id}")
+    def delete_workspace(workspace_id: str, request: Request, delete_sources: bool = False) -> dict:
+        """Xóa không gian. Cuộc trò chuyện (có lượt chạy gắn kèm) chuyển sang không gian còn lại;
+        tài liệu bị xóa hẳn nếu delete_sources=true, nếu không thì cũng chuyển sang."""
+        user = current_user(request); _require_postgres(); owner = str(user["user_id"])
+        with session_factory()() as db:
+            _owned_workspace(db, owner, workspace_id)
+            fallback = db.execute(text("""SELECT workspace_id FROM studio_workspaces WHERE owner_user_id = :o AND workspace_id <> :w
+                ORDER BY created_at, workspace_id LIMIT 1"""), {"o": owner, "w": workspace_id}).scalar()
+            if fallback is None:
+                raise HTTPException(409, "Cần giữ lại ít nhất một không gian làm việc.")
+            sources = [r[0] for r in db.execute(text("SELECT item_id FROM studio_workspace_items WHERE workspace_id = :w AND item_type = 'source'"), {"w": workspace_id})]
+        removed = 0
+        if delete_sources:
+            for sid in sources:
+                try:
+                    _delete_source(user, sid); removed += 1
+                except HTTPException:
+                    pass  # tài liệu đã mất trước đó
+        with session_factory()() as db:
+            db.execute(text("UPDATE studio_workspace_items SET workspace_id = :f WHERE workspace_id = :w"), {"f": fallback, "w": workspace_id})
+            db.execute(text("DELETE FROM studio_workspaces WHERE workspace_id = :w AND owner_user_id = :o"), {"w": workspace_id, "o": owner})
+            db.commit()
+        return {"deleted": workspace_id, "moved_to": fallback, "sources_deleted": removed}
 
     @router.post("/compare")
     async def compare(body: CompareRequest, request: Request) -> dict:

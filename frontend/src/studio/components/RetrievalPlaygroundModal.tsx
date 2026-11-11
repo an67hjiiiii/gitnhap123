@@ -7,7 +7,7 @@ import { StudioModal } from './StudioModal';
 interface RetrievalPlaygroundModalProps {
   isOpen: boolean;
   onClose: () => void;
-  workspaceId: number;
+  workspaceId: number | string;
   initialQuery?: string;
   onSearchingState?: (isSearching: boolean, query?: string, resultSummary?: string) => void;
 }

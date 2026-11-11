@@ -25,6 +25,7 @@ import {
   deleteDocument,
   getTelemetry, 
   listConversations,
+  deleteWorkspace,
   Conversation,
   getHealth,
   getWorkspaces,
@@ -67,14 +68,14 @@ function DashboardWorkspace({
   const { setState: setRobotState, speak: robotSpeak } = useRobotAssistant();
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<number>(0);
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<number | string>(0);
 
   // Analysis & Ingestion States
   const [resultsMap, setResultsMap] = useState<Record<string, ModeExecutionResult>>({});
   const [isAblationRunning, setIsAblationRunning] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const refreshConversations = () => { if (user) listConversations().then(setConversations).catch(() => undefined); };
+  const refreshConversations = () => { if (user && currentWorkspaceId) listConversations(currentWorkspaceId).then(setConversations).catch(() => undefined); };
   const [isUploading, setIsUploading] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
 
@@ -106,7 +107,7 @@ function DashboardWorkspace({
   };
 
   useEffect(() => {
-    setDocuments([]); setTelemetryLogs([]); setResultsMap({}); setHealth(null);
+    setDocuments([]); setTelemetryLogs([]); setResultsMap({}); setHealth(null); setConversations([]);
     refreshConversations();
     setSelectedDocForInspection(null); setIsChunksModalOpen(false); setIsPlaygroundModalOpen(false);
     refreshState();
@@ -184,8 +185,9 @@ function DashboardWorkspace({
   const handleCreateWorkspace = async (name: string, description: string) => {
     try {
       const newWs = await createWorkspace(name, description);
-      setWorkspaces(prev => [newWs, ...prev]);
+      setWorkspaces(prev => [...prev, newWs]);
       setCurrentWorkspaceId(newWs.id);
+      setActiveConversationId(null);
       setRobotState('happy');
       robotSpeak(`Đã khởi tạo thành công không gian làm việc mới: "${name}"!`);
     } catch (err: any) {
@@ -195,8 +197,22 @@ function DashboardWorkspace({
     }
   };
 
-  const handleWorkspaceChange = (wsId: number) => {
+  const handleDeleteWorkspace = async (wsId: number | string, deleteSources: boolean) => {
+    try {
+      const target = workspaces.find(w => w.id === wsId);
+      const r = await deleteWorkspace(wsId, deleteSources);
+      setWorkspaces(prev => prev.filter(w => w.id !== wsId));
+      if (currentWorkspaceId === wsId) { setCurrentWorkspaceId(r.moved_to); setActiveConversationId(null); }
+      setToast({ text: `Đã xóa không gian "${target?.name ?? ''}"${deleteSources ? ` và ${r.sources_deleted} tài liệu` : ''}.`, tone: 'ok' });
+      void refreshState();
+    } catch (err: any) {
+      setToast({ text: err.message, tone: 'error' });
+    }
+  };
+
+  const handleWorkspaceChange = (wsId: number | string) => {
     setCurrentWorkspaceId(wsId);
+    setActiveConversationId(null);
     const targetWs = workspaces.find(w => w.id === wsId);
     setRobotState('searching');
     robotSpeak(`Đã chuyển sang dự án: "${targetWs?.name || 'mới'}". Đang tải kho tài liệu...`);
@@ -266,6 +282,8 @@ function DashboardWorkspace({
         workspaces={workspaces}
         currentWorkspaceId={currentWorkspaceId}
         onWorkspaceChange={handleWorkspaceChange}
+        onCreateWorkspace={handleCreateWorkspace}
+        onDeleteWorkspace={handleDeleteWorkspace}
         onLogout={onLogout}
         isMobileDrawerOpen={isMobileDrawerOpen}
         onToggleMobileDrawer={() => setIsMobileDrawerOpen(prev => !prev)}
@@ -279,7 +297,7 @@ function DashboardWorkspace({
           onOpenPlayground={() => handleOpenPlayground()}
           onDeleteDocument={handleDeleteSingleDoc}
           isUploading={isUploading}
-          totalChunks={health?.total_chunks_count || 0}
+          totalChunks={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)}
           user={user}
         />
         {user && <ConversationHistory conversations={conversations} activeId={activeConversationId}
@@ -299,7 +317,10 @@ function DashboardWorkspace({
             <Link to="/login">Đăng nhập</Link>
           </div>
         )}
-        {activeTab === 'orchestration' && <WorkspaceView conversationId={activeConversationId} onConversation={setActiveConversationId} onChanged={refreshConversations} userName={user?.full_name} />}
+        {activeTab === 'orchestration' && <WorkspaceView workspaceId={currentWorkspaceId} conversationId={activeConversationId} onConversation={setActiveConversationId} onChanged={refreshConversations} userName={user?.full_name}
+          docCount={documents.length} chunkCount={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)} modelOk={health?.ollama_status === 'CONNECTED'}
+          workspaceName={workspaces.find(w => w.id === currentWorkspaceId)?.name} recent={conversations}
+          onSeed={handleSeedDocs} onUploadFile={handleUpload} onOpenPlayground={() => handleOpenPlayground()} />}
         {activeTab === 'benchmarks' && <div className="st-legacy"><BenchmarkLab resultsMap={resultsMap} telemetryLogs={telemetryLogs} onRefreshTelemetry={refreshTelemetry} onRunAblation={handleRunAblation} isAblationRunning={isAblationRunning} /></div>}
         {activeTab === 'db_explorer' && user?.role === 'admin' && <div className="st-legacy"><DatabaseExplorer /></div>}
       </div>
