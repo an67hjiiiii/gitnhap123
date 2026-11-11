@@ -65,7 +65,7 @@ export const DatabaseExplorer: React.FC = () => {
     <div className="pg">
       <div className="pg-col">
         <header className="pg-head">
-          <div><h1>Cơ sở dữ liệu</h1><p>{overview ? `${overview.tables.length} bảng quan hệ` : "Các bảng quan hệ"} ({overview?.database_type || "đang tải"}). PostgreSQL là nguồn dữ liệu chính; Qdrant chỉ là chỉ mục dẫn xuất, dựng lại được.</p></div>
+          <div><h1>Cơ sở dữ liệu</h1><p>{overview ? `${overview.tables.length} bảng · PostgreSQL` : "Đang tải…"}</p></div>
           <button className="btn btn-ghost" onClick={() => { fetchOverview(); fetchTable(selectedTable, searchQuery); }} disabled={isRefreshing}><RefreshCw size={15} className={isRefreshing ? 'is-spinning' : ''} />Làm mới</button>
         </header>
 
@@ -125,7 +125,7 @@ export const DatabaseExplorer: React.FC = () => {
                 <div><b>{cp.code} · {cp.name}</b><p>{cp.details}</p></div><span className="cell-pill">{cp.status}</span>
               </li>
             ))}</ul>
-            <p className="footnote">Đây là tự kiểm tra cấu hình của ứng dụng, không phải chứng nhận bảo mật độc lập.</p>
+            <p className="footnote">Tự kiểm tra, không phải chứng nhận bảo mật.</p>
           </> : <div className="empty">Không có dữ liệu kiểm tra.</div>}
       </StudioModal>}
 

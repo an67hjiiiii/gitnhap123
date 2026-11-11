@@ -84,7 +84,7 @@ export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetr
     <main className="pg">
       <div className="pg-col">
         <header className="pg-head">
-          <div><h1>Thực nghiệm</h1><p>So sánh ba phương pháp trên cùng một yêu cầu, quản lý cấu hình và xem nhật ký lượt chạy.</p></div>
+          <div><h1>Thực nghiệm</h1><p>Cùng một câu hỏi, ba cách làm, đặt cạnh nhau.</p></div>
           <button className="btn btn-ghost" onClick={onRefreshTelemetry}><RefreshCw size={15} />Làm mới</button>
         </header>
 
@@ -106,7 +106,7 @@ export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetr
               </button>
             </div>
           </div>
-          {isAblationRunning && <p className="muted-line"><Clock size={14} />Ba phương pháp chạy lần lượt trên mô hình cục bộ, có thể mất vài phút. Hệ thống chưa báo tiến độ từng bước.</p>}
+          {isAblationRunning && <p className="muted-line"><Clock size={14} />Đang chạy lần lượt A, B, C · có thể mất vài phút.</p>}
 
           <div className="cmp">
             {METHODS.map(m => {
@@ -139,11 +139,11 @@ export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetr
               );
             })}
           </div>
-          <p className="footnote">Số liệu do API nguyên mẫu trả về cho lượt chạy vừa rồi. Độ phủ và mức tiết kiệm token chưa được thẩm định; một lượt chạy không phải kết quả thực nghiệm.</p>
+          <p className="footnote">Số mô tả của một lượt chạy, chưa phải kết quả thực nghiệm.</p>
         </>}
 
         {tab === 'configs' && <>
-          <div className="row-head"><p>Backend CAP1 cấu hình bằng biến môi trường. Mỗi lượt chạy ghi <b>config_hash</b> nên biết chính xác cấu hình đã dùng (tái lập).</p></div>
+          <div className="row-head"><p>Cấu hình đang chạy (chỉ đọc). Mỗi lượt ghi <b>config_hash</b> để tái lập.</p></div>
           {loadingConfigs ? <p className="muted-line"><span className="spin is-dark" />Đang tải cấu hình…</p> : !runtimeCfg ? <div className="empty">Không tải được cấu hình đang chạy.</div> : (
             <div className="tbl">
               <table>
@@ -161,7 +161,7 @@ export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetr
             <div className="seg">{[['all', 'Tất cả'], ['C', 'C'], ['B', 'B'], ['A', 'A'], ['C-P', 'C-P'], ['C-N', 'C-N'], ['C-O', 'C-O']].map(([k, l]) => <button key={k} className={filter === k ? 'is-on' : ''} onClick={() => setFilter(k)} aria-pressed={filter === k}>{l}</button>)}</div>
             <label className="search"><Search size={14} /><span className="sr">Lọc theo yêu cầu</span><input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm yêu cầu hoặc mã" /></label>
           </div>
-          <p className="muted-line">Lượt chạy mới ghi số đo thật lúc chạy (token, thời gian). Chất lượng và tiết kiệm token còn chờ đánh giá; số liệu cũ chưa xác minh không dùng để kết luận.</p>
+          <p className="muted-line">Token và thời gian đo thật; chất lượng chưa chấm.</p>
           {logs.length === 0 ? <div className="empty">Chưa có lượt chạy phù hợp.</div> : (
             <div className="tbl">
               <table>

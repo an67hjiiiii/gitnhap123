@@ -6,8 +6,8 @@ import { BrandLogo } from './BrandLogo';
 
 interface HeaderProps {
   health: HealthResponse | null;
-  mode: ExecutionMode;
-  onModeChange: (m: ExecutionMode) => void;
+  mode?: ExecutionMode;
+  onModeChange?: (m: ExecutionMode) => void;
   onSeedDocs: () => void;
   isSeeding: boolean;
   activeTab: NavigationTab;
@@ -86,8 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const nav: { id: NavigationTab; label: string; Icon: typeof MessagesSquare; show: boolean }[] = [
-    { id: 'orchestration', label: 'Điều phối', Icon: MessagesSquare, show: true },
-    { id: 'chat', label: 'Trò chuyện', Icon: MessageCircle, show: true },
+    { id: 'orchestration', label: 'Không gian làm việc', Icon: MessagesSquare, show: true },
     { id: 'benchmarks', label: 'Thực nghiệm', Icon: FlaskConical, show: true },
     { id: 'db_explorer', label: 'Cơ sở dữ liệu', Icon: Database, show: user?.role === 'admin' },
   ];

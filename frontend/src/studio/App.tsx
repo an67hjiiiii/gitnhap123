@@ -5,9 +5,8 @@ import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { Header } from './components/Header';
 import { LeftPanel } from './components/LeftPanel';
-import { RunHistory } from './components/RunHistory';
-import { ChatStudio } from './components/ChatStudio';
-import { CenterCanvas } from './components/CenterCanvas';
+import { Workspace as WorkspaceView } from './components/Workspace';
+import { ConversationHistory } from './components/ConversationHistory';
 import { BenchmarkLab } from './components/BenchmarkLab';
 import { DatabaseExplorer } from './components/DatabaseExplorer';
 import { DocumentChunksModal } from './components/DocumentChunksModal';
@@ -25,7 +24,8 @@ import {
   clearDocuments, 
   deleteDocument,
   getTelemetry, 
-  getRunDetail,
+  listConversations,
+  Conversation,
   getHealth,
   getWorkspaces,
   createWorkspace,
@@ -71,12 +71,10 @@ function DashboardWorkspace({
 
   // Analysis & Ingestion States
   const [resultsMap, setResultsMap] = useState<Record<string, ModeExecutionResult>>({});
-  const [currentResult, setCurrentResult] = useState<ModeExecutionResult | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  // Lượt chạy cũ đang mở lại từ Lịch sử trò chuyện (null = đang xem lượt vừa chạy hoặc trang trống).
-  const [viewingRun, setViewingRun] = useState<{ id: number; query: string; createdAt: string } | null>(null);
-  const [loadingRunId, setLoadingRunId] = useState<number | null>(null);
   const [isAblationRunning, setIsAblationRunning] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const refreshConversations = () => { if (user) listConversations().then(setConversations).catch(() => undefined); };
   const [isUploading, setIsUploading] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
 
@@ -99,89 +97,28 @@ function DashboardWorkspace({
         setCurrentWorkspaceId(wsList[0]?.id ?? 0);
         return;
       }
-      const [h, docs, telem] = await Promise.all([
-        getHealth(currentWorkspaceId), getDocuments(currentWorkspaceId), getTelemetry(currentWorkspaceId)
-      ]);
+      const [h, docs] = await Promise.all([getHealth(currentWorkspaceId), getDocuments(currentWorkspaceId)]);
       if (sequence !== refreshSequence.current || selectedWorkspace.current !== currentWorkspaceId) return;
-      setHealth(h); setDocuments(docs); setTelemetryLogs(telem);
+      setHealth(h); setDocuments(docs);
     } catch (err) {
       console.error('Không tải được trạng thái workspace:', err);
     }
   };
 
   useEffect(() => {
-    setDocuments([]); setTelemetryLogs([]); setCurrentResult(null); setResultsMap({}); setHealth(null); setViewingRun(null);
+    setDocuments([]); setTelemetryLogs([]); setResultsMap({}); setHealth(null);
+    refreshConversations();
     setSelectedDocForInspection(null); setIsChunksModalOpen(false); setIsPlaygroundModalOpen(false);
     refreshState();
     const interval = setInterval(refreshState, 15000);
     return () => { clearInterval(interval); refreshSequence.current++; };
   }, [currentWorkspaceId]);
 
+  // Nhật ký lượt chạy chỉ cần ở trang Thực nghiệm.
+  const refreshTelemetry = () => getTelemetry(currentWorkspaceId).then(setTelemetryLogs).catch(() => undefined);
+  useEffect(() => { if (activeTab === 'benchmarks') void refreshTelemetry(); }, [activeTab]);
+
   // Execution Handlers
-  const handleAnalyze = async (query: string) => {
-    setViewingRun(null);
-    setCurrentResult(null); // không để kết quả lượt trước hiện lẫn khi lượt mới lỗi
-    setIsAnalyzing(true);
-    setRobotState('decomposing');
-    robotSpeak('Đang xử lý yêu cầu. Chờ backend trả kết quả; chưa có trạng thái chi tiết từng bước.');
-
-    try {
-      const response = await analyzeQuery(
-        query, 
-        mode, 
-        4, 
-        currentWorkspaceId, 
-        user?.id
-      );
-      if (selectedWorkspace.current !== currentWorkspaceId) return;
-      setResultsMap(response.results);
-
-      let targetResult: ModeExecutionResult;
-      if (mode === 'ablation_comparison') {
-        targetResult = response.results['proposed_adaptive'] || Object.values(response.results)[0];
-      } else {
-        targetResult = response.results[mode] || Object.values(response.results)[0];
-      }
-      setCurrentResult(targetResult);
-
-      if (targetResult && (targetResult.tokens_saved != null && targetResult.tokens_saved > 0)) {
-        setRobotState('completed');
-        robotSpeak(`Xuất sắc! Khử trùng lặp thành công: Tiết kiệm ${percent(targetResult.token_saving_ratio, 1)} Token!`);
-      } else {
-        setRobotState('completed');
-        robotSpeak(`Xong rồi! Kết quả đã sẵn sàng sau ${((targetResult?.latency_ms || 0) / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} giây. Xem bên dưới nhé.`);
-      }
-
-      // Re-fetch telemetry history
-      const updatedTelem = await getTelemetry(currentWorkspaceId).catch(() => []);
-      if (selectedWorkspace.current !== currentWorkspaceId) return;
-      setTelemetryLogs(updatedTelem);
-    } catch (err: any) {
-      setRobotState('error');
-      robotSpeak(`Lỗi quy trình điều phối: ${err.message}`);
-      setToast({ text: `Lỗi quy trình điều phối: ${err.message}`, tone: 'error' });
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const handleOpenRun = async (run: TelemetryRecord) => {
-    if (isAnalyzing) { setToast({ text: 'Đang chạy một yêu cầu, chờ xong rồi hãy mở lịch sử.', tone: 'error' }); return; }
-    setLoadingRunId(run.id);
-    try {
-      const detail = await getRunDetail(run.id);
-      if (selectedWorkspace.current !== currentWorkspaceId) return;
-      setCurrentResult(detail.result);
-      setViewingRun({ id: detail.id, query: detail.user_query, createdAt: detail.created_at });
-      setActiveTab('orchestration'); setIsMobileDrawerOpen(false);
-    } catch (err: any) {
-      setToast({ text: err.message, tone: 'error' });
-    } finally {
-      setLoadingRunId(null);
-    }
-  };
-  const handleNewChat = () => { setViewingRun(null); setCurrentResult(null); };
-
   const handleRunAblation = async (query: string) => {
     setIsAblationRunning(true);
     setRobotState('working');
@@ -196,9 +133,6 @@ function DashboardWorkspace({
       );
       if (selectedWorkspace.current !== currentWorkspaceId) return;
       setResultsMap(response.results);
-      if (response.results['proposed_adaptive']) {
-        setCurrentResult(response.results['proposed_adaptive']);
-      }
       const updatedTelem = await getTelemetry(currentWorkspaceId).catch(() => []);
       if (selectedWorkspace.current !== currentWorkspaceId) return;
       setTelemetryLogs(updatedTelem);
@@ -268,22 +202,6 @@ function DashboardWorkspace({
     robotSpeak(`Đã chuyển sang dự án: "${targetWs?.name || 'mới'}". Đang tải kho tài liệu...`);
   };
 
-  const handleModeChange = (newMode: ExecutionMode) => {
-    setMode(newMode);
-    if (newMode === 'proposed_adaptive') {
-      setRobotState('thinking');
-      robotSpeak('Đã chọn Điều phối Thích ứng: Phân rã có truy xuất và khử trùng lặp qua Shared Brief.');
-    } else if (newMode === 'ablation_comparison') {
-      setRobotState('working');
-      robotSpeak('Đã chọn Chế độ So sánh Thực nghiệm: Chạy đối chứng cả 3 baseline để xuất biểu đồ.');
-    } else if (newMode === 'naive_multi_agent') {
-      setRobotState('idle');
-      robotSpeak('Đã chọn Multi-Agent Ngây thơ (Baseline 2): Nhân bản context cho từng Agent.');
-    } else if (newMode === 'vanilla_rag') {
-      setRobotState('idle');
-      robotSpeak('Đã chọn Vanilla RAG (Baseline 1): 1 Prompt duy nhất không phân rã nhiệm vụ.');
-    }
-  };
 
   const handleClearDocs = async () => {
     if (window.confirm('Bạn có chắc chắn muốn xóa toàn bộ tài liệu trong workspace hiện tại?')) {
@@ -340,8 +258,6 @@ function DashboardWorkspace({
     <div className="st-app">
       <Header
         health={health}
-        mode={mode}
-        onModeChange={handleModeChange}
         onSeedDocs={handleSeedDocs}
         isSeeding={isSeeding}
         activeTab={activeTab}
@@ -366,13 +282,15 @@ function DashboardWorkspace({
           totalChunks={health?.total_chunks_count || 0}
           user={user}
         />
-        {user && <RunHistory runs={telemetryLogs} activeRunId={viewingRun?.id ?? null} loadingRunId={loadingRunId} onOpenRun={handleOpenRun} />}
+        {user && <ConversationHistory conversations={conversations} activeId={activeConversationId}
+          onOpen={id => { setActiveConversationId(id); setActiveTab('orchestration'); setIsMobileDrawerOpen(false); }}
+          onNew={() => { setActiveConversationId(null); setActiveTab('orchestration'); setIsMobileDrawerOpen(false); }} />}
       </Header>
 
       <div className="st-main">
         <div className="st-mobilebar">
           <button className="icon-btn" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Mở thanh bên" aria-expanded={isMobileDrawerOpen}><Menu size={20} /></button>
-          <b>{activeTab === 'orchestration' ? 'Điều phối' : activeTab === 'chat' ? 'Trò chuyện' : activeTab === 'benchmarks' ? 'Thực nghiệm' : 'Cơ sở dữ liệu'}</b>
+          <b>{activeTab === 'orchestration' ? 'Không gian làm việc' : activeTab === 'benchmarks' ? 'Thực nghiệm' : 'Cơ sở dữ liệu'}</b>
         </div>
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
         {!user && (
@@ -381,9 +299,8 @@ function DashboardWorkspace({
             <Link to="/login">Đăng nhập</Link>
           </div>
         )}
-        {activeTab === 'orchestration' && <CenterCanvas onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} result={currentResult} mode={mode} onModeChange={handleModeChange} userName={user?.full_name} viewing={viewingRun} onNewChat={handleNewChat} />}
-        {activeTab === 'benchmarks' && <div className="st-legacy"><BenchmarkLab resultsMap={resultsMap} telemetryLogs={telemetryLogs} onRefreshTelemetry={refreshState} onRunAblation={handleRunAblation} isAblationRunning={isAblationRunning} /></div>}
-        {activeTab === 'chat' && <ChatStudio />}
+        {activeTab === 'orchestration' && <WorkspaceView conversationId={activeConversationId} onConversation={setActiveConversationId} onChanged={refreshConversations} userName={user?.full_name} />}
+        {activeTab === 'benchmarks' && <div className="st-legacy"><BenchmarkLab resultsMap={resultsMap} telemetryLogs={telemetryLogs} onRefreshTelemetry={refreshTelemetry} onRunAblation={handleRunAblation} isAblationRunning={isAblationRunning} /></div>}
         {activeTab === 'db_explorer' && user?.role === 'admin' && <div className="st-legacy"><DatabaseExplorer /></div>}
       </div>
 
@@ -429,7 +346,7 @@ function AppContent() {
   const handleLoginSuccess = (loggedUser: User) => {
     setUser(loggedUser);
     setRobotState('happy');
-    robotSpeak(`Xin chào ${loggedUser.full_name}! Đã kích hoạt phiên làm việc vai trò ${loggedUser.role}.`);
+    robotSpeak(`Xin chào ${loggedUser.full_name}! Chạm vào khung bên dưới để bắt đầu nhé.`);
   };
 
   const handleLogout = () => {

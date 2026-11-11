@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import gsap from 'gsap';
@@ -148,6 +148,61 @@ function VideoTeaser({ onOpen, children }: { onOpen: () => void; children?: Reac
   </button>;
 }
 
+
+// Giá trị đổi theo cuộn (chương câu chuyện, bước đường ray): chỉ khối nhỏ đọc nó render lại,
+// không render lại cả trang mỗi lần qua mốc (rất tốn ở React 19 chế độ phát triển, gây giật khi cuộn).
+type ScrollValue = { v: number; subs: Set<() => void> };
+const createValue = (v: number): ScrollValue => ({ v, subs: new Set() });
+const setValue = (s: ScrollValue, v: number) => { if (s.v === v) return; s.v = v; s.subs.forEach(f => f()); };
+function useValue(s: ScrollValue) {
+  return useSyncExternalStore(cb => { s.subs.add(cb); return () => { s.subs.delete(cb); }; }, () => s.v);
+}
+
+function ChapterCopy({ store }: { store: ScrollValue }) {
+  const pch = useValue(store);
+  return <>{PAPER_CHAPTERS.map((c, i) => <div key={c.tag} className={`v4-chapter${i === pch ? ' is-on' : ''}${i >= 2 ? ' is-dark' : ''}`} aria-hidden={i !== pch}>
+    <p className="v4-kicker">0{i + 1} — {c.tag}</p><h2>{c.title}</h2><p>{c.body}</p>
+  </div>)}</>;
+}
+
+function ChapterTabs({ store }: { store: ScrollValue }) {
+  const pch = useValue(store);
+  return <div className="v4-tabs" aria-hidden="true">{PAPER_CHAPTERS.map((c, i) => <span key={c.tag} className={i === pch ? 'is-on' : ''}><b/>0{i + 1} {c.tag}</span>)}</div>;
+}
+
+function RailCount({ store }: { store: ScrollValue }) {
+  const rail = useValue(store);
+  return <div className="lp-rail-count" aria-hidden="true"><b>{String(rail + 1).padStart(2, '0')}</b><span>/ 08</span><em>{STEPS[rail].title}</em></div>;
+}
+
+// Hộp bốn phương pháp tự chuyển mỗi 4,5 giây: giữ trạng thái riêng để không render lại cả trang.
+function MethodsBox({ motionOn }: { motionOn: boolean }) {
+  const [method, setMethod] = useState(3);
+  const [autoMethod, setAutoMethod] = useState(true);
+  useEffect(() => {
+    if (!motionOn || !autoMethod) return;
+    const t = window.setInterval(() => setMethod(m => (m + 1) % METHODS.length), 4500);
+    return () => window.clearInterval(t);
+  }, [motionOn, autoMethod]);
+  return <div className="lp-methods-box lp-reveal">
+          <div className="lp-methods-tabs" role="tablist" aria-label="Chọn phương pháp">
+            {METHODS.map((m, i) => <button key={m.key} role="tab" id={`lp-m-${i}`} aria-selected={method === i} aria-controls="lp-m-panel" tabIndex={method === i ? 0 : -1}
+              onClick={() => { setMethod(i); setAutoMethod(false); sfx.tick(); }}
+              onKeyDown={e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const n = (i + (e.key === 'ArrowRight' ? 1 : METHODS.length - 1)) % METHODS.length; setMethod(n); setAutoMethod(false); document.getElementById(`lp-m-${n}`)?.focus(); } }}>
+              <b>{m.key}</b><span>{m.name}</span>
+              {method === i && autoMethod && motionOn && <i className="lp-tab-timer" key={method}/>}
+            </button>)}
+          </div>
+          <div className="lp-methods-panel" role="tabpanel" id="lp-m-panel" aria-labelledby={`lp-m-${method}`}>
+            <div className="lp-methods-text" key={method}>
+              <h3>{METHODS[method].name}{METHODS[method].key === 'A' && <em>Đề xuất</em>}</h3>
+              <p>{METHODS[method].body}</p>
+            </div>
+            <Flow v={METHODS[method].key as Variant} key={`m${method}`}/>
+          </div>
+  </div>;
+}
+
 export function LandingPage() {
   const root = useRef<HTMLDivElement>(null);
   const [fullMotion, setFullMotion] = useState(() => {
@@ -178,21 +233,28 @@ export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
   const closeVideo = useCallback(() => { setVideoOpen(false); sfx.tick(false); }, []);
-  const [pch, setPch] = useState(0);
-  const [rail, setRail] = useState(0);
+  const pchStore = useRef(createValue(0)).current;
+  const railStore = useRef(createValue(0)).current;
   const [soundOn, setSoundOn] = useState(soundPref);
   useEffect(() => { setSound(soundOn); }, [soundOn]);
   const toggleSound = () => { const next = !soundOn; setSound(next); setSoundOn(next); if (next) sfx.on(); };
   // Âm theo chương của cảnh chồng tài liệu và theo bước của đường ray; bỏ qua lần render đầu.
-  const prevPch = useRef(pch);
   useEffect(() => {
-    const from = prevPch.current; prevPch.current = pch;
-    if (from === pch) return;
-    if (pch < from) sfx.paper(2);
-    else if (pch === 1) sfx.overload();
-    else if (pch === 2) { sfx.scan(); window.setTimeout(() => sfx.paper(4), 420); }
-    else if (pch === 3) sfx.done();
-  }, [pch]);
+    let from = pchStore.v;
+    const onChange = () => {
+      const pch = pchStore.v;
+      // Thuộc tính data-ch điều khiển nền sáng/tối của cảnh; cập nhật thẳng vào DOM, không render lại trang.
+      document.getElementById('cau-chuyen')?.setAttribute('data-ch', String(pch));
+      if (from === pch) return;
+      if (pch < from) sfx.paper(2);
+      else if (pch === 1) sfx.overload();
+      else if (pch === 2) { sfx.scan(); window.setTimeout(() => sfx.paper(4), 420); }
+      else if (pch === 3) sfx.done();
+      from = pch;
+    };
+    pchStore.subs.add(onChange);
+    return () => { pchStore.subs.delete(onChange); };
+  }, [pchStore]);
   // Âm khi từng phần xuất hiện, độc lập với chế độ chuyển động; mỗi phần một kiểu âm.
   useEffect(() => {
     const cues: [string, () => void][] = [
@@ -212,9 +274,11 @@ export function LandingPage() {
     if (el && el !== lastHover.current) sfx.hover();
     lastHover.current = el;
   };
-  const prevRail = useRef(rail);
-  useEffect(() => { if (prevRail.current !== rail) sfx.step(rail); prevRail.current = rail; }, [rail]);
-  const [method, setMethod] = useState(3);
+  useEffect(() => {
+    const onChange = () => sfx.step(railStore.v);
+    railStore.subs.add(onChange);
+    return () => { railStore.subs.delete(onChange); };
+  }, [railStore]);
   useEffect(() => {
     if (!menuOpen) return;
     const close = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
@@ -308,7 +372,7 @@ export function LandingPage() {
             trigger: '.v4-paper', start: 'top top', end: '+=4000', pin: true, scrub: 0.8, anticipatePin: 1, invalidateOnRefresh: true,
             onUpdate: self => {
               const p = self.progress * 4;
-              setPch(p < 1 ? 0 : p < 2.2 ? 1 : p < 3.25 ? 2 : 3);
+              setValue(pchStore, p < 1 ? 0 : p < 2.2 ? 1 : p < 3.25 ? 2 : 3);
               gsap.utils.toArray<HTMLElement>('.v4-tab b').forEach((b, i) => gsap.set(b, { scaleX: gsap.utils.clamp(0, 1, p - i) }));
             },
           } })
@@ -354,19 +418,12 @@ export function LandingPage() {
       const railSteps = gsap.utils.toArray<HTMLElement>('.lp-rail-step');
       // Mỗi bước sáng từ lúc đầu nó qua mốc 62% đến khi bước kế tiếp tới mốc đó, không có khoảng trống giữa hai thẻ.
       railSteps.forEach((el, i) => ScrollTrigger.create({ trigger: el, start: 'top 62%', ...(railSteps[i + 1] ? { endTrigger: railSteps[i + 1], end: 'top 62%' } : { end: 'bottom 62%' }),
-        onToggle: self => { el.classList.toggle('is-active', self.isActive); if (self.isActive) setRail(i); } }));
+        onToggle: self => { el.classList.toggle('is-active', self.isActive); if (self.isActive) setValue(railStore, i); } }));
       return () => { splits.forEach(s => s.revert()); smoother?.kill(); };
     });
     return () => mm.revert();
   }, { scope: root, dependencies: [fullMotion, wide], revertOnUpdate: true });
 
-  // Tự chuyển phương pháp khi chưa tương tác; dừng khi người dùng chọn.
-  const [autoMethod, setAutoMethod] = useState(true);
-  useEffect(() => {
-    if (!motionOn || !autoMethod) return;
-    const t = window.setInterval(() => setMethod(m => (m + 1) % METHODS.length), 4500);
-    return () => window.clearInterval(t);
-  }, [motionOn, autoMethod]);
 
   const lines = (text: string) => text.split('\n').map(t => <span className="lp-line" key={t}><span>{t}</span></span>);
   const fill = (text: string) => text.split(' ').map((w, i) => <span key={i}>{w} </span>);
@@ -464,17 +521,15 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="v4-paper" id="cau-chuyen" data-ch={pch} data-mode={pinned ? 'pin' : 'flow'}>
+      <section className="v4-paper" id="cau-chuyen" data-ch={pchStore.v} data-mode={pinned ? 'pin' : 'flow'}>
         {pinned ? <div className="v4-paper-inner">
           <div className="v4-dark" aria-hidden="true"/>
           <div className="v4-scan" aria-hidden="true"/>
           <div className="v4-paper-copy" aria-live="polite">
-            {PAPER_CHAPTERS.map((c, i) => <div key={c.tag} className={`v4-chapter${i === pch ? ' is-on' : ''}${i >= 2 ? ' is-dark' : ''}`} aria-hidden={i !== pch}>
-              <p className="v4-kicker">0{i + 1} — {c.tag}</p><h2>{c.title}</h2><p>{c.body}</p>
-            </div>)}
+            <ChapterCopy store={pchStore}/>
           </div>
           <PaperStage/>
-          <div className="v4-tabs" aria-hidden="true">{PAPER_CHAPTERS.map((c, i) => <span key={c.tag} className={i === pch ? 'is-on' : ''}><b/>0{i + 1} {c.tag}</span>)}</div>
+          <ChapterTabs store={pchStore}/>
         </div> : <div className="lp-wrap v4-paper-flow">{PAPER_CHAPTERS.map((c, i) => <article key={c.tag} className="lp-reveal">
           <p className="v4-kicker">0{i + 1} — {c.tag}</p><h2>{c.title}</h2><p>{c.body}</p>
           <Flow v={(['overload', 'M', 'alloc', 'final'] as const)[i]}/>
@@ -510,7 +565,7 @@ export function LandingPage() {
             <p className="lp-eyebrow">Bên trong một lượt chạy</p>
             <h2 className="lp-big lp-split">Tám bước, <span>không bước nào bị giấu.</span></h2>
             <p className="lp-rail-intro">Đây là đúng tám bước mà Studio hiển thị cho mỗi lượt điều phối. Bạn có thể mở từng bước để xem đầu vào và kết quả của nó.</p>
-            <div className="lp-rail-count" aria-hidden="true"><b>{String(rail + 1).padStart(2, '0')}</b><span>/ 08</span><em>{STEPS[rail].title}</em></div>
+            <RailCount store={railStore}/>
           </div>
           <div className="lp-rail-steps">
             <span className="lp-rail-line" aria-hidden="true"><b/></span>
@@ -551,23 +606,7 @@ export function LandingPage() {
           <div><p className="lp-eyebrow">Bốn phương pháp được so sánh</p><h2 className="lp-big lp-split">Cùng câu hỏi.<br/><span>Bốn cách chia ngữ cảnh.</span></h2></div>
           <p>Để biết phân bổ thích ứng có thật sự giúp ích hay không, nhóm so sánh nó với ba cách làm khác trên cùng mô hình, cùng tài liệu.</p>
         </div>
-        <div className="lp-methods-box lp-reveal">
-          <div className="lp-methods-tabs" role="tablist" aria-label="Chọn phương pháp">
-            {METHODS.map((m, i) => <button key={m.key} role="tab" id={`lp-m-${i}`} aria-selected={method === i} aria-controls="lp-m-panel" tabIndex={method === i ? 0 : -1}
-              onClick={() => { setMethod(i); setAutoMethod(false); sfx.tick(); }}
-              onKeyDown={e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const n = (i + (e.key === 'ArrowRight' ? 1 : METHODS.length - 1)) % METHODS.length; setMethod(n); setAutoMethod(false); document.getElementById(`lp-m-${n}`)?.focus(); } }}>
-              <b>{m.key}</b><span>{m.name}</span>
-              {method === i && autoMethod && motionOn && <i className="lp-tab-timer" key={method}/>}
-            </button>)}
-          </div>
-          <div className="lp-methods-panel" role="tabpanel" id="lp-m-panel" aria-labelledby={`lp-m-${method}`}>
-            <div className="lp-methods-text" key={method}>
-              <h3>{METHODS[method].name}{METHODS[method].key === 'A' && <em>Đề xuất</em>}</h3>
-              <p>{METHODS[method].body}</p>
-            </div>
-            <Flow v={METHODS[method].key as Variant} key={`m${method}`}/>
-          </div>
-        </div>
+        <MethodsBox motionOn={motionOn}/>
       </section>
 
       <section className="lp-caps lp-wrap" id="kha-nang">

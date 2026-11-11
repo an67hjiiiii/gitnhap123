@@ -436,7 +436,23 @@ export function drawLEDMatrix(
     for (let i = 0; i < 8; i++) {
       setPix(7 + i, i % 2 === 0 ? 11 : 12, 0.85);
     }
-  } else if (state === 'completed' || state === 'happy') {
+  } else if (state === 'happy') {
+    // Khi được chạm/tương tác: mắt tròn to có đốm sáng long lanh, má hồng, miệng cười nhỏ, nhún nhẹ.
+    const bob = Math.sin(face.time * 7) > 0.2 ? -1 : 0;
+    const eyeR = 5 + bob;
+    const h = Math.max(1, Math.round(3 * (1 - face.blink)));
+    for (const c0 of [eyeLeftC, eyeRightC]) {
+      drawRectLED(c0, eyeR + (3 - h), 3, h, 1);
+      if (h === 3) setPix(c0 + 2, eyeR, 0.3); // đốm sáng ở góc mắt
+    }
+    // Má hồng hai bên (đèn mờ)
+    drawRectLED(eyeLeftC - 2, 9 + bob, 2, 1, 0.4);
+    drawRectLED(eyeRightC + 3, 9 + bob, 2, 1, 0.4);
+    // Miệng cười nhỏ hình chữ U
+    setPix(9, 10 + bob, 0.85);
+    setPix(12, 10 + bob, 0.85);
+    drawRectLED(10, 11 + bob, 2, 1, 0.95);
+  } else if (state === 'completed') {
     // Mắt cong hình vòng cung cười ^ ^
     const happyEyes = [
       [0, 1, 0],

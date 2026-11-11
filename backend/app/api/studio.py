@@ -53,6 +53,8 @@ def build_router(
     current_user: Callable[[Request], dict],
     owner_pipeline: Callable[..., Any],
     session_factory: Callable[[], Any],
+    owner_source_store: Callable[[dict], Any] | None = None,
+    vector_store: Callable[[], Any] | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/studio", tags=["studio"])
 
@@ -87,6 +89,29 @@ def build_router(
                 for c in hits
             ],
         }
+
+    @router.delete("/sources/{source_id}")
+    def delete_source(source_id: str, request: Request) -> dict:
+        """Xóa một tài liệu của chính người dùng: bản ghi nguồn, các đoạn (CASCADE) và vector dẫn xuất."""
+        user = current_user(request)
+        if owner_source_store is None or session_factory() is None:
+            raise HTTPException(503, "Xóa tài liệu cần APP_STORAGE_BACKEND=postgres.")
+        item = owner_source_store(user).source(source_id)
+        if not item:
+            raise HTTPException(404, "Không tìm thấy tài liệu.")
+        chunk_ids = [c["chunk_id"] for c in item.get("chunks", [])]
+        store = None
+        try:
+            store = vector_store() if vector_store else None
+        except Exception:
+            store = None  # chỉ mục dẫn xuất không mở được: vẫn xóa nguồn có thẩm quyền, vector mồ côi bị lọc theo chunk.
+        if store is not None and chunk_ids:
+            store.delete([f"{user['user_id']}:{cid}" for cid in chunk_ids])
+        with session_factory()() as db:
+            db.execute(text("DELETE FROM knowledge_sources WHERE source_id = :s AND owner_user_id = :o"),
+                       {"s": source_id, "o": str(user["user_id"])})
+            db.commit()
+        return {"deleted": source_id, "chunks_removed": len(chunk_ids), "vectors_removed": bool(store is not None and chunk_ids)}
 
     @router.post("/compare")
     async def compare(body: CompareRequest, request: Request) -> dict:
