@@ -17,9 +17,10 @@
 .lp-skip:focus{top:12px}
 .lp-line{display:block;overflow:hidden;padding-block:.1em .04em;margin-block:-.1em -.04em}
 .lp-line>span{display:block}
-.lp-big{font-size:clamp(36px,4.4vw,66px)!important;line-height:1.08!important;letter-spacing:-.035em!important}
-.lp-big span{font-family:'Playfair Display','Times New Roman',Georgia,serif;font-style:italic;font-weight:600;color:var(--blue);letter-spacing:-.01em}
-.lp-dark .lp-big span,.lp-run .lp-big span,.lp-cta h2 span{color:var(--cyan)}
+.lp-big{font-size:clamp(36px,4.4vw,66px)!important;line-height:1.1!important;letter-spacing:-.035em!important;font-weight:900!important}
+.lp-big span{--hl:rgba(127,211,255,.62);font-family:inherit;font-style:normal;font-weight:900;color:var(--ink);letter-spacing:-.035em;background:linear-gradient(transparent 56%,var(--hl) 56%,var(--hl) 90%,transparent 90%);-webkit-box-decoration-break:clone;box-decoration-break:clone;padding:0 .06em;margin:0 -.06em}
+.lp-dark .lp-big span,.lp-run .lp-big span{--hl:rgba(43,125,233,.7);color:#fff}
+.lp-cta h2 span{color:var(--cyan)}
 .lp mark{background:linear-gradient(transparent 62%,rgba(43,125,233,.22) 62%);color:inherit;padding-inline:.04em}
 .lp s{text-decoration-thickness:4px;text-decoration-color:#e05656;color:#7d8ea0}
 
