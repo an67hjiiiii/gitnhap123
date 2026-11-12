@@ -97,3 +97,89 @@
 .v4-chapter.is-on>p:last-child{opacity:1;transform:none;transition-delay:.38s}
 .v4-device{will-change:transform}
 @media (prefers-reduced-motion:reduce){.lp:not([data-motion=on]) .v4-rw>span,.lp:not([data-motion=on]) .v4-chapter>p:last-child{transform:none;opacity:1;transition:none}}
+
+/* Lớp canvas sao/hạt/xung sáng, nằm trên nền tối và dưới sân khấu */
+.v4-sky{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+/* Câu trả lời tự gõ trong màn hình; cờ "không rõ nguồn" ở chương 2 */
+.v4-ans-line{display:block;font-style:normal;font-weight:600;line-height:1.5;color:var(--ink)}
+.v4-flag{display:inline-block;margin-left:6px;font-size:.78em;font-weight:800;color:#c23f3f;background:#fde8e8;border-radius:4px;padding:1px 6px;vertical-align:1px;opacity:0}
+.v4-screen::after{content:'';position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .5s;background:repeating-linear-gradient(180deg,rgba(214,60,60,.06) 0 2px,transparent 2px 5px)}
+.v4-paper[data-ch="1"] .v4-screen::after{opacity:1}
+.v4-paper[data-ch="1"] .v4-ans-line{text-decoration:underline wavy rgba(214,60,60,.55);text-underline-offset:3px}
+/* Thanh ngân sách trong khay tác tử */
+.v4-budget-label{position:absolute;left:14px;bottom:30px;font-size:11px;font-weight:600;color:rgba(219,234,246,.7)}
+.v4-budget{position:absolute;left:14px;right:14px;bottom:16px;height:6px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden}
+.v4-budget i{display:block;height:100%;border-radius:inherit;transform-origin:0 50%;transform:scaleX(0)}
+.v4-tray.is-db .v4-budget i{background:#5aa2ff}.v4-tray.is-api .v4-budget i{background:#3ed29a}.v4-tray.is-sec .v4-budget i{background:#ff7a7a}
+/* Chương 4: bản tổng hợp hiện lại đúng câu trả lời, mỗi câu kèm nguồn */
+.v4-report{flex-direction:column;align-items:stretch;gap:0;white-space:normal;width:min(440px,62%);padding:18px 20px 20px}
+.v4-report-head{display:flex;align-items:center;gap:12px}
+.v4-report-head>svg{flex:none;color:var(--blue)}
+.v4-report-head em{margin-left:auto}
+.v4-report ul{list-style:none;margin:14px 0 0;padding:14px 0 0;border-top:1px solid #e3e8ee;display:grid;gap:10px}
+.v4-report li{display:grid;gap:2px;padding-left:12px;border-left:3px solid #c9d3dd}
+.v4-report li span{font-size:13.5px;line-height:1.4;color:var(--ink);font-weight:600}
+.v4-report li b{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:600;color:var(--blue)}
+.v4-report li.is-db{border-left-color:#3d8af7}.v4-report li.is-api{border-left-color:#24b37f}.v4-report li.is-sec{border-left-color:#e45d5d}
+.v4-src.is-db{border-color:#5aa2ff;box-shadow:0 0 18px -4px rgba(90,162,255,.7)}.v4-src.is-api{border-color:#3ed29a;box-shadow:0 0 18px -4px rgba(62,210,154,.7)}.v4-src.is-sec{border-color:#ff7a7a;box-shadow:0 0 18px -4px rgba(255,122,122,.7)}
+.v4-threads path{stroke-width:.35}
+
+.v4-flag{display:none}
+.v4-paper[data-ch="1"] .v4-flag{display:inline-block}
+.v4-alert{position:absolute;z-index:6;left:10%;top:2%;display:inline-flex;align-items:center;gap:10px;background:#fff;color:#b23434;font-size:14.5px;font-weight:800;padding:10px 16px 10px 10px;border-radius:999px;box-shadow:0 0 0 2px rgba(214,60,60,.45),0 20px 36px -16px rgba(150,30,30,.55);opacity:0}
+.v4-alert b{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:#d63c3c;color:#fff;font-size:15px}
+
+/* Nền loang WebGL thay cho màn kéo tối khi trình duyệt hỗ trợ */
+.v4-paper.has-gl .v4-dark,.v4-paper.has-gl .v4-scan{display:none}
+/* Tiêu đề chương: từng từ hiện từ mờ nhòe sang rõ; từ khóa được quét màu chuyển sắc */
+.v4-rw{overflow:visible}
+.v4-rw>span{transform:translateY(.42em);filter:blur(12px);opacity:0;transition:transform 1s var(--ease),filter .8s ease,opacity .7s ease;transition-delay:calc(var(--w) * 55ms)}
+.v4-chapter.is-on .v4-rw>span{transform:none;filter:blur(0);opacity:1}
+.v4-chapter h2 i{background:none!important;padding:0!important;margin:0!important}
+.v4-chapter h2 i .v4-rw>span{color:transparent;-webkit-background-clip:text;background-clip:text;background-image:linear-gradient(90deg,#1d66c9,#3fa2ff),linear-gradient(var(--ink),var(--ink));background-repeat:no-repeat;background-size:0% 100%,100% 100%;
+  transition:transform 1s var(--ease),filter .8s ease,opacity .7s ease,background-size 1.1s var(--ease);transition-delay:calc(var(--w) * 55ms),calc(var(--w) * 55ms),calc(var(--w) * 55ms),calc(.55s + var(--w) * 90ms)}
+.v4-chapter.is-on h2 i .v4-rw>span{background-size:100% 100%,100% 100%}
+.v4-chapter.is-dark h2 i .v4-rw>span{background-image:linear-gradient(90deg,#7fd3ff,#4aa8ff),linear-gradient(#fff,#fff)}
+/* Chương 4: bản tổng hợp lệch trái, ba tài liệu nguồn xếp bên phải, đoạn được trích tô sáng */
+.v4-report{left:31%;width:min(430px,56%)}
+.v4-report-foot{margin-top:14px!important;padding-top:12px;border-top:1px solid #e3e8ee;font-size:12px;line-height:1.45;color:var(--muted)}
+.v4-sheet.is-cited::after{content:'';position:absolute;left:8px;right:8px;top:58%;height:13%;border-radius:3px;opacity:0;transition:opacity .5s .2s}
+.v4-sheet.is-cited.is-db::after{background:rgba(61,138,247,.28)}.v4-sheet.is-cited.is-api::after{background:rgba(36,179,127,.28)}.v4-sheet.is-cited.is-sec::after{background:rgba(228,93,93,.28)}
+.v4-paper[data-ch="3"] .v4-sheet.is-cited::after{opacity:1}
+.v4-paper[data-ch="3"] .v4-sheet.is-cited{box-shadow:0 0 0 1px rgba(255,255,255,.6),0 24px 50px -20px rgba(0,0,0,.7),0 0 40px -10px rgba(127,211,255,.45)}
+
+.v4-paper.is-night .v4-chapter h2{color:#fff}
+.v4-paper.is-night .v4-chapter>p:last-child{color:#b6c8d8}
+.v4-paper.is-night .v4-chapter .v4-kicker{color:#8fb4d4}
+.v4-paper.is-night .v4-chapter h2 i .v4-rw>span{background-image:linear-gradient(90deg,#7fd3ff,#4aa8ff),linear-gradient(#fff,#fff)}
+.v4-paper.is-night .v4-tabs span.is-on{color:#fff}
+.v4-chapter h2,.v4-chapter>p:last-child{transition:color .4s}
+
+/* Chương 4 (bản cuối): bản tổng hợp gọn ở tâm quả cầu, vệ tinh nguồn quay quanh */
+.v4-report{left:50%;width:min(300px,44%);padding:16px 18px 18px}
+.v4-report-head strong{font-size:15px}
+.v4-report ul{margin-top:12px;padding-top:12px;gap:8px}
+.v4-report li{display:block;font-size:12.5px;line-height:1.4;font-weight:600;color:var(--ink);padding-left:10px}
+.v4-orb{position:absolute;left:0;top:0;display:inline-flex;align-items:center;gap:9px;white-space:nowrap;padding:7px 14px 7px 7px;border-radius:999px;background:rgba(8,24,42,.82);border:1px solid rgba(127,211,255,.35);color:#dbeaf6;font-size:12px;font-family:ui-monospace,Consolas,monospace;opacity:0;will-change:transform,opacity}
+.v4-orb i{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:#fff}
+.v4-orb span{display:grid;line-height:1.25}
+.v4-orb b{font-family:'Be Vietnam Pro',sans-serif;font-size:13px;font-weight:800;color:#fff}
+.v4-orb.is-db{border-color:#5aa2ff}.v4-orb.is-db i{background:#2b7de9}
+.v4-orb.is-api{border-color:#3ed29a}.v4-orb.is-api i{background:#1f9a68}
+.v4-orb.is-sec{border-color:#ff7a7a}.v4-orb.is-sec i{background:#d04d4d}
+.v4-ring-cap{position:absolute;left:50%;bottom:-2%;transform:translateX(-50%);white-space:nowrap;font-size:13px;font-weight:700;color:#8fc4e8;opacity:0}
+
+.v4-report{width:min(270px,40%)}
+.v4-report-head{flex-wrap:wrap;row-gap:8px}
+.v4-report-head strong{white-space:nowrap}
+.v4-report-head em{white-space:nowrap}
+.v4-report li{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Vệ tinh nguồn chỉ thuộc chương 4: ẩn ngay khi cuộn ngược về chương khác */
+.v4-paper:not([data-ch="3"]) .v4-orb{visibility:hidden}
+/* Chương 1 hiện theo cuộn khi cảnh câu chuyện trượt vào (--p0 từ 0 tới 1, do GSAP đặt; không có hiệu ứng cuộn thì mặc định 1):
+   vạch và nhãn → từng từ tiêu đề rõ dần → vệt màu từ khóa → đoạn mô tả. */
+.v4-chapter:first-child .v4-kicker{opacity:clamp(0,calc(var(--p0,1) * 5),1)}
+.v4-chapter:first-child .v4-kicker::before{transform:scaleX(clamp(0,calc(var(--p0,1) * 4),1));transition:none}
+.v4-chapter:first-child .v4-rw>span{--k:clamp(0,calc(var(--p0,1) * 14 - 1 - var(--w)),1);opacity:var(--k);transform:translateY(calc((1 - var(--k)) * .42em));filter:blur(calc((1 - var(--k)) * 12px));transition:none}
+.v4-chapter:first-child h2 i .v4-rw>span{background-size:calc(clamp(0,calc((var(--p0,1) - .7) * 6),1) * 100%) 100%,100% 100%}
+.v4-chapter:first-child>p:last-child{--b:clamp(0,calc((var(--p0,1) - .66) * 7),1);opacity:var(--b);transform:translateY(calc((1 - var(--b)) * 14px));transition:color .4s}

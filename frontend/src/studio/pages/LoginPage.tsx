@@ -109,7 +109,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="ví dụ: ban@truong.edu.vn"
+                  placeholder="ví dụ: ban@congty.vn"
                   autoComplete="username"
                   required
                   className="w-full pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none rounded-xl"
@@ -188,7 +188,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
         {/* Thông tin bổ trợ */}
         <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-          <span>C1SE.27 Local Multi-Agent RAG</span>
+          <span>OrchestrIQ Studio · Multi-Agent RAG</span>
           <span>Tri thức · Phối hợp · Kiểm chứng</span>
         </div>
       </div>
