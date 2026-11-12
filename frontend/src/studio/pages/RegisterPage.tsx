@@ -21,6 +21,8 @@ interface RegisterPageProps {
   onRegisterSuccess: (user: User) => void;
 }
 
+const PW_LABEL = ['Quá ngắn', 'Yếu', 'Trung bình', 'Khá', 'Mạnh'];
+
 export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess }) => {
   const navigate = useNavigate();
 
@@ -31,6 +33,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
   const [confirmation,setConfirmation]=useState('');
   const {setState:setRobotState}=useRobotAssistant();
   const [showPassword, setShowPassword] = useState(false);
+  // Gợi ý độ mạnh: độ dài, chữ hoa/thường, số, ký tự đặc biệt. Dưới 8 ký tự luôn ở mức thấp nhất.
+  const pwLevel = !password ? 0 : password.length < 8 ? 0 : Math.min(4, 1 + [password.length >= 12, /[a-z]/.test(password) && /[A-Z]/.test(password), /\d/.test(password), /[^A-Za-z0-9]/.test(password)].filter(Boolean).length);
   const [role, setRole] = useState<'tech_lead' | 'researcher' | 'developer'>('developer');
 
   const [isLoading, setIsLoading] = useState(false);
@@ -130,7 +134,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="ví dụ: Kiều Đức Chung"
+                  placeholder="ví dụ: Nguyễn Minh Anh"
                   required
                   className="w-full px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none rounded-xl"
                 />
@@ -153,7 +157,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
-                    placeholder="chung_dev"
+                    placeholder="minhanh"
                     required
                     className="w-full px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none rounded-xl font-mono"
                   />
@@ -174,7 +178,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="email@c1se27.edu.vn"
+                    placeholder="ban@congty.vn"
                     required
                     className="w-full px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none rounded-xl"
                   />
@@ -211,10 +215,11 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              {password && <div className="auth-strength" data-level={pwLevel} aria-live="polite"><span><i/><i/><i/><i/></span><em>{PW_LABEL[pwLevel]}</em></div>}
             </div>
 
             {/* Professional Role Selection */}
-            <div className="space-y-1"><label htmlFor="reg-confirm">Nhập lại mật khẩu</label><div className="relative rounded-xl"><input id="reg-confirm" type={showPassword?'text':'password'} autoComplete="new-password" required value={confirmation} onChange={e=>setConfirmation(e.target.value)} className="w-full px-3.5" placeholder="Nhập lại mật khẩu của bạn"/></div></div>
+            <div className="space-y-1"><label htmlFor="reg-confirm">Nhập lại mật khẩu</label><div className="relative rounded-xl"><input id="reg-confirm" type={showPassword?'text':'password'} autoComplete="new-password" required value={confirmation} onChange={e=>setConfirmation(e.target.value)} className="w-full px-3.5" placeholder="Nhập lại mật khẩu của bạn"/>{confirmation && <span className={`auth-match${confirmation === password ? ' is-ok' : ''}`} aria-live="polite">{confirmation === password ? 'Khớp' : 'Chưa khớp'}</span>}</div></div>
             <div className="space-y-1.5 pt-1">
               <label className="text-xs font-semibold text-slate-700">
                 Vai trò chuyên môn
@@ -299,8 +304,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
 
         {/* Thông tin bổ trợ */}
         <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-          <span>Tài khoản dùng trong không gian nghiên cứu</span>
-          <span>C1SE.27 DTU</span>
+          <span>Một tài khoản cho toàn bộ không gian làm việc</span>
+          <span>OrchestrIQ Studio</span>
         </div>
       </div>
     </AuthPageFrame>

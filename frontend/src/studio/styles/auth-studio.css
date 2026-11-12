@@ -34,3 +34,114 @@
 .auth-social>p{font-size:10px;color:#697d8d;line-height:1.7;margin-top:10px}
 .auth-divider{display:flex;align-items:center;gap:12px;color:#82909c;font-size:10px;margin:22px 0}
 .auth-divider:before,.auth-divider:after{content:'';height:1px;background:#e1e7ec;flex:1}
+
+/* ===== Trang tài khoản (bản 3). Phối màu 60/30/10:
+   60% nền sáng trung tính của landing (#F3F6F9, trắng), 30% mực thương hiệu (#0F1D2B) cho nửa trái và chữ,
+   10% nhấn: xanh thương hiệu (#1D66C9) chỉ cho thao tác, vàng giấy ghi chú (#FFE69A) và nhãn màu tài liệu. ===== */
+.auth-redesign{--display:'Inter Tight Variable','Be Vietnam Pro',system-ui,sans-serif;--ink:#0f1d2b;--accent:#1d66c9;background:#f3f6f9;color:var(--ink)}
+.auth-card{border-color:#e2e8ef!important;box-shadow:0 30px 70px -40px rgba(15,29,43,.35)!important;animation:auth-in .7s cubic-bezier(.16,1,.3,1) both}
+@keyframes auth-in{from{opacity:0;transform:translateY(20px)}}
+.auth-redesign .auth-brand-panel{background:var(--ink)!important;color:#eef2f6;border-right:0;padding:44px 42px 34px;justify-content:space-between;gap:24px}
+.auth-project-label{color:#8d9cab!important;font-weight:600;font-size:12px!important;letter-spacing:.01em}
+.auth-redesign .auth-brand-heading h2{font-family:var(--display);font-weight:740;font-size:clamp(28px,2.6vw,36px);letter-spacing:-.02em;line-height:1.12;color:#f2f5f8;margin:16px 0 14px}
+.auth-brand-heading h2 span{color:#8d9cab}
+.auth-brand-heading>p{color:#b6c1cc!important;font-size:14px!important;line-height:1.65!important;max-width:360px}
+.auth-redesign .auth-brand-footer{font-size:12px;color:#6f7f8f;margin:0}
+/* Bàn làm việc: ba tờ tài liệu xòe, tờ ghi chú vàng, Robot đứng cạnh */
+.auth-desk{position:relative;height:280px;margin-top:8px}
+.auth-sheet{position:absolute;left:calc(4% + var(--i) * 19%);top:calc(14% + var(--i) * 4%);width:150px;height:196px;padding:14px 14px 0;border-radius:10px;background:#fff;color:var(--ink);border-left:4px solid var(--tc);box-shadow:0 22px 40px -22px rgba(0,0,0,.75);rotate:calc(-9deg + var(--i) * 8deg);animation:auth-sheet .8s cubic-bezier(.2,1,.3,1) both;animation-delay:calc(.15s + var(--i) * .12s)}
+.auth-sheet.is-db{--tc:#2b7de9}.auth-sheet.is-api{--tc:#1f9a68}.auth-sheet.is-sec{--tc:#d04d4d}
+.auth-sheet b{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.04em;color:#fff;background:var(--tc);border-radius:4px;padding:2px 6px}
+.auth-sheet strong{display:block;margin:10px 0 12px;font-size:13px;font-weight:700;line-height:1.3}
+.auth-sheet i{display:block;height:6px;margin-bottom:9px;border-radius:6px;background:#e8edf2}
+.auth-sheet i:nth-of-type(2){width:86%}.auth-sheet i:nth-of-type(3){width:92%}.auth-sheet i:nth-of-type(4){width:60%}
+@keyframes auth-sheet{from{opacity:0;translate:0 -40px;rotate:calc(-20deg + var(--i) * 14deg)}}
+.auth-note{position:absolute;right:4%;top:0;width:150px;display:grid;gap:3px;padding:16px 14px 12px;background:#ffe69a;color:#5c4510;font-size:13px;font-weight:800;line-height:1.3;rotate:4deg;box-shadow:0 16px 26px -14px rgba(0,0,0,.6);animation:auth-note .6s cubic-bezier(.3,1.5,.5,1) .6s both}
+.auth-note small{font-size:11px;font-weight:600;color:#7a5d16}
+.auth-note span{position:absolute;left:50%;top:-8px;width:52px;height:15px;translate:-50% 0;rotate:-3deg;background:rgba(255,255,255,.55)}
+@keyframes auth-note{from{opacity:0;scale:.6}}
+.auth-redesign .auth-desk .auth-robot-stage{position:absolute;right:2%;bottom:-18px;width:150px;height:150px;padding:0;margin:0;filter:drop-shadow(0 18px 20px rgba(0,0,0,.45))}
+/* Form: chữ mực, viền xám nhạt, xanh thương hiệu chỉ khi tương tác */
+.auth-form-panel h1{font-family:var(--display);font-weight:740!important;letter-spacing:-.02em!important;color:var(--ink)!important}
+.auth-tabs{background:#f0f3f6!important}
+.auth-tab-indicator{animation:auth-tab-l .4s cubic-bezier(.2,1.2,.4,1)}
+.auth-tab-indicator[data-register=true]{animation-name:auth-tab-r}
+@keyframes auth-tab-r{from{left:4px}}
+@keyframes auth-tab-l{from{left:50%}}
+.auth-form-panel .relative.rounded-xl{background:#fff!important;border-color:#dfe5ec!important}
+.auth-form-panel .relative.rounded-xl:focus-within{border-color:var(--accent)!important;box-shadow:0 0 0 4px rgba(29,102,201,.12)!important}
+.auth-form-panel .relative.rounded-xl svg{transition:color .2s}
+.auth-form-panel .relative.rounded-xl:focus-within svg{color:var(--accent)}
+.auth-form-panel input:-webkit-autofill{-webkit-box-shadow:0 0 0 1000px #fff inset;-webkit-text-fill-color:#0f1d2b}
+.auth-redesign .auth-form-panel button[type=submit]{background:var(--ink)}
+.auth-redesign .auth-form-panel button[type=submit]:hover:not(:disabled){background:var(--accent)}
+.auth-form-panel :is(a[class*='text-indigo']){color:var(--accent)}
+/* Độ mạnh mật khẩu và dấu khớp */
+.auth-strength{display:flex;align-items:center;gap:10px;margin-top:8px}
+.auth-strength span{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.auth-strength i{height:4px;border-radius:4px;background:#e3e9ef;transition:background .3s}
+.auth-strength em{font-style:normal;font-size:11.5px;font-weight:700;min-width:70px;text-align:right;color:#8a97a5}
+.auth-strength[data-level="1"] i:nth-child(-n+1){background:#e45d5d}.auth-strength[data-level="1"] em{color:#c94b4b}
+.auth-strength[data-level="2"] i:nth-child(-n+2){background:#e3a740}.auth-strength[data-level="2"] em{color:#b07a16}
+.auth-strength[data-level="3"] i:nth-child(-n+3){background:#3d8af7}.auth-strength[data-level="3"] em{color:#1d66c9}
+.auth-strength[data-level="4"] i{background:#24b37f}.auth-strength[data-level="4"] em{color:#17704a}
+.auth-match{position:absolute;right:12px;top:50%;translate:0 -50%;font-size:11.5px;font-weight:700;color:#c94b4b}
+.auth-match.is-ok{color:#17704a}
+@media(max-width:850px){
+  .auth-redesign .auth-brand-panel{position:relative;padding:22px 24px;gap:0}
+  .auth-sheet,.auth-note,.auth-brand-footer,.auth-brand-heading>p{display:none}
+  .auth-desk{position:absolute;right:10px;top:50%;translate:0 -50%;width:110px;height:110px;margin:0}
+  .auth-redesign .auth-desk .auth-robot-stage{right:0;bottom:0;width:110px;height:110px}
+  .auth-redesign .auth-desk .auth-robot-stage>*{transform:scale(.72);transform-origin:center}
+  .auth-brand-heading{max-width:calc(100% - 110px)}
+}
+@media(prefers-reduced-motion:reduce){.auth-card,.auth-sheet,.auth-note,.auth-tab-indicator{animation:none}}
+/* Xòe tài liệu rộng hơn để đọc được tên từng tờ */
+.auth-sheet{left:calc(2% + var(--i) * 24%);width:140px;height:186px}
+.auth-sheet strong{font-size:12.5px;padding-right:4px}
+/* Màu nửa trái gom vào biến để đổi phương án: nền, tiêu đề, chữ phụ, đoạn văn, bóng giấy */
+.auth-redesign .auth-brand-panel{background:var(--pb,#0f1d2b)!important}
+.auth-redesign .auth-brand-heading h2{color:var(--ph,#f2f5f8)}
+.auth-brand-heading h2 span,.auth-project-label,.auth-redesign .auth-brand-footer{color:var(--pm,#8d9cab)!important}
+.auth-brand-heading>p{color:var(--pp,#b6c1cc)!important}
+.auth-sheet{box-shadow:0 22px 40px -22px var(--ps,rgba(0,0,0,.75))}
+.auth-note{box-shadow:0 16px 26px -14px var(--ps,rgba(0,0,0,.6))}
+/* Phương án đã chọn: A sáng dịu (nền xanh xám nhạt, chữ mực) */
+.auth-redesign{--pb:#e9eff6;--ph:#0f1d2b;--pm:#6b7c8d;--pp:#3f5366;--ps:rgba(15,29,43,.28)}
+
+/* ===== Chuyển trang tài khoản bằng View Transitions ===== */
+.auth-card{view-transition-name:auth-card}
+.auth-redesign .auth-brand-panel{view-transition-name:auth-brand}
+.auth-form-panel{view-transition-name:auth-form}
+::view-transition-old(root),::view-transition-new(root){animation:none}
+::view-transition-group(auth-card){animation-duration:.5s;animation-timing-function:cubic-bezier(.2,.8,.2,1)}
+::view-transition-group(auth-brand){animation-duration:.5s;animation-timing-function:cubic-bezier(.2,.8,.2,1)}
+::view-transition-old(auth-brand),::view-transition-new(auth-brand){animation-duration:.35s}
+::view-transition-old(auth-form){animation:.22s ease-in both auth-vt-out}
+::view-transition-new(auth-form){animation:.42s cubic-bezier(.2,.8,.2,1) .1s both auth-vt-in}
+@keyframes auth-vt-out{to{opacity:0;transform:translateX(-36px)}}
+@keyframes auth-vt-in{from{opacity:0;transform:translateX(44px)}}
+html[data-auth-dir=back]::view-transition-old(auth-form){animation-name:auth-vt-out-back}
+html[data-auth-dir=back]::view-transition-new(auth-form){animation-name:auth-vt-in-back}
+@keyframes auth-vt-out-back{to{opacity:0;transform:translateX(36px)}}
+@keyframes auth-vt-in-back{from{opacity:0;transform:translateX(-44px)}}
+/* Chuyển trong nội bộ: không phát lại hiệu ứng vào trang (khung, giấy rơi, ghi chú) */
+.auth-redesign[data-static] .auth-card,.auth-redesign[data-static] .auth-sheet,.auth-redesign[data-static] .auth-note{animation:none}
+/* Báo Caps Lock trong ô mật khẩu đang gõ */
+.auth-redesign[data-caps] .relative.rounded-xl:has(input[type=password]:focus)::after{content:'Caps Lock đang bật';position:absolute;right:46px;top:50%;translate:0 -50%;font-size:11px;font-weight:700;color:#8a5d00;background:#fff3d1;padding:3px 9px;border-radius:999px;pointer-events:none}
+/* ===== Đăng ký: nửa thương hiệu nằm bên phải; chuyển trang bằng hiệu ứng slime ===== */
+@media(min-width:850px){.auth-redesign[data-mode=register] .auth-card{grid-template-columns:1.06fr .94fr}.auth-redesign[data-mode=register] .auth-brand-panel{order:2}}
+/* Khối màu nửa thương hiệu do AuthPageFrame điều khiển bằng Web Animations (vươn, kéo, nảy); nội dung mờ đi rồi hiện lại ở đích, không bị kéo méo */
+html[data-auth-slime]::view-transition-group(auth-brand){animation:none;z-index:3;overflow:hidden;background:#e9eff6;box-shadow:inset 0 1px 0 rgba(255,255,255,.75),inset 0 -30px 60px -30px rgba(15,29,43,.12)}
+html[data-auth-slime]::view-transition-old(auth-brand),html[data-auth-slime]::view-transition-new(auth-brand),
+html[data-auth-slime]::view-transition-old(auth-form),html[data-auth-slime]::view-transition-new(auth-form){width:auto;height:auto}
+html[data-auth-slime]::view-transition-old(auth-brand){animation:.9s linear both auth-slime-out}
+html[data-auth-slime]::view-transition-new(auth-brand){animation:.9s linear both auth-slime-in}
+@keyframes auth-slime-out{22%,100%{opacity:0}}
+@keyframes auth-slime-in{0%,78%{opacity:0}}
+/* Form trượt sang chỗ cũ của nửa thương hiệu, nằm dưới khối slime */
+html[data-auth-slime]::view-transition-group(auth-form),html[data-auth-slime]::view-transition-group(auth-card){animation-duration:.9s;animation-timing-function:cubic-bezier(.65,0,.35,1)}
+html[data-auth-slime]::view-transition-old(auth-form){animation:.3s ease-in both auth-slime-fade}
+html[data-auth-slime]::view-transition-new(auth-form){animation:.45s cubic-bezier(.2,.8,.2,1) .5s both auth-slime-rise}
+@keyframes auth-slime-fade{to{opacity:0}}
+@keyframes auth-slime-rise{from{opacity:0;transform:translateY(10px)}}
