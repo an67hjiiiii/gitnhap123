@@ -1,0 +1,18 @@
+[
+  {"request":"Review authentication and authorization","domains":["security"]},
+  {"request":"Check JWT token permissions","domains":["security"]},
+  {"request":"Login session identity","domains":["security"]},
+  {"request":"Review the database schema","domains":["database"]},
+  {"request":"Optimize SQL query and index","domains":["database"]},
+  {"request":"Check transaction consistency","domains":["database"]},
+  {"request":"Design REST API endpoints","domains":["api_architecture"]},
+  {"request":"Review service architecture","domains":["api_architecture"]},
+  {"request":"Define integration contract and response","domains":["api_architecture"]},
+  {"request":"Review JWT and SQL API","domains":["security","database","api_architecture"]},
+  {"request":"Authentication flow with database persistence and API endpoint","domains":["security","database","api_architecture"]},
+  {"request":"Please review this project","domains":[]},
+  {"request":"Tôi cần kiểm tra đăng nhập và phân quyền","domains":["security"]},
+  {"request":"Thiết kế cơ sở dữ liệu và giao dịch","domains":["database"]},
+  {"request":"Xây dựng kiến trúc và giao diện API","domains":["api_architecture"]},
+  {"request":"Tôi cần đăng nhập, truy vấn dữ liệu và endpoint","domains":["security","database","api_architecture"]}
+]
