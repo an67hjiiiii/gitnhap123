@@ -260,7 +260,7 @@ def import_text(body: SourceTextRequest, request: Request):
         )
         return _index_imported_source(user, store, imported)
     except IndexingError as exc:
-        raise HTTPException(503, "DERIVED_INDEX_FAILED") from exc
+        raise HTTPException(503, getattr(exc, "code", "DERIVED_INDEX_FAILED")) from exc
 
 @app.post("/api/sources/file")
 async def import_file(request: Request, file: UploadFile = File(...)):
@@ -301,7 +301,7 @@ async def import_file(request: Request, file: UploadFile = File(...)):
         )
         return _index_imported_source(user, store, imported)
     except IndexingError as exc:
-        raise HTTPException(503, "DERIVED_INDEX_FAILED") from exc
+        raise HTTPException(503, getattr(exc, "code", "DERIVED_INDEX_FAILED")) from exc
 
 @app.post("/api/chat")
 async def chat(body: ChatRequest, request: Request):
@@ -373,7 +373,7 @@ async def chat(body: ChatRequest, request: Request):
     except LookupError as exc:
         raise HTTPException(404, "source not found") from exc
     except IndexingError as exc:
-        raise HTTPException(503, "DERIVED_INDEX_UNAVAILABLE") from exc
+        raise HTTPException(503, getattr(exc, "code", "DERIVED_INDEX_UNAVAILABLE")) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
