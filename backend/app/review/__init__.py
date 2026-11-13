@@ -1,0 +1,1 @@
+"""Independent review case domain."""
