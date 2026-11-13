@@ -285,7 +285,6 @@ def test_http_maps_typed_errors_to_503(http_main, monkeypatch, error):
 
 
 @pytest.mark.parametrize("strict", [False, True])
-@pytest.mark.xfail(strict=False, raises=AssertionError, reason="SUSPECTED DEFECT: ResearchPipeline.run catches typed index errors before HTTP 503 mapping")
 def test_real_pipeline_propagates_index_refusal(http_main, monkeypatch, strict):
     store = InMemoryVectorStore()
     _seed(store)
