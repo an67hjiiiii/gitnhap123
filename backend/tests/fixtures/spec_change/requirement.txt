@@ -1,0 +1,1 @@
+Verify consumers of DELETE /pets/{id} after its removal
