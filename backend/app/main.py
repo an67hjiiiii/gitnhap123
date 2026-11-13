@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from app.api.auth import router as auth_router
 from app.api.auth import get_session_token
+from app.api.review import ReviewRuntime, build_router as _build_review_router
 from app.auth.store import AuthStore, InvalidSessionError
 from app.core.config import RuntimeConfig
 from app.ingestion.documents import (
@@ -72,6 +73,9 @@ def current_user(request: Request) -> dict:
         return request.app.state.auth_store.resolve(get_session_token(request))
     except InvalidSessionError as exc:
         raise HTTPException(status_code=401, detail="Authentication is required") from exc
+
+review_runtime = ReviewRuntime()
+app.include_router(_build_review_router(current_user=current_user, runtime=review_runtime))
 
 def owner_source_store(user: dict):
     if STORAGE_BACKEND == "postgres":

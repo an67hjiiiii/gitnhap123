@@ -32,6 +32,10 @@ class InMemoryCaseRepository:
         self._findings: dict[str, list[Finding]] = {}
         self._jobs: dict[str, list[RunJob]] = {}
 
+    def list_cases(self, owner_user_id: str) -> list[ReviewCase]:
+        return [case.model_copy(deep=True) for case in list(self._cases.values())
+                if case.owner_user_id == owner_user_id]
+
     def save_case(self, owner_user_id: str, case: ReviewCase) -> None:
         if owner_user_id != case.owner_user_id:
             raise ValueError("owner mismatch")

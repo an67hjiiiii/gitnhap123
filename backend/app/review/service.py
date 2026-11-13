@@ -132,7 +132,7 @@ class ReviewCaseService:
         return requirement
 
     def start_run(
-        self, case_id: str, owner_user_id: str, budget: dict | None = None
+        self, case_id: str, owner_user_id: str, budget: dict | None = None, emit=None
     ) -> list[Finding]:
         """Run the review engine and persist findings and terminal state."""
         case = self._case(case_id, owner_user_id)
@@ -155,8 +155,17 @@ class ReviewCaseService:
         self.repository.save_job(owner_user_id, job)
         allowed = {item.evidence_id for item in self.evidence}
 
+        def publish(finding):
+            if emit is not None:
+                safe = finding.model_copy(update={
+                    "review": Decision.NONE,
+                    "edited_text": None,
+                    "evidence": [item for item in finding.evidence if item.evidence_id in allowed],
+                })
+                emit(safe)
+
         try:
-            produced = self.engine.run(case, requirements, budget, lambda _: None)
+            produced = self.engine.run(case, requirements, budget, publish)
         except Exception:
             case.status = CaseStatus.FAILED
             case.updated_at = self.clock()
