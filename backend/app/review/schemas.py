@@ -10,30 +10,50 @@ class StrEnum(str, Enum):
 
 
 class CaseStatus(StrEnum):
-    DRAFT = "DRAFT"; CONFIRMING = "CONFIRMING"; READY = "READY"; RUNNING = "RUNNING"
-    PARTIAL = "PARTIAL"; COMPLETE = "COMPLETE"; FAILED = "FAILED"
+    DRAFT = "DRAFT"
+    CONFIRMING = "CONFIRMING"
+    READY = "READY"
+    RUNNING = "RUNNING"
+    PARTIAL = "PARTIAL"
+    COMPLETE = "COMPLETE"
+    FAILED = "FAILED"
 
 
 class Verdict(StrEnum):
-    SATISFIED = "SATISFIED"; PARTIAL = "PARTIAL"; NOT_FOUND = "NOT_FOUND"
-    DEVIATES = "DEVIATES"; UNDETERMINED = "UNDETERMINED"; SKIPPED_BUDGET = "SKIPPED_BUDGET"
+    SATISFIED = "SATISFIED"
+    PARTIAL = "PARTIAL"
+    NOT_FOUND = "NOT_FOUND"
+    DEVIATES = "DEVIATES"
+    UNDETERMINED = "UNDETERMINED"
+    SKIPPED_BUDGET = "SKIPPED_BUDGET"
 
 
 class Decision(StrEnum):
-    NONE = "NONE"; ACCEPT = "ACCEPT"; REJECT = "REJECT"; EDIT = "EDIT"
+    NONE = "NONE"
+    ACCEPT = "ACCEPT"
+    REJECT = "REJECT"
+    EDIT = "EDIT"
 
 
 class Confidence(StrEnum):
-    L0 = "L0"; L1 = "L1"; L2 = "L2"; L3 = "L3"
+    L0 = "L0"
+    L1 = "L1"
+    L2 = "L2"
+    L3 = "L3"
 
 
 class RequirementOrigin(StrEnum):
-    AI_PROPOSED = "AI_PROPOSED"; USER = "USER"
+    AI_PROPOSED = "AI_PROPOSED"
+    USER = "USER"
 
 
 class JobState(StrEnum):
-    QUEUED = "QUEUED"; RUNNING = "RUNNING"; SUCCEEDED = "SUCCEEDED"
-    PARTIAL = "PARTIAL"; FAILED = "FAILED"; CANCELLED = "CANCELLED"
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class DomainModel(BaseModel):
