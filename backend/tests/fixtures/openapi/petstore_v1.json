@@ -1,0 +1,26 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Petstore", "version": "1"},
+  "servers": [{"url": "https://api.example.test/v1"}],
+  "paths": {
+    "/gone": {"get": {"responses": {"200": {"description": "ok"}}}},
+    "/pets": {
+      "parameters": [{"name": "q", "in": "query", "required": false, "schema": {"type": "string"}}],
+      "get": {
+        "operationId": "listPets", "summary": "List pets", "tags": ["pets"],
+        "parameters": [{"name": "old", "in": "header", "schema": {"type": "string"}}],
+        "requestBody": {"required": false, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Pet"}}}},
+        "responses": {"200": {"description": "pets", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Pet"}}}}, "404": {"description": "missing"}},
+        "security": [{"apiKey": []}]
+      },
+      "post": {"responses": {"201": {"description": "created"}}}
+    }
+  },
+  "components": {"schemas": {
+    "Pet": {"type": "object", "required": ["id"], "properties": {
+      "id": {"type": "integer"}, "name": {"type": "string"},
+      "status": {"type": "string", "enum": ["available", "retired"]}, "obsolete": {"type": "boolean"}
+    }},
+    "Node": {"type": "object", "properties": {"next": {"$ref": "#/components/schemas/Node"}}}
+  }}
+}
