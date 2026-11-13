@@ -1,5 +1,6 @@
 """Owner-scoped review HTTP API with process-local jobs and persistence."""
 
+import os
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Literal
@@ -14,15 +15,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.jobs import EventLog, JobRunner, format_sse
 from app.review.engine import FakeReviewEngine
 from app.review.repository import InMemoryCaseRepository
-from app.review.schemas import CaseStatus, Decision, Requirement, RequirementOrigin
+from app.review.schemas import CaseStatus, Decision, Evidence, Finding, Requirement, RequirementOrigin
+from app.review_adapters import PipelineReviewEngine
 from app.review.service import (
     CaseNotFound, InvalidDecision, RequirementsUnconfirmed, ReviewCaseService,
 )
 
 
 def get_review_engine():
-    """Replace through FastAPI dependency overrides when another engine is available."""
-    return FakeReviewEngine()
+    """Allow explicit fake selection and dependency overrides; otherwise use runtime wiring."""
+    return FakeReviewEngine() if os.getenv("REVIEW_ENGINE", "pipeline").lower() == "fake" else None
 
 
 class ReviewRoute(APIRoute):
@@ -95,22 +97,32 @@ class _Cancelled(Exception):
 class _RunEngine:
     """Give engine-local finding IDs a unique HTTP identity for each run."""
 
-    def __init__(self, engine, job_id):
-        self.engine, self.job_id = engine, job_id
+    def __init__(self, engine, job_id, event_emit):
+        self.engine, self.job_id, self.event_emit = engine, job_id, event_emit
 
     def run(self, case, requirements, budget, emit):
         def scoped(finding):
             return finding.model_copy(update={"id": f"{self.job_id}:{finding.id}"})
 
+        def forward(*args):
+            if len(args) == 1:
+                emit(scoped(args[0]))
+            elif args[0] == "finding.created":
+                emit(scoped(Finding.model_validate(args[1])))
+            else:
+                self.event_emit(*args)
+
         return [scoped(finding) for finding in self.engine.run(
-            case, requirements, budget, lambda finding: emit(scoped(finding)),
+            case, requirements, budget, forward,
         )]
 
 
 class ReviewRuntime:
     """One repository and one single-worker runner per application instance."""
 
-    def __init__(self):
+    def __init__(self, *, pipeline_factory=None, source_store_factory=None):
+        self.pipeline_factory = pipeline_factory
+        self.source_store_factory = source_store_factory
         self.repository = InMemoryCaseRepository()
         self.events = EventLog()
         self.runs = {}
@@ -122,8 +134,23 @@ class ReviewRuntime:
     def now():
         return datetime.now(timezone.utc)
 
-    def service(self, engine):
-        return ReviewCaseService(self.repository, engine)
+    def service(self, engine, evidence=()):
+        return ReviewCaseService(self.repository, engine, evidence=evidence)
+
+    def selected_sources(self, owner, source_ids):
+        if self.source_store_factory is None:
+            return list(source_ids)
+        store = self.source_store_factory(owner)
+        return [sid for sid in source_ids if store.source(sid) is not None]
+
+    def engine(self):
+        if self.pipeline_factory is None or self.source_store_factory is None:
+            raise HTTPException(503, {"code": "REVIEW_ENGINE_UNAVAILABLE",
+                                      "message": "Review pipeline is not configured"})
+        return PipelineReviewEngine(
+            pipeline_factory=self.pipeline_factory,
+            source_ids_getter=lambda case: self.selected_sources(case.owner_user_id, case.source_ids),
+        )
 
     def mutable(self, owner, case_id):
         self.service(None)._case(case_id, owner)
@@ -135,7 +162,15 @@ class ReviewRuntime:
     def _work(self, job_id, run, emit, cancelled):
         owner, case_id = run["owner"], run["case_id"]
         run["started_at"] = self.now()
-        service = self.service(_RunEngine(run["engine"], job_id))
+        case = self.service(None)._case(case_id, owner)
+        evidence = []
+        if self.source_store_factory is not None:
+            source_ids = self.selected_sources(owner, case.source_ids)
+            evidence = [Evidence(evidence_id=chunk.chunk_id, source_id=chunk.source_id,
+                                 locator=chunk.chunk_id, excerpt=chunk.text)
+                        for chunk in self.source_store_factory(owner).chunks(source_ids)]
+        service = self.service(_RunEngine(run["engine"], job_id, emit), evidence)
+        pipeline_events = isinstance(run["engine"], PipelineReviewEngine)
 
         def check():
             if cancelled():
@@ -144,13 +179,14 @@ class ReviewRuntime:
         def finding_created(finding):
             check()
             emit("finding.created", finding.model_dump(mode="json"))
-            if finding.verdict.value == "SKIPPED_BUDGET":
+            if finding.verdict.value == "SKIPPED_BUDGET" and not pipeline_events:
                 emit("budget.skipped", {"requirement_id": finding.requirement_id})
             emit("task.done", {"requirement_id": finding.requirement_id})
 
         try:
             check()
-            emit("task.started", {"case_id": case_id})
+            if not pipeline_events:
+                emit("task.started", {"case_id": case_id})
             service.start_run(case_id, owner, run["budget"], emit=finding_created)
             check()
             run["partial"] = service._case(case_id, owner).status == CaseStatus.PARTIAL
@@ -188,8 +224,13 @@ def build_router(*, current_user, runtime: ReviewRuntime):
     def owner(request: Request):
         return str(current_user(request)["user_id"])
 
+    def engine(selected=Depends(get_review_engine)):
+        return selected if selected is not None else runtime.engine()
+
     @router.post("/cases", status_code=201)
     def create_case(body: CaseInput, user=Depends(owner)):
+        if len(runtime.selected_sources(user, body.source_ids)) != len(body.source_ids):
+            raise HTTPException(404, {"code": "SOURCE_NOT_FOUND", "message": "Source not found"})
         return runtime.service(None).create_case(user, body.title, body.request_text, body.source_ids)
 
     @router.get("/cases")
@@ -203,7 +244,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                 "findings": repo.get_findings(user, case_id)}
 
     @router.post("/cases/{case_id}/requirements:propose")
-    def propose(case_id: str, user=Depends(owner), engine=Depends(get_review_engine)):
+    def propose(case_id: str, user=Depends(owner), engine=Depends(engine)):
         with runtime.lock:
             runtime.mutable(user, case_id)
             return runtime.service(engine).propose_requirements(case_id, user)
@@ -233,7 +274,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
 
     @router.post("/cases/{case_id}/runs", status_code=202)
     def start_run(case_id: str, body: RunInput = RunInput(), user=Depends(owner),
-                  engine=Depends(get_review_engine)):
+                  engine=Depends(engine)):
         with runtime.lock:
             runtime.mutable(user, case_id)
             requirements = repo.get_requirements(user, case_id)
