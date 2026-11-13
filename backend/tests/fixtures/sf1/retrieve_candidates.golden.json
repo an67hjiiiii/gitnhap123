@@ -1,0 +1,35 @@
+[
+  {
+    "name": "english_api_error",
+    "query": "Which API error response is stable?",
+    "chunks": [
+      {"id": "en-api", "source_id": "src-en", "text": "The API returns a stable error response with a request identifier."},
+      {"id": "en-auth", "source_id": "src-auth", "text": "Authentication uses signed access tokens and role checks."},
+      {"id": "en-db", "source_id": "src-db", "text": "Database transactions preserve consistent account balances."}
+    ],
+    "expected_ids": ["en-api", "en-auth", "en-db"],
+    "expected_scores": [0.676123, 0.0, 0.0]
+  },
+  {
+    "name": "vietnamese_api_error",
+    "query": "API trả về lỗi ổn định như thế nào?",
+    "chunks": [
+      {"id": "vi-api", "source_id": "src-vi-api", "text": "API trả về phản hồi lỗi ổn định và mã định danh yêu cầu."},
+      {"id": "vi-auth", "source_id": "src-vi-auth", "text": "Xác thực sử dụng token truy cập có chữ ký và kiểm tra vai trò."},
+      {"id": "vi-db", "source_id": "src-vi-db", "text": "Giao dịch cơ sở dữ liệu giữ số dư tài khoản nhất quán."}
+    ],
+    "expected_ids": ["vi-api", "vi-db", "vi-auth"],
+    "expected_scores": [0.57735, 0.124035, 0.0]
+  },
+  {
+    "name": "mixed_language_business_state",
+    "query": "What does PostgreSQL store for trạng thái nghiệp vụ?",
+    "chunks": [
+      {"id": "mix-db", "source_id": "src-mix-db", "text": "PostgreSQL stores authoritative business state and transaction records."},
+      {"id": "mix-api", "source_id": "src-mix-api", "text": "The API validates request fields and returns structured errors."},
+      {"id": "mix-vi", "source_id": "src-mix-vi", "text": "Trạng thái nghiệp vụ được lưu trong PostgreSQL có thẩm quyền."}
+    ],
+    "expected_ids": ["mix-vi", "mix-db", "mix-api"],
+    "expected_scores": [0.589256, 0.316228, 0.0]
+  }
+]
