@@ -42,6 +42,7 @@ from app.research.synthesizer import synthesize
 from app.research.vanilla import answer_vanilla
 from app.retrieval.text import retrieve, apply_token_budget, estimate_tokens, terms
 from app.retrieval.multilingual import build_query_variants, detect_language
+from app.retrieval.index_identity import IndexingError
 from app.storage.source_store import SourceStore
 from app.storage.run_store import RunStore
 
@@ -187,6 +188,12 @@ class ResearchPipeline:
         )
 
         def event(stage: str, **data):
+            if stage in {"vanilla_retrieval", "task_retrieval"}:
+                search_info = getattr(self.candidate_index, "last_search_info", None) or {}
+                data.update({key: search_info.get(key) for key in (
+                    "index_state", "index_embedding_version",
+                    "retrieval_backend_used", "fallback_reason",
+                )})
             events.append({"stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **data})
 
         def make_run(status: str | None, answer: str, tasks: list[Task], task_results: list[TaskResult]) -> dict:
@@ -681,7 +688,10 @@ class ResearchPipeline:
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            return finalize("FAILED", f"Pipeline failed: {type(exc).__name__}: {exc}", [], [])
+            run = finalize("FAILED", f"Pipeline failed: {type(exc).__name__}: {exc}", [], [])
+            if isinstance(exc, IndexingError) and getattr(exc, "code", None):
+                raise
+            return run
 
     @staticmethod
     def _flags(condition: str) -> dict[str, bool]:
