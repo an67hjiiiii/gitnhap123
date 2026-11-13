@@ -243,6 +243,81 @@ def build_router(*, current_user, runtime: ReviewRuntime):
         return {**case.model_dump(), "requirements": repo.get_requirements(user, case_id),
                 "findings": repo.get_findings(user, case_id)}
 
+    @router.get("/cases/{case_id}/inspector")
+    def inspector(case_id: str, run: str | None = Query(default=None), user=Depends(owner)):
+        case = runtime.service(None)._case(case_id, user)
+        selected = run
+        if selected is None:
+            matching = [job_id for job_id, value in runtime.runs.items()
+                        if value["owner"] == user and value["case_id"] == case_id]
+            selected = matching[-1] if matching else None
+        run_data = None
+        events = []
+        if selected is not None:
+            value = runtime.runs.get(selected)
+            if value is None or value["owner"] != user or value["case_id"] != case_id:
+                return JSONResponse(status_code=404, content={
+                    "code": "RUN_NOT_FOUND", "message": "Run not found",
+                })
+            events = runtime.events.read_since(selected, 0)
+            state = runtime.runner.status(selected).value
+            if state == "SUCCEEDED" and value.get("partial"):
+                state = "PARTIAL"
+            run_data = {
+                "id": selected, "state": state,
+                "seq": {"last": events[-1].seq if events else 0, "count": len(events)},
+                "started_at": value.get("started_at"),
+                "finished_at": value.get("finished_at"),
+            }
+        event_findings = {event.data.get("requirement_id"): event.data
+                          for event in events if event.type == "finding.created"}
+        saved_findings = {finding.requirement_id: finding
+                          for finding in repo.get_findings(user, case_id)}
+        requirements = []
+        skipped = []
+        for event in events:
+            if event.type == "budget.skipped":
+                requirement_id = event.data.get("requirement_id")
+                if requirement_id is not None and requirement_id not in skipped:
+                    skipped.append(requirement_id)
+        for requirement in sorted(repo.get_requirements(user, case_id), key=lambda item: (item.order, item.id)):
+            raw = event_findings.get(requirement.id)
+            finding = saved_findings.get(requirement.id)
+            if raw is not None:
+                verdict = raw.get("verdict")
+                confidence = raw.get("confidence")
+                review = raw.get("review", "NONE")
+                edited_text = raw.get("edited_text")
+                evidence = raw.get("evidence", [])
+            elif finding is not None and selected is None:
+                verdict, confidence = finding.verdict.value, finding.confidence.value
+                review, edited_text = finding.review.value, finding.edited_text
+                evidence = [item.model_dump(mode="json") for item in finding.evidence]
+            else:
+                verdict = confidence = review = edited_text = None
+                evidence = []
+            requirements.append({
+                "id": requirement.id, "text": requirement.text,
+                "confirmed": requirement.confirmed, "origin": requirement.origin.value,
+                "finding": ({"verdict": verdict, "confidence": confidence,
+                             "review": review, "edited_text": edited_text}
+                            if verdict is not None else None),
+                "evidence": [{"source_id": item.get("source_id"),
+                              "locator": item.get("locator"), "excerpt": item.get("excerpt")}
+                             for item in evidence],
+            })
+        return {
+            "case": {"id": case.id, "title": case.title, "status": case.status.value,
+                     "source_ids": list(case.source_ids), "created_at": case.created_at,
+                     "updated_at": case.updated_at},
+            "requirements": requirements,
+            "run": run_data,
+            "events": [{"seq": event.seq, "type": event.type, "ts": event.ts,
+                        "data": event.data} for event in events],
+            "budget": {"given": runtime.runs[selected]["budget"] if selected else None,
+                       "skipped_requirement_ids": skipped},
+        }
+
     @router.post("/cases/{case_id}/requirements:propose")
     def propose(case_id: str, user=Depends(owner), engine=Depends(engine)):
         with runtime.lock:
