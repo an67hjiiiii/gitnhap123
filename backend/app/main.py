@@ -74,7 +74,10 @@ def current_user(request: Request) -> dict:
     except InvalidSessionError as exc:
         raise HTTPException(status_code=401, detail="Authentication is required") from exc
 
-review_runtime = ReviewRuntime()
+review_runtime = ReviewRuntime(
+    pipeline_factory=lambda owner: owner_pipeline({"user_id": owner}),
+    source_store_factory=lambda owner: owner_source_store({"user_id": owner}),
+)
 app.include_router(_build_review_router(current_user=current_user, runtime=review_runtime))
 
 def owner_source_store(user: dict):
