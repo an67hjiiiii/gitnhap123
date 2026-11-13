@@ -1,11 +1,15 @@
 from __future__ import annotations
+import re
 from app.core.types import TaskResult, RunMetrics
 
 async def synthesize(provider, query: str, results: list[TaskResult], metrics: RunMetrics) -> str:
     compact = []
     all_citations: list[str] = []
+    allowed_ids: set[str] = set()
     for r in results:
         all_citations.extend(r.citations)
+        allowed_ids.update(r.citations)
+        allowed_ids.update(r.evidence_ids)
         compact.append(
             f"TASK {r.task_id} [{r.domain}] status={r.status}\n"
             f"answer={r.answer}\n"
@@ -21,6 +25,12 @@ async def synthesize(provider, query: str, results: list[TaskResult], metrics: R
     result = await provider.generate(system=system, user=user)
     metrics.add_usage(result.usage)
     text = result.text.strip()
+    # Locators are single, non-whitespace IDs enclosed in square brackets.
+    text = re.sub(
+        r"\[([^\[\]\s]+)\]",
+        lambda match: match.group(0) if match.group(1) in allowed_ids else "",
+        text,
+    )
     unique = list(dict.fromkeys(all_citations))
     # The worker citations are already validated; append them if the synthesis model dropped locators.
     if unique and not any(cid in text for cid in unique):

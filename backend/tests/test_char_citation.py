@@ -15,6 +15,11 @@ class FixedProvider:
         return type("Result", (), {"text": self.text, "usage": type("Usage", (), {"input_tokens": 1, "output_tokens": 1})()})()
 
 
+@pytest.fixture(autouse=True)
+def fake_provider_env(monkeypatch):
+    monkeypatch.setenv("PROVIDER", "fake")
+
+
 def test_synthesizer_keeps_existing_task_citation():
     result = TaskResult("T1", "api_architecture", "COMPLETE", "Answer [e1]", evidence_ids=["e1"], citations=["e1"])
     text = asyncio.run(synthesize(FixedProvider("Summary [e1]"), "question", [result], RunMetrics()))
@@ -27,12 +32,41 @@ def test_synthesizer_appends_citation_when_text_has_no_locator():
     assert text.endswith("[e1]")
 
 
-@pytest.mark.xfail(strict=False, reason="SUSPECTED DEFECT: synthesis text can retain unknown citation locators")
 def test_synthesizer_does_not_add_unknown_ids():
     result = TaskResult("T1", "api_architecture", "COMPLETE", "Answer", evidence_ids=["e1"], citations=["e1"])
     text = asyncio.run(synthesize(FixedProvider("Summary [unknown]"), "question", [result], RunMetrics()))
     assert "[unknown]" not in text
     assert "[e1]" in text
+
+
+def test_synthesizer_removes_only_unknown_markers_in_mixed_text():
+    result = TaskResult("T1", "api_architecture", "COMPLETE", "Answer", evidence_ids=["e1"], citations=["e1"])
+    summary = "Known [e1]; unknown [e10][UNKNOWN], repeated [UNKNOWN]. Known again [e1]."
+    text = asyncio.run(synthesize(FixedProvider(summary), "question", [result], RunMetrics()))
+    assert text == "Known [e1]; unknown , repeated . Known again [e1]."
+
+
+def test_synthesizer_preserves_all_known_locators_across_tasks_exactly():
+    locator = "src_0123456789abcdef_c0001"
+    results = [
+        TaskResult("T1", "api_architecture", "COMPLETE", "Answer", evidence_ids=["e1"], citations=["e1"]),
+        TaskResult("T2", "security", "COMPLETE", "Answer", evidence_ids=[locator], citations=[locator]),
+    ]
+    summary = f"First [e1], second [{locator}].\nRepeat [e1][{locator}]."
+    text = asyncio.run(synthesize(FixedProvider(summary), "question", results, RunMetrics()))
+    assert text == summary
+
+
+def test_synthesizer_preserves_evidence_locator_without_worker_citation():
+    result = TaskResult("T1", "api_architecture", "PARTIAL", "Answer", evidence_ids=["e2"])
+    text = asyncio.run(synthesize(FixedProvider("Evidence [e2]; unknown [e3]."), "question", [result], RunMetrics()))
+    assert text == "Evidence [e2]; unknown ."
+
+
+@pytest.mark.parametrize("results", [[], [TaskResult("T1", "api_architecture", "NO_EVIDENCE", "Answer")]])
+def test_synthesizer_removes_locators_when_no_evidence_is_available(results):
+    text = asyncio.run(synthesize(FixedProvider("Unsupported [unknown]."), "question", results, RunMetrics()))
+    assert text == "Unsupported ."
 
 
 def test_grounded_generation_schema_limits_citations_to_allowed_ids(monkeypatch):
