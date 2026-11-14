@@ -20,20 +20,29 @@ _SPLITTER = re.compile(  # same clause markers as the review auto-route (kept lo
     r"\s*(?:;|\bvà\b|\bđồng\s+thời\b|\bcũng\s+như\b|\band\b|\bas\s+well\s+as\b)\s*", re.IGNORECASE)
 _COMMA_BEFORE_VERB = re.compile(r",\s*(?=(?:phải|cần|được|must|shall|should)\b)", re.IGNORECASE)
 _MAX_IDEAS = 4
+_MIN_CLAUSE_WORDS = 3
 
 
 def split_ideas(query: str) -> tuple[list[str], bool]:
     """Return (idea clauses, dependent). Fewer than 2 usable clauses -> ([], False)."""
     text = _COMMA_BEFORE_VERB.sub("; ", query)
     parts = [re.sub(r"^[\s,.;:]+|[\s?!.;,]+$", "", p) for p in _SPLITTER.split(text)]
-    ideas = [p for p in parts if len(p.split()) >= 2][:_MAX_IDEAS]
+    # Split only when BOTH sides look like clauses (>= 3 words). This keeps "Research and Development department",
+    # "PDF, DOCX và PNG" and similar lists/proper names in one piece.
+    if any(len(p.split()) < _MIN_CLAUSE_WORDS for p in parts if p):
+        return [], False
+    for left, right in zip(parts, parts[1:]):  # "A, B và C": a list, not two clauses
+        first = right.split()[0] if right.split() else ""
+        if re.search(r",\s*\S{1,15}$", left) and (first.isupper() or first[:1].isdigit()):
+            return [], False
+    ideas = [p for p in parts if p][:_MAX_IDEAS]
     if len(ideas) < 2:
         return [], False
     return ideas, bool(_DEPENDENT.search(query))
 
 
 def fusion_mode() -> str:
-    return os.getenv("RETRIEVAL_FUSION", "bm25").strip().lower()
+    return os.getenv("RETRIEVAL_FUSION", "off").strip().lower()
 
 
 async def rewrite_query(provider, query: str, metrics: RunMetrics) -> str:
@@ -90,7 +99,7 @@ async def product_retrieve(pipeline, provider, metrics: RunMetrics, *, query: st
         merged = rrf_merge(lists, top_k) if len(lists) > 1 else base_list
 
     reasons = weakness(query, base_list, min_score=cfg.retrieval_min_score)
-    if retry and reasons and os.getenv("RETRIEVAL_RETRY", "1").strip() != "0":
+    if retry and reasons and os.getenv("RETRIEVAL_RETRY", "0").strip() == "1":
         rewritten = await rewrite_query(provider, query, metrics)
         wide = top_k * 2
         extra = _lists_for(pipeline, rewritten, chunks, cfg, source_ids, wide, "bm25")

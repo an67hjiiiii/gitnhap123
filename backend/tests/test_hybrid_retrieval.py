@@ -69,7 +69,8 @@ class FakePipeline:
         return retrieve(q, chunks, top_k=top_k, min_score=min_score)
 
 
-def test_multi_idea_merges_per_idea_results_into_one_context_and_retries_once_when_weak():
+def test_multi_idea_merges_per_idea_results_into_one_context_and_retries_once_when_weak(monkeypatch):
+    monkeypatch.setenv("RETRIEVAL_RETRY", "1")
     events = []
     provider = Provider("api yêu cầu mỗi phút giới hạn")
     out = asyncio.run(product_retrieve(
@@ -84,7 +85,8 @@ def test_multi_idea_merges_per_idea_results_into_one_context_and_retries_once_wh
     assert provider.calls <= 1
 
 
-def test_retry_happens_at_most_once_and_records_event():
+def test_retry_happens_at_most_once_and_records_event(monkeypatch):
+    monkeypatch.setenv("RETRIEVAL_RETRY", "1")
     events = []
     provider = Provider("sao lưu mã hoá")
     out = asyncio.run(product_retrieve(
@@ -117,7 +119,8 @@ def test_verifier_drops_flagged_sentences_but_keeps_one_and_survives_garbage():
     assert same == answer and notes == []
 
 
-def test_needs_verification_only_for_risky_answers():
+def test_needs_verification_only_for_risky_answers(monkeypatch):
+    monkeypatch.setenv("ANSWER_LLM_VERIFY", "1")
     assert needs_verification("Mật khẩu thế nào?", "Mật khẩu dài 12 ký tự.")
     assert not needs_verification("Mật khẩu thế nào?", "Mật khẩu phải đủ mạnh.")
     assert needs_verification("Tệp nào được phép, dung lượng bao nhiêu và có quét không?", "Chỉ PDF.")
@@ -131,3 +134,25 @@ def test_progress_labels_for_new_orchestration_events():
     assert stage_label({"stage": "retrieval.retry"})["step"] == "retrying"
     assert stage_label({"stage": "answer_guard", "notes": ["TRAILING_NEGATIVE_DROPPED:1"]}) is None
     assert stage_label({"stage": "answer_guard", "notes": ["VERIFY_RAN"]})["step"] == "verifying"
+
+
+def test_temporary_defaults_are_off(monkeypatch):
+    from app.research.product_retrieval import fusion_mode
+
+    for name in ("RETRIEVAL_FUSION", "RETRIEVAL_RETRY", "ANSWER_LLM_VERIFY"):
+        monkeypatch.delenv(name, raising=False)
+    assert fusion_mode() == "off"
+    assert not needs_verification("Mật khẩu bao nhiêu ký tự và hết hạn sau bao lâu?", "Mật khẩu dài 12 ký tự.")
+    events = []
+    asyncio.run(product_retrieve(
+        FakePipeline(), Provider("x"), RunMetrics(), query="Dữ liệu dự phòng được bảo vệ thế nào?",
+        retrieval_query="Dữ liệu dự phòng được bảo vệ thế nào?", chunks=CHUNKS, cfg=Cfg(), source_ids=None, trace={},
+        event=lambda stage, **d: events.append(stage), multi=False, retry=True))
+    assert "retrieval.retry" not in events
+
+
+def test_split_keeps_proper_names_and_lists_together():
+    assert split_ideas("Phòng Research and Development nằm ở đâu?") == ([], False)
+    assert split_ideas("Hệ thống chấp nhận PDF, DOCX và PNG đúng không?") == ([], False)
+    ideas, _ = split_ideas("Mật khẩu phải có bao nhiêu ký tự và hết hạn sau bao lâu?")
+    assert len(ideas) == 2

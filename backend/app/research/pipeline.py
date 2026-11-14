@@ -365,6 +365,13 @@ class ResearchPipeline:
                     **({"checker": answer_checker} if product_mode and answer_checker is not None else {}))
                 if result.guard_notes:
                     event("answer_guard", notes=list(result.guard_notes))
+                if result.status == "NO_EVIDENCE":
+                    event(
+                        "no_evidence",
+                        reason="MODEL_REFUSED" if selected else "NO_CHUNKS",
+                        retrieved=[c.chunk_id for c in candidates],
+                        selected=[c.chunk_id for c in selected],
+                    )
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                 tasks, task_results = [task], [result]
                 answer = result.answer

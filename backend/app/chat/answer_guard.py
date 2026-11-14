@@ -5,6 +5,7 @@ G2: drop sentences whose number+unit does not appear in the evidence used (reuse
 """
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -103,6 +104,8 @@ def needs_verification(query: str, answer: str) -> bool:
     """Flag only risky answers: they contain digits, or the question has several ideas."""
     from app.research.product_retrieval import split_ideas
 
+    if os.getenv("ANSWER_LLM_VERIFY", "0").strip() != "1":  # off until a bench shows it helps
+        return False
     return bool(_DIGIT.search(answer)) or bool(split_ideas(query)[0])
 
 
