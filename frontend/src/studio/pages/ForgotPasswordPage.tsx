@@ -16,7 +16,7 @@ export const ForgotPasswordPage: React.FC = () => {
   return (
     <AuthPageFrame mode="recovery">
       {/* 1. Left Visual Brand Side */}
-      <AuthBrandSide quote="Quản lý tài khoản trong môi trường nghiên cứu cục bộ của nhóm C1SE.27." />
+      <AuthBrandSide quote="Khôi phục quyền truy cập vào không gian làm việc của bạn." />
 
       {/* 2. Right Form Area */}
       <div className="auth-form-panel">
@@ -51,7 +51,7 @@ export const ForgotPasswordPage: React.FC = () => {
                     type="text"
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="ví dụ: chung_dev hoặc chung.kieu@c1se27.edu.vn"
+                    placeholder="ví dụ: minhanh hoặc minhanh@congty.vn"
                     required
                     className="w-full pl-10 pr-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none rounded-xl"
                   />
@@ -90,8 +90,8 @@ export const ForgotPasswordPage: React.FC = () => {
 
         {/* Footer */}
         <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-          <span>Hỗ trợ: quản trị viên dự án C1SE.27</span>
-          <span>ĐH Duy Tân</span>
+          <span>Hỗ trợ: quản trị viên hệ thống của bạn</span>
+          <span>OrchestrIQ Studio</span>
         </div>
       </div>
     </AuthPageFrame>
