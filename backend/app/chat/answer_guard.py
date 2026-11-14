@@ -32,13 +32,24 @@ def split_sentences(text: str) -> list[str]:
     return [part.strip() for part in _SENTENCE_END.split(text) if part and part.strip()]
 
 
+_FILLER_START = re.compile(
+    r"^(tuy nhiên|ngoài ra|lưu ý|however|note)?[,:]?\s*(không|chưa|no |there is no|not )", re.IGNORECASE)
+
+
 def drop_trailing_negatives(answer: str) -> tuple[str, int]:
+    """Drop 'no information' filler sentences (trailing, or sentences that start with the negation).
+
+    Always keeps at least one sentence; a negation inside a sentence that also carries content is kept.
+    """
     sentences = split_sentences(answer)
-    removed = 0
-    while len(sentences) > 1 and _NEGATIVE.search(sentences[-1]):
-        sentences.pop()
-        removed += 1
-    return (" ".join(sentences) if removed else answer), removed
+    kept = list(sentences)
+    for index in range(len(sentences) - 1, -1, -1):
+        sentence = sentences[index]
+        filler = _NEGATIVE.search(sentence) and (index == len(sentences) - 1 or _FILLER_START.match(sentence))
+        if filler and len(kept) > 1:
+            kept.remove(sentence)
+    removed = len(sentences) - len(kept)
+    return (" ".join(kept) if removed else answer), removed
 
 
 def drop_unsupported_numbers(answer: str, evidence_texts: Iterable[str]) -> tuple[list[str], list[str]]:
