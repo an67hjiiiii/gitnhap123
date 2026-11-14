@@ -1,0 +1,11 @@
+﻿total 76.3
+ 15.0% app\storage\postgres\runtime.py (304)
+ 22.9% app\storage\conversation_store.py (62)
+ 34.5% app\storage\vector_store.py (164)
+ 40.7% app\providers\ollama.py (48)
+ 44.6% app\storage\postgres\config.py (42)
+ 45.5% app\research\conversation_context.py (57)
+ 50.5% app\api\studio.py (192)
+ 52.1% app\research\obligation_concern_extraction.py (140)
+ 52.2% app\research\decomposer.py (315)
+ 55.2% app\ingestion\documents.py (74)
