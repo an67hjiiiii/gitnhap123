@@ -33,7 +33,7 @@ INTENTS = (
 _ARITHMETIC = re.compile(r"\d+(?:[.,]\d+)?\s*(?:[+\-*/x×÷^])\s*\d+")
 _VI_CHARS = re.compile("[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]")
 _DEFINITION_VI = re.compile(r"^(?:giai thich |cho biet )?[a-z0-9][a-z0-9 .+#/-]{0,40} la (?:gi|cai gi)$")
-_DEFINITION_EN = re.compile(r"^(?:what is|what are|what s|define|explain)(?: an?)? [a-z0-9][a-z0-9 .+#/-]{0,40}$")
+_DEFINITION_EN = re.compile(r"^(?:what is|what are|what s|define|explain)(?: an?)? (?!the )[a-z0-9][a-z0-9 .+#/-]{0,40}$")
 _DOC_WORDS = ("tai lieu", "document", "file", "yeu cau", "requirement", "ho so", "he thong cua", "du an")
 _HISTORY_CUES = ("o tren", "vua roi", "luc nay", "ban nay", "truoc do", "ban vua", "o truong hop", "trong truong hop",
                  "above", "earlier", "you just said", "you said", "previous answer", "in case")
