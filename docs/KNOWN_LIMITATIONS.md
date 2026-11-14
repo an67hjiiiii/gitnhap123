@@ -18,6 +18,5 @@
   được kiểm tra khi đọc nội dung.
 - PDF text extraction không giới hạn số trang.
 - `slot_check` đã xử lý số viết bằng chữ (0-100, en/vi), dấu chấm hàng nghìn, tháng-năm và GB nhị phân; còn yếu: tên riêng nhiều từ tiếng Việt ("Quản trị viên" chỉ giữ "quản"), ràng buộc chủ thể-giá trị và tên một từ đầu câu (xfail trong `test_slot_check.py`).
-- Run bị cắt bởi `MAX_RUN_TOKENS` hiện được báo COMPLETE nếu các task đã chạy đều COMPLETE (pipeline.py, xem `test_char_p1_p2.py`).
 - Condition C cần `IMPLEMENTATION_PROFILE=dev`; mặc định `m0` chỉ cho A.
 - Số đo thực nghiệm trên tập tự dựng chỉ để tham khảo.

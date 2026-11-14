@@ -298,6 +298,7 @@ class ResearchPipeline:
                 event("request_understanding", **understanding.to_dict())
 
             all_chunks = self.source_store.chunks(source_ids)
+            budget_cut = False
             if condition == "A" or simple_product_request:
                 r0 = time.perf_counter()
                 retrieval_trace: dict = {}
@@ -668,6 +669,7 @@ class ResearchPipeline:
                     event("task_completed", result=asdict(result))
                     if metrics.input_tokens + metrics.output_tokens > cfg.max_run_tokens:
                         event("run_budget_exceeded", total_tokens=metrics.input_tokens + metrics.output_tokens)
+                        budget_cut = len(task_results) < len(ordered)
                         break
                 g0 = time.perf_counter()
                 answer = await synthesize(provider, query, task_results, metrics)
@@ -676,6 +678,8 @@ class ResearchPipeline:
             status = "COMPLETE" if task_results and all(r.status == "COMPLETE" for r in task_results) else "PARTIAL"
             if task_results and all(r.status == "NO_EVIDENCE" for r in task_results):
                 status = "NO_EVIDENCE"
+            if budget_cut:  # run stopped by max_run_tokens with unexecuted tasks
+                status = "PARTIAL"
             lifecycle_status = "COMPLETED"
             event(
                 "run_finished",

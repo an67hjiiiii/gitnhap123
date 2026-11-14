@@ -80,24 +80,7 @@ def test_run_token_budget_emits_event_and_finalizes_partial(
     run = asyncio.run(sf1_pipeline_factory().run("Question", condition="C-P"))
     assert any(event["stage"] == "run_budget_exceeded" for event in run["events"])
     assert [r["task_id"] for r in run["task_results"]] == ["T1"]  # loop breaks; T2 is never executed
-    # Characterization (P-1 finding): status is computed only from executed tasks, so a run cut short by the
-    # token budget reports COMPLETE. Expected PARTIAL; see test below.
-    assert run["status"] == "COMPLETE"
-
-
-@pytest.mark.xfail(strict=True, reason="P-1: run stopped by max_run_tokens with unexecuted tasks should be PARTIAL, not COMPLETE")
-def test_budget_cut_run_should_be_partial(monkeypatch, sf1_fake_provider_env, sf1_pipeline_factory):
-    monkeypatch.setenv("MAX_RUN_TOKENS", "512")
-    tasks = [Task("T1", "API policy", "api_architecture"), Task("T2", "API behavior", "api_architecture")]
-    _patch_plan(monkeypatch, TaskPlan("Question", tasks=tasks))
-
-    async def expensive(provider, task, evidence, metrics):
-        metrics.input_tokens = 513
-        return _result(task.task_id, "COMPLETE")
-
-    monkeypatch.setattr(pipeline_module, "execute_task", expensive)
-    run = asyncio.run(sf1_pipeline_factory().run("Question", condition="C-P"))
-    assert run["status"] == "PARTIAL"
+    assert run["status"] == "PARTIAL"  # fixed: was COMPLETE (status ignored unexecuted tasks)
 
 
 def test_dependency_context_order_validation_and_normalization(
