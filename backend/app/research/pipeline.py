@@ -138,6 +138,7 @@ class ResearchPipeline:
         product_mode: bool = False,
         context_policy: str | None = None,
         on_event: Callable[[dict], None] | None = None,
+        force_plan: bool = False,
     ) -> dict:
         condition = condition.upper()
         if condition not in CONDITIONS:
@@ -286,6 +287,7 @@ class ResearchPipeline:
             simple_product_request = bool(
                 product_mode
                 and condition != "A"
+                and not force_plan
                 and understanding is not None
                 and is_simple_project_question(query, understanding.domains)
             )

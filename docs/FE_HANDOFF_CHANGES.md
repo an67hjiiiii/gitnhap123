@@ -59,3 +59,19 @@ Với SSE, hiển thị tiến trình bằng `events[eventName]`; unknown event 
 
 ## Export Markdown: dòng Edited (2026-11-14)
 Khi quyết định là EDIT và có edited_text, export thêm dòng `   - Edited: <văn bản>` sau dòng Decision. Thay đổi cộng thêm, không đổi cấu trúc cũ.
+
+## Hội thoại: intent, bộ nhớ, đường xử lý, stream tiến độ (2026-11-14)
+**`POST /api/chat`** (đổi, tương thích ngược: chỉ thêm trường)
+- Trả thêm: `intent {intent, reason, language}` (intent ∈ greeting|thanks|farewell|out_of_scope|about_system|document_question|follow_up|ambiguous), `route` (`{path:"B"|"C", reason, params, executed}` hoặc `null`), `rewritten_query` (câu độc lập đã viết lại cho câu nối tiếp, hoặc `null`).
+- Chào/cảm ơn/tạm biệt/ngoài phạm vi/hỏi về hệ thống: trả lời ngay, KHÔNG truy hồi, KHÔNG gọi pipeline: `run_id: null`, `status: "COMPLETE"`, `citations: []`, `events: [{stage:"intent_routed", retrieval:false, …}]`. FE không được giả định luôn có `run_id`.
+- Câu có tham chiếu ("còn cái đó thì sao?", "What about that?") được viết lại thành câu độc lập bằng 1 lượt model nhỏ; hội thoại dài hơn 6 tin được tóm tắt cuốn chiếu (1 lượt model, có cache theo hội thoại), 6 tin gần nhất giữ nguyên văn.
+- Một ý → đường B (một lượt truy hồi + trả lời); nhiều ý → `route.path:"C"` nhưng mặc định VẪN chạy một lượt có căn cứ (`route.executed:"B"`); chỉ lập kế hoạch nhiều bước khi đặt `CHAT_FORCE_PLAN=1` (`executed:"C"`). Lý do: trong thử nghiệm cục bộ đường lập kế hoạch chậm 3–8 lần và làm mất một số câu trả lời mà một lượt tìm được. Event `route_chosen` nằm cuối `events`.
+- Văn phong: trả lời tiếng Việt tự nhiên, ngắn, nêu "theo tài liệu <tên>"; thiếu thông tin thì nói rõ và gợi ý bước tiếp. Câu NO_EVIDENCE cố định mới: "Mình chưa tìm thấy thông tin này trong các tài liệu đã tải lên. Bạn có thể tải thêm tài liệu liên quan hoặc hỏi cụ thể hơn (ví dụ nêu tên mục hoặc giá trị cần tìm), mình sẽ tra lại." Dòng "Nguồn: [chunk_id]" giữ nguyên.
+
+**`POST /api/chat/stream`** (mới): cùng body với `/api/chat`, trả `text/event-stream`.
+- `event: status` data `{step, text}` nhiều lần (step: routing, rewriting, route, understanding, planning, plan_ready, searching, step_done, writing…; text tiếng Việt sẵn để hiển thị);
+- kết thúc bằng `event: done` data = đúng body của `/api/chat`, hoặc `event: error` data `{http_status, code, message, hint}` (thông báo thân thiện, không lộ stack). Lỗi trước khi stream (400/404…) cũng đi qua `event: error`.
+
+**Review SSE** (events mới): `route.chosen {case_id, requirement_id, path, reason, params}` khi engine chạy ở `condition=AUTO` (một ý → B, nhiều ý → C, không có C ở hồ sơ hiện tại → B với `C_NOT_AVAILABLE`); `plan.ready {case_id, requirement_id, steps:[{task_id, goal, domain, depends_on}]}` khi run C có ≥2 bước (để FE hiển thị kế hoạch).
+**labels.vi.json**: thêm các mục `progress`, `friendly_errors`, `route_reason` (tiếng Việt, UTF-8).
+**ResearchPipeline.run**: tham số mới `on_event` (callback đồng bộ) và `force_plan` (nội bộ).

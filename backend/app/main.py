@@ -1,34 +1,35 @@
 from __future__ import annotations
+
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from app.api.auth import router as auth_router
+
 from app.api.auth import get_session_token
-from app.api.review import ReviewRuntime, build_router as _build_review_router
-from app.review.memory import InMemoryMemoryStore
+from app.api.auth import router as auth_router
+from app.api.review import ReviewRuntime
+from app.api.review import build_router as _build_review_router
 from app.auth.store import AuthStore, InvalidSessionError
+from app.chat.memory import SummaryCache as _SummaryCache
 from app.core.config import RuntimeConfig
 from app.core.observability import RequestIdMiddleware, SecurityHeadersMiddleware, TTLCache, configure_logging
 from app.core.readiness import check_ollama, check_postgres, check_vector
-from fastapi.middleware.cors import CORSMiddleware
 from app.ingestion.documents import (
     DOCUMENT_INGESTION_VERSION,
     DocumentTypeError,
     extract_document,
 )
 from app.providers.ollama import OllamaProvider
+from app.research.pipeline import ResearchPipeline
 from app.retrieval.candidate_index import CandidateIndex, IndexingError
 from app.retrieval.embeddings import make_embedder
-from app.research.pipeline import ResearchPipeline
-from app.research.conversation_context import build_conversation_context
-from app.storage.run_store import RunStore
-from app.storage.source_store import SourceStore
+from app.review.memory import InMemoryMemoryStore
 from app.storage.conversation_store import ConversationStore
-from app.storage.vector_store import InMemoryVectorStore, QdrantVectorStore
 from app.storage.postgres import create_postgres_engine, create_session_factory
 from app.storage.postgres.config import PostgresConfigurationError
 from app.storage.postgres.runtime import (
@@ -37,6 +38,9 @@ from app.storage.postgres.runtime import (
     PostgresRunStore,
     PostgresSourceStore,
 )
+from app.storage.run_store import RunStore
+from app.storage.source_store import SourceStore
+from app.storage.vector_store import InMemoryVectorStore, QdrantVectorStore
 
 BASE = Path(__file__).resolve().parent.parent
 load_dotenv(BASE / ".env", override=False)
@@ -212,7 +216,6 @@ def owner_conversation_store(user: dict):
     root = Path(DATA_DIR) / "owners" / str(user["user_id"]) / "conversations"
     return ConversationStore(root)
 
-from app.chat.memory import SummaryCache as _SummaryCache
 
 _SUMMARY_CACHE = _SummaryCache()
 
@@ -471,6 +474,11 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             say("route", "Câu hỏi nhiều ý, mình sẽ chia nhỏ để trả lời." if route["path"] == "C"
                 else "Mình tra cứu trực tiếp trong tài liệu.")
 
+        # Multi-step planning for chat is opt-in: in the local transcript it was slower (3-8x) and lost answers
+        # that one grounded call found. Review runs use AUTO (route.chosen) separately.
+        force_plan = bool(route and route["path"] == "C" and os.getenv("CHAT_FORCE_PLAN", "").strip() == "1")
+        if route is not None:
+            route["executed"] = "C" if force_plan else "B"
         conversations.add_message(conversation_id, "USER", message)
         run = await owner_pipeline(user, conversation_id).run(
             query,
@@ -481,6 +489,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             conversation_id=conversation_id,
             product_mode=body.product_mode,
             on_event=on_event,
+            force_plan=force_plan,
         )
         conversations.add_message(
             conversation_id,

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass
-import re
 from threading import Lock
-import unicodedata
 
 from app.providers.base import Provider
 

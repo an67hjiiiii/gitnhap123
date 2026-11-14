@@ -8,7 +8,6 @@ from app.research.synthesizer import synthesize
 from app.research.vanilla import REPLY_LANGUAGE_HINT, answer_vanilla
 from app.research.worker import execute_task
 
-
 SCHEMA = ('Schema: {"status":"COMPLETE|PARTIAL|NO_EVIDENCE","answer":"...",'
           '"citations":["chunk_id"],"missing_information":[]}')
 

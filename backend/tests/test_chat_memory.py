@@ -7,7 +7,11 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from app.chat.memory import (
-    MemoryView, SummaryCache, build_memory, has_reference, render_context,
+    MemoryView,
+    SummaryCache,
+    build_memory,
+    has_reference,
+    render_context,
     rewrite_follow_up,
 )
 from app.core.types import ProviderResult

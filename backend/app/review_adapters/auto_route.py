@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 from app.review_adapters.slot_check import extract_slots
-
 
 _SPLITTER = re.compile(
     r"\s*(?:;|\bvà\b|\bđồng\s+thời\b|\bcũng\s+như\b|\band\b|\bas\s+well\s+as\b)\s*",
