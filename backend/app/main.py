@@ -77,8 +77,18 @@ def current_user(request: Request) -> dict:
 review_runtime = ReviewRuntime(
     pipeline_factory=lambda owner: owner_pipeline({"user_id": owner}),
     source_store_factory=lambda owner: owner_source_store({"user_id": owner}),
+    storage_backend=STORAGE_BACKEND,
+    session_factory=app.state.session_factory,
 )
 app.include_router(_build_review_router(current_user=current_user, runtime=review_runtime))
+
+@app.on_event("startup")
+def start_review_runtime():
+    review_runtime.startup()
+
+@app.on_event("shutdown")
+def stop_review_runtime():
+    review_runtime.runner.shutdown()
 
 def owner_source_store(user: dict):
     if STORAGE_BACKEND == "postgres":

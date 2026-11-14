@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from .engine import ReviewEngine
 from .repository import CaseRepository
@@ -30,6 +30,10 @@ class FindingNotFound(KeyError):
 
 class InvalidDecision(ValueError):
     """Raised when a decision value is invalid or incomplete."""
+
+
+class RunCancelled(Exception):
+    """Cooperative cancellation between requirement checkpoints."""
 
 
 class ReviewCaseService:
@@ -132,75 +136,104 @@ class ReviewCaseService:
         return requirement
 
     def start_run(
-        self, case_id: str, owner_user_id: str, budget: dict | None = None, emit=None
+        self, case_id: str, owner_user_id: str, budget: dict | None = None, emit=None,
+        *, job_id: str | None = None, attempt: int = 1, cancelled=None, checkpoint=None,
     ) -> list[Finding]:
-        """Run the review engine and persist findings and terminal state."""
+        """Checkpoint each requirement; a leased runner owns managed job state."""
         case = self._case(case_id, owner_user_id)
         requirements = self.repository.get_requirements(owner_user_id, case_id)
         if not requirements or not all(item.confirmed for item in requirements):
             raise RequirementsUnconfirmed(case_id)
-
-        now = self.clock()
-        case.status = CaseStatus.RUNNING
-        case.updated_at = now
-        self.repository.save_case(owner_user_id, case)
-        job = RunJob(
-            id=self.id_factory(),
-            case_id=case_id,
-            state=JobState.RUNNING,
-            seq=len(self.repository.get_jobs(owner_user_id, case_id)) + 1,
-            budget=budget,
-            started_at=now,
-        )
-        self.repository.save_job(owner_user_id, job)
+        managed = job_id is not None
+        job = None
+        if not managed:
+            case.status, case.updated_at = CaseStatus.RUNNING, self.clock()
+            self.repository.save_case(owner_user_id, case)
+            job = RunJob(
+                id=self.id_factory(), case_id=case_id, state=JobState.RUNNING,
+                seq=len(self.repository.get_jobs(owner_user_id, case_id)) + 1,
+                budget=budget, started_at=self.clock(),
+            )
+            self.repository.save_job(owner_user_id, job)
+        findings = (self.repository.get_findings(owner_user_id, case_id)
+                    if attempt > 1 else [])
+        if not managed:
+            self.repository.save_findings(owner_user_id, case_id, findings)
+        completed = {item.requirement_id for item in findings}
         allowed = {item.evidence_id for item in self.evidence}
+        remaining = dict(budget or {})
+        if remaining.get("max_requirements") is not None:
+            used = sum(item.verdict != Verdict.SKIPPED_BUDGET for item in findings)
+            remaining["max_requirements"] = max(0, remaining["max_requirements"] - used)
+        started = self.clock()
 
         def publish(finding):
+            if cancelled is not None and cancelled():
+                raise RunCancelled()
+            safe = finding.model_copy(update={
+                "review": Decision.NONE, "edited_text": None,
+                "evidence": [item for item in finding.evidence if item.evidence_id in allowed],
+            })
+            if any(item.id == safe.id and item.requirement_id != safe.requirement_id
+                   for item in findings):
+                safe.id = str(uuid5(NAMESPACE_URL, f"{case_id}:{safe.requirement_id}:{safe.id}"))
+            if checkpoint is not None:
+                checkpoint(safe)
+            else:
+                self.repository.save_finding(owner_user_id, case_id, safe)
+            findings[:] = [item for item in findings if item.requirement_id != safe.requirement_id]
+            findings.append(safe)
             if emit is not None:
-                safe = finding.model_copy(update={
-                    "review": Decision.NONE,
-                    "edited_text": None,
-                    "evidence": [item for item in finding.evidence if item.evidence_id in allowed],
-                })
                 emit(safe)
 
         try:
-            produced = self.engine.run(case, requirements, budget, publish)
+            for requirement in requirements:
+                if requirement.id in completed:
+                    continue
+                if cancelled is not None and cancelled():
+                    raise RunCancelled()
+                call_budget = dict(remaining) if budget is not None else None
+                if call_budget is not None and call_budget.get("max_seconds") is not None:
+                    elapsed = (self.clock() - started).total_seconds()
+                    call_budget["max_seconds"] = max(0, call_budget["max_seconds"] - elapsed)
+                published = set()
+
+                def step(finding):
+                    publish(finding)
+                    published.add(finding.requirement_id)
+
+                produced = self.engine.run(case, [requirement], call_budget, step)
+                for finding in produced:
+                    if finding.requirement_id not in published:
+                        step(finding)
+                if remaining.get("max_requirements") is not None:
+                    used = sum(item.verdict != Verdict.SKIPPED_BUDGET for item in produced)
+                    remaining["max_requirements"] = max(0, remaining["max_requirements"] - used)
         except Exception:
-            case.status = CaseStatus.FAILED
+            if not managed:
+                case.status, case.updated_at = CaseStatus.FAILED, self.clock()
+                self.repository.save_case(owner_user_id, case)
+                job.state, job.finished_at = JobState.FAILED, self.clock()
+                self.repository.save_job(owner_user_id, job)
+            raise
+        complete = self.is_complete(requirements, findings)
+        if not managed:
+            case.status = CaseStatus.COMPLETE if complete else CaseStatus.PARTIAL
             case.updated_at = self.clock()
             self.repository.save_case(owner_user_id, case)
-            job.state = JobState.FAILED
+            job.state = JobState.SUCCEEDED if complete else JobState.PARTIAL
             job.finished_at = self.clock()
             self.repository.save_job(owner_user_id, job)
-            raise
-
-        findings = [
-            finding.model_copy(
-                update={
-                    "review": Decision.NONE,
-                    "evidence": [
-                        item
-                        for item in finding.evidence
-                        if item.evidence_id in allowed
-                    ],
-                }
-            )
-            for finding in produced
-        ]
-        self.repository.save_findings(owner_user_id, case_id, findings)
-        complete = len(findings) == len(requirements) and all(
-            finding.verdict
-            not in (Verdict.SKIPPED_BUDGET, Verdict.UNDETERMINED)
-            for finding in findings
-        )
-        case.status = CaseStatus.COMPLETE if complete else CaseStatus.PARTIAL
-        case.updated_at = self.clock()
-        self.repository.save_case(owner_user_id, case)
-        job.state = JobState.SUCCEEDED if complete else JobState.PARTIAL
-        job.finished_at = self.clock()
-        self.repository.save_job(owner_user_id, job)
         return findings
+
+    @staticmethod
+    def is_complete(requirements, findings):
+        by_requirement = {finding.requirement_id: finding for finding in findings}
+        return bool(requirements) and all(
+            requirement.id in by_requirement and by_requirement[requirement.id].verdict
+            not in (Verdict.SKIPPED_BUDGET, Verdict.UNDETERMINED)
+            for requirement in requirements
+        )
 
     def decide_finding(
         self,

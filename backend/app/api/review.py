@@ -1,10 +1,10 @@
-"""Owner-scoped review HTTP API with process-local jobs and persistence."""
+"""Owner-scoped review HTTP API with selectable durable persistence."""
 
 import os
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Literal
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -15,10 +15,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.jobs import EventLog, JobRunner, format_sse
 from app.review.engine import FakeReviewEngine
 from app.review.repository import InMemoryCaseRepository
-from app.review.schemas import CaseStatus, Decision, Evidence, Finding, Requirement, RequirementOrigin
+from app.review.schemas import CaseStatus, Decision, Evidence, Finding, JobState, Requirement, RequirementOrigin
 from app.review_adapters import PipelineReviewEngine
+from app.review_adapters.durable_jobs import DurableJobRunner
+from app.review_adapters.pg_repository import PostgresCaseRepository
 from app.review.service import (
-    CaseNotFound, InvalidDecision, RequirementsUnconfirmed, ReviewCaseService,
+    CaseNotFound, InvalidDecision, RequirementsUnconfirmed, ReviewCaseService, RunCancelled,
 )
 
 
@@ -90,10 +92,6 @@ class DecisionInput(Input):
     edited_text: str | None = None
 
 
-class _Cancelled(Exception):
-    pass
-
-
 class _RunEngine:
     """Give engine-local finding IDs a unique HTTP identity for each run."""
 
@@ -102,7 +100,8 @@ class _RunEngine:
 
     def run(self, case, requirements, budget, emit):
         def scoped(finding):
-            return finding.model_copy(update={"id": f"{self.job_id}:{finding.id}"})
+            identity = str(uuid5(NAMESPACE_URL, f"{self.job_id}:{finding.requirement_id}:{finding.id}"))
+            return finding.model_copy(update={"id": identity})
 
         def forward(*args):
             if len(args) == 1:
@@ -120,15 +119,28 @@ class _RunEngine:
 class ReviewRuntime:
     """One repository and one single-worker runner per application instance."""
 
-    def __init__(self, *, pipeline_factory=None, source_store_factory=None):
+    def __init__(self, *, pipeline_factory=None, source_store_factory=None,
+                 session_factory=None, storage_backend=None):
         self.pipeline_factory = pipeline_factory
         self.source_store_factory = source_store_factory
-        self.repository = InMemoryCaseRepository()
+        backend = (storage_backend or os.getenv("APP_STORAGE_BACKEND", "file")).strip().lower()
+        self.durable = backend == "postgres" and session_factory is not None
+        self.repository = (PostgresCaseRepository(session_factory) if self.durable
+                           else InMemoryCaseRepository())
         self.events = EventLog()
         self.runs = {}
         self.lock = RLock()
-        self.runner = JobRunner(self._work, self.events, self.now,
-                                lambda: str(uuid4()), max_concurrent=1)
+        if self.durable:
+            self.runner = DurableJobRunner(self.repository, self._work, str(uuid4()), 30, self.now)
+            self.events = self.runner
+        else:
+            self.runner = JobRunner(self._work, self.events, self.now,
+                                    lambda: str(uuid4()), max_concurrent=1)
+
+    def startup(self):
+        if self.durable:
+            self.runner.recover(self.now())
+            self.runner.start()
 
     @staticmethod
     def now():
@@ -154,6 +166,12 @@ class ReviewRuntime:
 
     def mutable(self, owner, case_id):
         self.service(None)._case(case_id, owner)
+        if self.durable:
+            active = any(job.state in {JobState.QUEUED, JobState.RUNNING}
+                         for job in self.repository.get_jobs(owner, case_id))
+            if active:
+                raise HTTPException(409, {"code": "CASE_RUNNING", "message": "Case has an active run"})
+            return
         if any(run["owner"] == owner and run["case_id"] == case_id
                and self.runner.status(job_id).value in {"QUEUED", "RUNNING"}
                for job_id, run in self.runs.items()):
@@ -169,16 +187,22 @@ class ReviewRuntime:
             evidence = [Evidence(evidence_id=chunk.chunk_id, source_id=chunk.source_id,
                                  locator=chunk.chunk_id, excerpt=chunk.text)
                         for chunk in self.source_store_factory(owner).chunks(source_ids)]
-        service = self.service(_RunEngine(run["engine"], job_id, emit), evidence)
-        pipeline_events = isinstance(run["engine"], PipelineReviewEngine)
+        selected_engine = run.get("engine")
+        if selected_engine is None:
+            selected_engine = get_review_engine()
+            if selected_engine is None:
+                selected_engine = self.engine()
+        service = self.service(_RunEngine(selected_engine, job_id, emit), evidence)
+        pipeline_events = isinstance(selected_engine, PipelineReviewEngine)
 
         def check():
             if cancelled():
-                raise _Cancelled()
+                raise RunCancelled()
 
         def finding_created(finding):
             check()
-            emit("finding.created", finding.model_dump(mode="json"))
+            if not self.durable:
+                emit("finding.created", finding.model_dump(mode="json"))
             if finding.verdict.value == "SKIPPED_BUDGET" and not pipeline_events:
                 emit("budget.skipped", {"requirement_id": finding.requirement_id})
             emit("task.done", {"requirement_id": finding.requirement_id})
@@ -187,23 +211,44 @@ class ReviewRuntime:
             check()
             if not pipeline_events:
                 emit("task.started", {"case_id": case_id})
-            service.start_run(case_id, owner, run["budget"], emit=finding_created)
+            service.start_run(
+                case_id, owner, run["budget"], emit=finding_created, cancelled=cancelled,
+                job_id=job_id if self.durable else None, attempt=run.get("attempt", 1),
+                checkpoint=(lambda finding: self.runner.checkpoint(job_id, finding)) if self.durable else None,
+            )
             check()
-            run["partial"] = service._case(case_id, owner).status == CaseStatus.PARTIAL
-        except _Cancelled:
-            case = service._case(case_id, owner)
-            case.status = CaseStatus.PARTIAL
-            case.updated_at = self.now()
-            self.repository.save_case(owner, case)
+            complete = service.is_complete(self.repository.get_requirements(owner, case_id),
+                                           self.repository.get_findings(owner, case_id))
+            run["partial"] = not complete
+            return JobState.SUCCEEDED if complete else JobState.PARTIAL
+        except RunCancelled:
+            if not self.durable:
+                case = service._case(case_id, owner)
+                case.status = CaseStatus.PARTIAL
+                case.updated_at = self.now()
+                self.repository.save_case(owner, case)
         finally:
             run["finished_at"] = self.now()
 
     def owned_run(self, owner, job_id):
+        if self.durable:
+            job = self.repository.get_job(owner, job_id)
+            if job is None:
+                raise CaseNotFound(job_id)
+            self.service(None)._case(job.case_id, owner)
+            return {"owner": owner, "case_id": job.case_id, "budget": job.budget,
+                    "started_at": job.started_at, "finished_at": job.finished_at}
         run = self.runs.get(job_id)
         if run is None or run["owner"] != owner:
             raise CaseNotFound(job_id)
         self.service(None)._case(run["case_id"], owner)
         return run
+
+    def case_runs(self, owner, case_id):
+        if self.durable:
+            return [job.id for job in self.repository.get_jobs(owner, case_id)]
+        return [job_id for job_id, value in self.runs.items()
+                if value["owner"] == owner and value["case_id"] == case_id]
 
     def status(self, owner, job_id):
         run = self.owned_run(owner, job_id)
@@ -248,13 +293,15 @@ def build_router(*, current_user, runtime: ReviewRuntime):
         case = runtime.service(None)._case(case_id, user)
         selected = run
         if selected is None:
-            matching = [job_id for job_id, value in runtime.runs.items()
-                        if value["owner"] == user and value["case_id"] == case_id]
+            matching = runtime.case_runs(user, case_id)
             selected = matching[-1] if matching else None
         run_data = None
         events = []
         if selected is not None:
-            value = runtime.runs.get(selected)
+            try:
+                value = runtime.owned_run(user, selected)
+            except CaseNotFound:
+                value = None
             if value is None or value["owner"] != user or value["case_id"] != case_id:
                 return JSONResponse(status_code=404, content={
                     "code": "RUN_NOT_FOUND", "message": "Run not found",
@@ -314,7 +361,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             "run": run_data,
             "events": [{"seq": event.seq, "type": event.type, "ts": event.ts,
                         "data": event.data} for event in events],
-            "budget": {"given": runtime.runs[selected]["budget"] if selected else None,
+            "budget": {"given": value["budget"] if selected else None,
                        "skipped_requirement_ids": skipped},
         }
 
@@ -356,8 +403,14 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             if not requirements or not all(item.confirmed for item in requirements):
                 raise RequirementsUnconfirmed(case_id)
             run = {"owner": user, "case_id": case_id, "budget": body.budget, "engine": engine}
-            job_id = runtime.runner.submit(run)
-            runtime.runs[job_id] = run
+            try:
+                job_id = runtime.runner.submit(run)
+            except ValueError as exc:
+                if str(exc) != "case has an active run":
+                    raise
+                raise HTTPException(409, {"code": "CASE_RUNNING", "message": "Case has an active run"}) from exc
+            if not runtime.durable:
+                runtime.runs[job_id] = run
             return runtime.status(user, job_id)
 
     @router.get("/runs/{job_id}")
