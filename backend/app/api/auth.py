@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -100,7 +102,7 @@ def login(
         "session_token",
         token,
         httponly=True,
-        secure=False,
+        secure=os.getenv("SESSION_COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes"},
         samesite="lax",
         path="/",
     )

@@ -12,6 +12,9 @@ from app.api.review import ReviewRuntime, build_router as _build_review_router
 from app.review.memory import InMemoryMemoryStore
 from app.auth.store import AuthStore, InvalidSessionError
 from app.core.config import RuntimeConfig
+from app.core.observability import RequestIdMiddleware, SecurityHeadersMiddleware, TTLCache, configure_logging
+from app.core.readiness import check_ollama, check_postgres, check_vector
+from fastapi.middleware.cors import CORSMiddleware
 from app.ingestion.documents import (
     DOCUMENT_INGESTION_VERSION,
     DocumentTypeError,
@@ -61,6 +64,19 @@ def _configured_stores(storage_backend: str | None = None):
     return PostgresAuthStore(session_factory), None, None, (engine, session_factory)
 
 app = FastAPI(title="Local Multi-Agent RAG", version="0.2.0-m0")
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+_ready_cache = TTLCache(5)
+_local_health_cache = TTLCache(30)
+def cors_origins_from_env() -> list[str]:
+    origins = [x.strip() for x in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if x.strip()]
+    return origins if origins and "*" not in origins else []
+
+
+_cors_origins = cors_origins_from_env()
+if _cors_origins and "*" not in _cors_origins:
+    app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, allow_credentials=True,
+                       allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory=BASE / "app" / "static"), name="static")
 app.include_router(auth_router)
 auth_store, source_store, run_store, postgres_runtime = _configured_stores()
@@ -86,6 +102,7 @@ app.include_router(_build_review_router(current_user=current_user, runtime=revie
 
 @app.on_event("startup")
 def start_review_runtime():
+    configure_logging()
     review_runtime.startup()
     if review_runtime.durable:
         review_runtime.runner.start_recovery()
@@ -213,30 +230,44 @@ def index():
 
 @app.get("/api/health")
 def health():
-    cfg = RuntimeConfig.from_env()
     return {
         "ok": True,
         "app": "local-multi-agent-rag",
         "version": "0.2.0-m0",
-        "implementation_profile": cfg.implementation_profile,
-        "allowed_conditions": cfg.allowed_conditions(),
-        "default_provider": os.getenv("PROVIDER", "fake"),
-        "source_snapshot_id": None if source_store is None else source_store.snapshot_id(),
-        "storage_backend": STORAGE_BACKEND,
-        "config_hash": cfg.config_hash(),
     }
 
 @app.get("/api/config")
 def config():
     cfg = RuntimeConfig.from_env()
-    return {**cfg.public_dict(), "allowed_conditions": cfg.allowed_conditions(), "config_hash": cfg.config_hash()}
+    return {"implementation_profile": cfg.implementation_profile, "provider": cfg.provider,
+            "task_top_k": cfg.task_top_k, "planning_top_k": cfg.planning_top_k,
+            "max_context_tokens": cfg.max_context_tokens, "max_output_tokens": cfg.max_output_tokens,
+            "max_run_tokens": cfg.max_run_tokens, "retry_limit": cfg.retry_limit,
+            "retrieval_min_score": cfg.retrieval_min_score,
+            "task_plan_max_output_tokens": cfg.task_plan_max_output_tokens,
+            "allowed_conditions": cfg.allowed_conditions()}
+
+@app.get("/api/ready")
+async def ready():
+    cached = _ready_cache.get()
+    if cached is None:
+        checks = {"postgres": check_postgres(app.state.session_factory), "qdrant": check_vector(_derived_vector_store)}
+        checks["ollama"] = await check_ollama()
+        cached = _ready_cache.set({"ready": all(v != "fail" for v in checks.values()),
+                                   "checks": {k: {"status": v} for k, v in checks.items()}})
+    from fastapi.responses import JSONResponse
+    return JSONResponse(cached, status_code=200 if cached["ready"] else 503)
 
 @app.get("/api/local-model/health")
-async def local_model_health():
+async def local_model_health(request: Request):
+    current_user(request)
+    cached = _local_health_cache.get()
+    if cached is not None:
+        return cached
     try:
-        return await OllamaProvider().health()
-    except Exception as exc:
-        return {"ok": False, "error": str(exc), "configured_model": os.getenv("LOCAL_LLM_MODEL", "qwen3:4b")}
+        return _local_health_cache.set(await OllamaProvider(timeout=2).health())
+    except Exception:
+        return _local_health_cache.set({"ok": False, "error": "LOCAL_MODEL_UNAVAILABLE"})
 
 @app.get("/api/sources")
 def list_sources(request: Request):
