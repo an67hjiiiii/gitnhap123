@@ -87,14 +87,27 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
 
     guard_notes: list[str] = []
     if checker is not None and answer:
+        cited = [c for c in evidence if c.chunk_id in valid]
+        cited_texts = [c.text for c in cited]
+        source_label = ", ".join(dict.fromkeys(
+            c.source_name or c.source_id or c.chunk_id for c in (cited or evidence)
+        ))
         checked = checker.guard(
             answer, status=status, evidence_texts=[c.text for c in evidence],
-            source_label=str(evidence[0].source_name or ""),
+            source_label=source_label, cited_texts=cited_texts,
         )
         answer, guard_notes = checked.answer, checked.notes
-        if status in {"COMPLETE", "PARTIAL"} and checker.needs_verification(query, answer):
-            answer, verify_notes = await checker.verify(provider, answer, [c.text for c in evidence], metrics)
-            guard_notes = [*guard_notes, "VERIFY_RAN", *verify_notes]
+        removed_claims = list(checked.removed_claims)
+        replaced = any(n in guard_notes for n in {"ANSWER_REPLACED_BY_EXCERPT", "ANSWER_REPLACED_UNSUPPORTED"})
+        if not replaced and status in {"COMPLETE", "PARTIAL"} and checker.needs_verification(query, answer):
+            answer, verify_notes = await checker.verify(
+                provider, answer, [c.text for c in evidence], metrics,
+                source_label=source_label, cited_texts=cited_texts, removed_claims=removed_claims,
+            )
+            guard_notes = [*guard_notes, *verify_notes]
+        if removed_claims:
+            status = "PARTIAL"
+            missing.extend("đã bỏ câu không có căn cứ: " + claim[:60] for claim in removed_claims)
 
     if valid:
         answer = answer.rstrip() + "\n\nNguồn: " + ", ".join(f"[{cid}]" for cid in valid)
