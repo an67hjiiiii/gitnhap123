@@ -1,0 +1,42 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["migrations/versions", ".venv", "data", "runs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+exclude = ["app/static"]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = ["app/static/*"]
+
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Review domain does not depend on delivery, adapters or infrastructure"
+type = "forbidden"
+source_modules = ["app.review"]
+forbidden_modules = ["app.api", "app.review_adapters", "app.research", "app.storage", "app.providers", "app.retrieval", "app.evaluation", "app.main"]
+
+[[tool.importlinter.contracts]]
+name = "Core pipeline layers do not depend on review, API or evaluation"
+type = "forbidden"
+source_modules = ["app.research", "app.retrieval", "app.storage", "app.providers", "app.core", "app.orchestration"]
+forbidden_modules = ["app.review", "app.review_adapters", "app.api", "app.evaluation", "app.main"]
+
+[[tool.importlinter.contracts]]
+name = "Adapters do not depend on the HTTP layer"
+type = "forbidden"
+source_modules = ["app.review_adapters", "app.evaluation"]
+forbidden_modules = ["app.api", "app.main"]

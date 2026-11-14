@@ -1,0 +1,93 @@
+﻿app\api\ratelimit.py: I001 [*] Import block is un-sorted or un-formatted
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: B008 Do not perform function call `RunInput` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\api\review.py: I001 [*] Import block is un-sorted or un-formatted
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\api\studio.py: E702 Multiple statements on one line (semicolon)
+app\auth\store.py: I001 [*] Import block is un-sorted or un-formatted
+app\core\citations.py: I001 [*] Import block is un-sorted or un-formatted
+app\core\config.py: I001 [*] Import block is un-sorted or un-formatted
+app\core\graph.py: I001 [*] Import block is un-sorted or un-formatted
+app\core\telemetry.py: I001 [*] Import block is un-sorted or un-formatted
+app\core\types.py: I001 [*] Import block is un-sorted or un-formatted
+app\evaluation\experiment.py: B905 `zip()` without an explicit `strict=` parameter
+app\evaluation\experiment.py: I001 [*] Import block is un-sorted or un-formatted
+app\evaluation\guard.py: B023 Function definition does not bind loop variable `events`
+app\evaluation\guard.py: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\evaluation\guard.py: I001 [*] Import block is un-sorted or un-formatted
+app\evaluation\harness.py: I001 [*] Import block is un-sorted or un-formatted
+app\evaluation\real_runner.py: B007 Loop control variable `name` not used within loop body
+app\evaluation\real_runner.py: I001 [*] Import block is un-sorted or un-formatted
+app\evaluation\real_runner.py: I001 [*] Import block is un-sorted or un-formatted
+app\ingestion\documents.py: I001 [*] Import block is un-sorted or un-formatted
+app\main.py: B008 Do not perform function call `File` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+app\main.py: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\main.py: E402 Module level import not at top of file
+app\main.py: I001 [*] Import block is un-sorted or un-formatted
+app\orchestration\budget.py: I001 [*] Import block is un-sorted or un-formatted
+app\orchestration\router.py: I001 [*] Import block is un-sorted or un-formatted
+app\providers\base.py: I001 [*] Import block is un-sorted or un-formatted
+app\providers\factory.py: I001 [*] Import block is un-sorted or un-formatted
+app\providers\fake.py: I001 [*] Import block is un-sorted or un-formatted
+app\providers\ollama.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\context_controller.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\conversation_context.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\decomposer.py: B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+app\research\decomposer.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\normalizer.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\obligation_concern_extraction.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\pipeline.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\plan_verification.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\planning_retrieval.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\product_intents.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\synthesizer.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\vanilla.py: I001 [*] Import block is un-sorted or un-formatted
+app\research\worker.py: I001 [*] Import block is un-sorted or un-formatted
+app\retrieval\candidate_index.py: I001 [*] Import block is un-sorted or un-formatted
+app\retrieval\embeddings.py: I001 [*] Import block is un-sorted or un-formatted
+app\retrieval\multilingual.py: B007 Loop control variable `canonical` not used within loop body
+app\retrieval\multilingual.py: E402 Module level import not at top of file
+app\retrieval\multilingual.py: E402 Module level import not at top of file
+app\retrieval\multilingual.py: E402 Module level import not at top of file
+app\retrieval\multilingual.py: I001 [*] Import block is un-sorted or un-formatted
+app\retrieval\text.py: I001 [*] Import block is un-sorted or un-formatted
+app\review\service.py: B023 Function definition does not bind loop variable `legacy_exhausted`
+app\review\service.py: B023 Function definition does not bind loop variable `published`
+app\review\tools\openapi_inspect.py: F841 Local variable `produces` is assigned to but never used
+app\review_adapters\durable_jobs.py: I001 [*] Import block is un-sorted or un-formatted
+app\review_adapters\pg_repository.py: I001 [*] Import block is un-sorted or un-formatted
+app\review_adapters\slot_check.py: I001 [*] Import block is un-sorted or un-formatted
+app\review_adapters\verdict_rules.py: I001 [*] Import block is un-sorted or un-formatted
+app\storage\postgres\__init__.py: I001 [*] Import block is un-sorted or un-formatted
+app\storage\postgres\config.py: I001 [*] Import block is un-sorted or un-formatted
+app\storage\postgres\review_models.py: I001 [*] Import block is un-sorted or un-formatted
+app\storage\postgres\runtime.py: I001 [*] Import block is un-sorted or un-formatted
+app\storage\run_store.py: I001 [*] Import block is un-sorted or un-formatted
+app\storage\source_store.py: I001 [*] Import block is un-sorted or un-formatted
+app\storage\vector_store.py: B905 `zip()` without an explicit `strict=` parameter
