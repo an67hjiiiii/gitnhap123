@@ -415,6 +415,64 @@ class ResearchPipeline:
                 tasks, task_results = [task], [result]
                 answer = result.answer
             else:
+                async def degrade_planning(reason: str, errors: list[str]) -> dict:
+                    event("planning_degraded", reason=reason, errors=errors, fallback="C_MULTI")
+                    task = Task(task_id="T1", goal=query, domain="general")
+                    retrieval_query = _retrieval_query_with_conversation_context(query, conversation_context)
+                    r0 = time.perf_counter()
+                    trace: dict = {}
+                    try:
+                        candidates = await product_retrieve(
+                            self, provider, metrics, query=query, retrieval_query=retrieval_query,
+                            chunks=all_chunks, cfg=cfg, source_ids=source_ids, trace=trace,
+                            event=event, multi=True, retry=True,
+                        )
+                    except Exception:
+                        # Simple grounding still works without optional multi-query generation.
+                        candidates = await asyncio.to_thread(
+                            self._retrieve_candidates, retrieval_query, all_chunks,
+                            top_k=cfg.task_top_k, min_score=cfg.retrieval_min_score,
+                            source_ids=source_ids, fallback_trace=trace,
+                        )
+                    metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
+                    selected, dropped = apply_token_budget(candidates, cfg.max_context_tokens)
+                    metrics.retrieved_chunks += len(candidates)
+                    metrics.selected_chunks += len(selected)
+                    metrics.dropped_chunks += len(dropped)
+                    metrics.context_chars += sum(len(c.text) for c in selected)
+                    metrics.context_tokens_est += sum(estimate_tokens(c.text) for c in selected)
+                    event("vanilla_retrieval", candidates=[c.chunk_id for c in candidates],
+                          selected=[c.chunk_id for c in selected], dropped=dropped)
+                    g0 = time.perf_counter()
+                    before_in, before_out = metrics.input_tokens, metrics.output_tokens
+                    try:
+                        if run_budget_exceeded(metrics, cfg, event, "answer"):
+                            result = await answer_vanilla(provider, query, [], metrics)
+                        else:
+                            result = await answer_vanilla(
+                                provider, query, selected, metrics,
+                                reply_language=reply_language_hint or "vi",
+                            )
+                    except Exception:
+                        metrics.failed_llm_attempts += 1
+                        result = await answer_vanilla(provider, query, [], metrics)
+                    elapsed = int((time.perf_counter() - g0) * 1000)
+                    metrics.generation_latency_ms += elapsed
+                    result.status = "PARTIAL"
+                    result.missing_information.append(
+                        "kế hoạch phân tích không hợp lệ, đã chuyển sang trả lời trực tiếp"
+                    )
+                    result.metrics = {
+                        "input_tokens": metrics.input_tokens - before_in,
+                        "output_tokens": metrics.output_tokens - before_out,
+                        "latency_ms": elapsed, "valid_citations": len(result.citations),
+                        "invalid_citations": len(result.invalid_citations),
+                        "retrieved_chunks": len(candidates),
+                    }
+                    event("task_completed", result=asdict(result))
+                    event("run_finished", status="PARTIAL", lifecycle_status="COMPLETED")
+                    return finalize("PARTIAL", result.answer, [task], [result])
+
                 planning_request = _planning_request_with_conversation_context(
                     query, conversation_context
                 )
@@ -492,6 +550,14 @@ class ResearchPipeline:
                     max_repairs=1,
                     max_output_tokens=cfg.task_plan_max_output_tokens,
                 )
+                if planning_result.plan is None and not planning_result.repair_attempted:
+                    # Generation exceptions bypass the decomposer's invalid-JSON repair.
+                    planning_result = await decompose_plan(
+                        provider, planning_request, planning_context, metrics,
+                        extraction=extraction, max_repairs=0,
+                        max_output_tokens=cfg.task_plan_max_output_tokens,
+                    )
+                    planning_result.repair_attempted = True
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                 plan = planning_result.plan
                 event(
@@ -523,9 +589,33 @@ class ResearchPipeline:
                         repair_attempted=planning_result.repair_attempted,
                     )
                     event("planning_rejected", reason="task_plan_generation_failed")
-                    raise ValueError("TaskPlan generation failed")
+                    return await degrade_planning("task_plan_generation_failed", list(failure_details))
+
+                def normalize_verified_plan(candidate_plan: TaskPlan):
+                    normalized_tasks, removed = normalize_tasks(list(candidate_plan.tasks))
+                    metrics.duplicate_tasks_removed += removed
+                    event("normalization", removed=removed, tasks=[asdict(t) for t in normalized_tasks])
+                    normalized = TaskPlan(
+                        request=candidate_plan.request, obligations=list(candidate_plan.obligations),
+                        concerns=list(candidate_plan.concerns), tasks=normalized_tasks,
+                    )
+                    report = verify_task_plan(normalized)
+                    event("plan_verification", phase="post_normalization", valid=report.valid,
+                          errors=list(report.errors), task_coverage=report.task_coverage,
+                          covered_obligations=list(report.covered_obligations),
+                          missing_required_obligations=list(report.missing_required_obligations),
+                          covered_concerns=list(report.covered_concerns),
+                          missing_concerns=list(report.missing_concerns),
+                          misrouted_concerns=list(report.misrouted_concerns))
+                    return normalized, report
 
                 verification = verify_task_plan(plan)
+                normalization_failed = False
+                if verification.valid and flags["N"]:
+                    normalized_plan, verification = normalize_verified_plan(plan)
+                    normalization_failed = not verification.valid
+                    if verification.valid:
+                        plan = normalized_plan
                 repair_decision = decide_repair(
                     verification,
                     repair_attempted=planning_result.repair_attempted,
@@ -621,54 +711,32 @@ class ResearchPipeline:
                             "planning_rejected",
                             reason="task_plan_failed_verification_after_repair",
                         )
-                        raise ValueError(
-                            "TaskPlan failed verification after one bounded repair"
+                        return await degrade_planning(
+                            "task_plan_failed_verification_after_repair",
+                            list(repaired_verification.errors) if repaired_verification is not None
+                            else [repair_error_message or "TaskPlan repair failed"],
                         )
                     plan = repaired_plan
                     verification = repaired_verification
+                    if flags["N"]:
+                        plan, verification = normalize_verified_plan(plan)
+                        if not verification.valid:
+                            return await degrade_planning(
+                                "normalization_invalidated_task_plan", list(verification.errors),
+                            )
                 elif repair_decision.action == "REJECT":
                     event(
                         "planning_rejected",
                         reason="task_plan_verification_failed",
                         errors=list(verification.errors),
                     )
-                    raise ValueError("TaskPlan verification failed")
+                    return await degrade_planning(
+                        "normalization_invalidated_task_plan" if normalization_failed
+                        else "task_plan_verification_failed", list(verification.errors),
+                    )
 
                 tasks = list(plan.tasks)
                 event("decomposition", tasks=[asdict(t) for t in tasks])
-                if flags["N"]:
-                    tasks, removed = normalize_tasks(tasks)
-                    metrics.duplicate_tasks_removed += removed
-                    event("normalization", removed=removed, tasks=[asdict(t) for t in tasks])
-                    normalized_plan = TaskPlan(
-                        request=plan.request,
-                        obligations=list(plan.obligations),
-                        concerns=list(plan.concerns),
-                        tasks=tasks,
-                    )
-                    verification = verify_task_plan(normalized_plan)
-                    event(
-                        "plan_verification",
-                        phase="post_normalization",
-                        valid=verification.valid,
-                        errors=list(verification.errors),
-                        covered_obligations=list(verification.covered_obligations),
-                        missing_required_obligations=list(
-                            verification.missing_required_obligations
-                        ),
-                        covered_concerns=list(verification.covered_concerns),
-                        missing_concerns=list(verification.missing_concerns),
-                        misrouted_concerns=list(verification.misrouted_concerns),
-                    )
-                    if not verification.valid:
-                        event(
-                            "planning_rejected",
-                            reason="normalization_invalidated_task_plan",
-                            errors=list(verification.errors),
-                        )
-                        raise ValueError(
-                            "Task normalization invalidated the verified TaskPlan"
-                        )
                 validate_tasks(tasks)
                 ordered = topological_order(tasks)
                 event(
@@ -740,6 +808,7 @@ class ResearchPipeline:
                     )
                     g0 = time.perf_counter()
                     result = await execute_task(provider, task, selected, metrics)
+                    result.metrics["retrieved_chunks"] = len(candidates)
                     metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                     completed[task.task_id] = result
                     task_results.append(result)
@@ -749,7 +818,12 @@ class ResearchPipeline:
                         budget_cut = len(task_results) < len(ordered)
                         break
                 g0 = time.perf_counter()
-                answer = await synthesize(provider, query, task_results, metrics)
+                results_by_id = {result.task_id: result for result in task_results}
+                answer = await synthesize(
+                    provider, query,
+                    [results_by_id[task.task_id] for task in tasks if task.task_id in results_by_id],
+                    metrics,
+                )
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
 
             status = "COMPLETE" if task_results and all(r.status == "COMPLETE" for r in task_results) else "PARTIAL"

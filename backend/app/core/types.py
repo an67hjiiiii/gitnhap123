@@ -91,6 +91,7 @@ class TaskResult:
     invalid_citations: list[str] = field(default_factory=list)
     missing_information: list[str] = field(default_factory=list)
     guard_notes: list[str] = field(default_factory=list)
+    metrics: dict[str, int] = field(default_factory=dict)
 
 @dataclass
 class RunMetrics:

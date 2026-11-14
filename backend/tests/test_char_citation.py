@@ -29,7 +29,8 @@ def test_synthesizer_keeps_existing_task_citation():
 def test_synthesizer_appends_citation_when_text_has_no_locator():
     result = TaskResult("T1", "api_architecture", "COMPLETE", "Answer", evidence_ids=["e1"], citations=["e1"])
     text = asyncio.run(synthesize(FixedProvider("Summary without locator"), "question", [result], RunMetrics()))
-    assert text.endswith("[e1]")
+    assert "Answer\n\nNguồn: [e1]" in text
+    assert text.endswith("**Tóm tắt**\nSummary without locator")
 
 
 def test_synthesizer_does_not_add_unknown_ids():
@@ -43,7 +44,8 @@ def test_synthesizer_removes_only_unknown_markers_in_mixed_text():
     result = TaskResult("T1", "api_architecture", "COMPLETE", "Answer", evidence_ids=["e1"], citations=["e1"])
     summary = "Known [e1]; unknown [e10][UNKNOWN], repeated [UNKNOWN]. Known again [e1]."
     text = asyncio.run(synthesize(FixedProvider(summary), "question", [result], RunMetrics()))
-    assert text == "Known [e1]; unknown , repeated . Known again [e1]."
+    assert text.startswith("**API / Kiến trúc**\nAnswer\n\nNguồn: [e1]")
+    assert text.split("**Tóm tắt**\n", 1)[1] == "Known [e1]; unknown , repeated . Known again [e1]."
 
 
 def test_synthesizer_preserves_all_known_locators_across_tasks_exactly():
@@ -54,19 +56,23 @@ def test_synthesizer_preserves_all_known_locators_across_tasks_exactly():
     ]
     summary = f"First [e1], second [{locator}].\nRepeat [e1][{locator}]."
     text = asyncio.run(synthesize(FixedProvider(summary), "question", results, RunMetrics()))
-    assert text == summary
+    assert "**API / Kiến trúc**\nAnswer\n\nNguồn: [e1]" in text
+    assert f"**Bảo mật**\nAnswer\n\nNguồn: [{locator}]" in text
+    assert text.split("**Tóm tắt**\n", 1)[1] == summary
 
 
 def test_synthesizer_preserves_evidence_locator_without_worker_citation():
     result = TaskResult("T1", "api_architecture", "PARTIAL", "Answer", evidence_ids=["e2"])
     text = asyncio.run(synthesize(FixedProvider("Evidence [e2]; unknown [e3]."), "question", [result], RunMetrics()))
-    assert text == "Evidence [e2]; unknown ."
+    assert text.startswith("**API / Kiến trúc**\nAnswer")
+    assert text.split("**Tóm tắt**\n", 1)[1] == "Evidence [e2]; unknown ."
 
 
 @pytest.mark.parametrize("results", [[], [TaskResult("T1", "api_architecture", "NO_EVIDENCE", "Answer")]])
 def test_synthesizer_removes_locators_when_no_evidence_is_available(results):
     text = asyncio.run(synthesize(FixedProvider("Unsupported [unknown]."), "question", results, RunMetrics()))
-    assert text == "Unsupported ."
+    assert text.split("**Tóm tắt**\n", 1)[1] == "Unsupported ."
+    assert "[unknown]" not in text
 
 
 def test_grounded_generation_schema_limits_citations_to_allowed_ids(monkeypatch):

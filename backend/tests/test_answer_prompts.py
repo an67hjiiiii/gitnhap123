@@ -142,13 +142,16 @@ def test_synthesizer_prompt_preserves_order_missing_parts_and_footer():
     answer = asyncio.run(synthesize(provider, "Thời hạn khóa và giới hạn tải tệp?", results, RunMetrics()))
     system, user = provider.calls[0]
     assert "SYNTHESIZER" in system
-    assert "một đoạn ngắn theo đúng thứ tự TASK RESULTS" in system
-    assert "một câu kết luận chung" in system
-    assert "PARTIAL/NO_EVIDENCE" in system
-    assert "nói rõ phần chưa tìm thấy" in system
-    assert "theo tài liệu <source name>" in system
-    assert system.count("Ví dụ") == 2
+    assert "1-3 câu, tối đa 60 từ" in system
+    assert "Không thêm sự kiện hay bằng chứng mới" in system
+    assert "không thêm citation mới" in system
+    assert "không viết lại các câu trả lời" in system
     assert user.index("TASK T2") < user.index("TASK T1")
     assert "theo tài liệu API.md" in user
     assert "missing=giới hạn tải tệp" in user
-    assert answer == "Bản tổng hợp.\n\nNguồn: [id]"
+    assert answer == (
+        "**Tổng quan**\nKhóa giữ 24 giờ, theo tài liệu API.md.\n\nNguồn: [id]\n\n"
+        "Chưa tìm thấy giới hạn tải tệp.\n\n"
+        "Mình chưa tìm thấy giới hạn tải tệp. Bạn hãy tải thêm tài liệu liên quan đến phần này.\n\n"
+        "**Tóm tắt**\nBản tổng hợp."
+    )
