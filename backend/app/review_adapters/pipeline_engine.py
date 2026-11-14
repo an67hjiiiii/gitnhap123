@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 from app.research.pipeline import ResearchPipeline
 from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
+from app.review_adapters.verdict_rules import assess
 
 
 class PipelineReviewEngine:
@@ -147,9 +148,24 @@ class PipelineReviewEngine:
                         verdict = Verdict.PARTIAL
                     elif status == "NO_EVIDENCE":
                         verdict = Verdict.NOT_FOUND
-                except Exception:
+                    if status in {"COMPLETE", "PARTIAL"} and any(e.excerpt for e in evidence):
+                        assessment = assess(requirement.text, evidence)
+                        if assessment.conflicting:
+                            verdict = Verdict.DEVIATES
+                            evidence = list(assessment.conflicting)
+                            evidence.extend(e for e in assessment.supporting if e not in evidence)
+                            self._emit(emit, "verdict.conflict", {
+                                **payload, "detail": " ".join(assessment.notes),
+                                "conflicting_evidence_ids": [
+                                    e.evidence_id for e in assessment.conflicting
+                                ],
+                            })
+                except Exception as exc:
                     verdict = Verdict.UNDETERMINED
                     evidence = []
+                    self._emit(emit, "task.failed", {
+                        **payload, "error_type": type(exc).__name__, "error": str(exc),
+                    })
             finding = Finding(
                 id=f"{case.id}:finding:{requirement.id}", case_id=case.id,
                 requirement_id=requirement.id, verdict=verdict,
