@@ -14,3 +14,7 @@ The included PostgreSQL dump is sanitized: one synthetic demo user, no private h
 ```
 
 Set `DATABASE_URL` to the package-owned PostgreSQL database before starting. Never commit `.env` or credentials.
+
+## Fake provider demo
+
+For a one-command Windows demo without Ollama or PostgreSQL, run `powershell -File scripts\DEMO_FAKE.ps1`; see [docs/DEMO_QUICKSTART.md](docs/DEMO_QUICKSTART.md). The fake provider does not produce real model output.
