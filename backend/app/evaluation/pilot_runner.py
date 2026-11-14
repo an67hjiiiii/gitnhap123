@@ -27,7 +27,7 @@ ORDER = ("A", "B", "C")
 TOKEN_CAP = 700
 HARD_CAP_CALLS, HARD_CAP_MINUTES = 100, 20  # Owner-approved pilot quota
 CSV_FIELDS = ["condition", "case_id", "requirement_id", "verdict", "b0_verdict", "evidence_ids",
-              "citation_valid", "citations_total", "model_calls", "seconds", "output_truncated",
+              "citation_valid", "citations_total", "model_calls", "seconds", "output_truncated", "truncated",
               "output_cap_reached", "task_failed", "failed_code", "status"]
 _VERSION_FILES = ("research/worker.py", "research/decomposer.py", "research/obligation_concern_extraction.py",
                   "research/synthesizer.py", "research/vanilla.py", "review_adapters/verdict_rules.py",
@@ -228,16 +228,17 @@ async def _one(condition, case, req, counter, pipeline, engine, review_case, sou
         valid = round(v / total, 3) if total else None
     calls = [c for c in counter.calls[before:]]
     truncated = sum("OutputTruncatedError" in str(c.get("error")) for c in calls)
+    cut = sum(1 for c in calls if c.get("done_reason") == "length" or "OutputTruncatedError" in str(c.get("error")))
     capped = sum(1 for c in calls if (c.get("completion_tokens") or 0) >= TOKEN_CAP)
     failed = [e for e in events if e["name"] == "task.failed"]
     row = {"condition": condition, "case_id": case["case_id"], "requirement_id": req["id"], "verdict": verdict,
            "b0_verdict": b0, "evidence_ids": ";".join(evidence_ids), "citation_valid": valid,
            "citations_total": total, "model_calls": len(calls), "seconds": round(time.monotonic() - started, 2),
-           "output_truncated": truncated, "output_cap_reached": capped, "task_failed": bool(failed),
+           "output_truncated": truncated, "truncated": cut, "output_cap_reached": capped, "task_failed": bool(failed),
            "failed_code": failed[0].get("error_type") if failed else None, "status": status}
     detail = {**row, "meta": meta, "answer": answer, "events": events,
               "calls": [{k: c.get(k) for k in ("method", "latency_seconds", "prompt_tokens",
-                                                "completion_tokens", "error")} for c in calls]}
+                                                "completion_tokens", "done_reason", "error")} for c in calls]}
     (out / f"{condition}_{req['id']}.json").write_text(json.dumps(detail, ensure_ascii=False, indent=2),
                                                          encoding="utf-8")
     return row

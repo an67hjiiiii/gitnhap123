@@ -25,3 +25,9 @@ Chỉ A, B0, B, C với P/N/O đã nối thật (`research/pipeline.py:_flags`).
 - Không đổi cấu hình trên khi đang chạy pilot; thay đổi nào cũng phải ghi lại và tính lại config_hash.
 - Kết quả đo là số đếm thô trên tập tự dựng; không suy diễn từ chênh lệch nhỏ.
 - GĐ1: pilot A 30 yêu cầu, rồi C; dừng sớm nếu 3 yêu cầu đầu của C đều FAILED.
+## Cập nhật 2026-11-14 (GĐ1 bước 2): thinking
+- `think=false` được gửi trong mọi lượt Ollama (`providers/ollama.py`) nhưng **không có tác dụng** với qwen3:4b digest `359d7dd4bcda` trên Ollama 0.40.13: model là bản luôn suy nghĩ (template luôn mở `<think>`), lập luận đi vào `content`, không có trường `thinking`, `eval_count` không giảm. Đã thử thêm `/no_think` ở system và user, và chế độ `raw` với khối `<think></think>` rỗng: đều vẫn suy nghĩ (4 lượt thăm dò, tính vào quota).
+- Hệ quả: thinking BẬT ở mọi đường A, B, C, planning, normalization như nhau (cùng cấu hình, không thiên vị điều kiện nào). Với lượt có `format`/schema, ngữ pháp ép JSON nên không thấy thinking trong đầu ra; với lượt văn xuôi (A) thinking tiêu hết trần 700 token.
+- Cắt đầu ra được đánh dấu bằng `done_reason == "length"` (cột `truncated` trong summary.csv) cho mọi lượt.
+- `A_run1` chỉ là shakedown (25 yêu cầu, 16/25 cắt, ~24 s/lượt), KHÔNG dùng làm kết quả.
+- Trần token giữ 700 cho mọi điều kiện (chưa đổi).

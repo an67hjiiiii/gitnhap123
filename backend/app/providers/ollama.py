@@ -116,7 +116,8 @@ class OllamaProvider(Provider):
                 raise OutputTruncatedError(
                     text, usage, output_limit, data.get("done_reason")
                 ) from exc
-        return ProviderResult(text=text, usage=Usage(inp, out), request_id="ollama_"+uuid.uuid4().hex[:10], model=self.model)
+        return ProviderResult(text=text, usage=Usage(inp, out), request_id="ollama_"+uuid.uuid4().hex[:10], model=self.model,
+                              done_reason=data.get("done_reason"))
 
     async def health(self) -> dict:
         async with httpx.AsyncClient(timeout=5) as client:

@@ -17,6 +17,7 @@ class ProviderResult:
     usage: Usage = field(default_factory=Usage)
     request_id: str = ""
     model: str = ""
+    done_reason: str | None = None
 
 @dataclass
 class SourceChunk:

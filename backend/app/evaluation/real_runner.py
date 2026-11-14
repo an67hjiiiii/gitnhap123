@@ -188,6 +188,7 @@ class CountingProvider:
             except asyncio.TimeoutError:
                 self.stop("Wall-clock limit reached during model call")
             record["completion_chars"] = len(_field(result, "text", ""))
+            record["done_reason"] = _field(result, "done_reason")
             usage = _field(result, "usage")
             inp = _field(usage, "input_tokens", _field(usage, "prompt_tokens"))
             output = _field(usage, "output_tokens", _field(usage, "completion_tokens"))
