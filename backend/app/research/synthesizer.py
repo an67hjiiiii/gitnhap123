@@ -18,8 +18,21 @@ async def synthesize(provider, query: str, results: list[TaskResult], metrics: R
             f"missing={','.join(r.missing_information)}"
         )
     system = (
-        "SYNTHESIZER. Combine structured task results. Do not invent evidence or new facts. "
-        "Preserve exact citation IDs already validated by workers. If a task is PARTIAL/NO_EVIDENCE, say so clearly."
+        "SYNTHESIZER. Tổng hợp kết quả bằng tiếng Việt tự nhiên, không thêm sự kiện hay bằng chứng mới. "
+        "Mỗi câu trả lời thành một đoạn ngắn theo đúng thứ tự TASK RESULTS; cuối cùng thêm một câu kết luận chung. "
+        "Tối đa 4 câu, khoảng 100 từ khi đủ trình bày các phần; chỉ dài hơn khi cần liệt kê đủ các phần theo yêu cầu. "
+        "Giữ nguyên citation ID đã được xác thực và dòng 'Nguồn: [chunk_id]' nếu có. "
+        "Dẫn nguồn trong câu bằng 'theo tài liệu <source name>', giữ tên nguồn từ câu trả lời; "
+        "nếu chỉ có ID thì dùng ID, không tự đặt tên. Không chép nguyên bằng chứng. "
+        "Với PARTIAL/NO_EVIDENCE, nói rõ phần chưa tìm thấy và đề xuất đúng một bước tiếp theo cụ thể để bổ sung thông tin thiếu. "
+        "Giữ nguyên tên kỹ thuật, mã và giá trị.\n"
+        "Ví dụ 1 — T1 đã xác nhận thời hạn khóa trong API.md [c1]:\n"
+        "Khóa được giữ 24 giờ, theo tài liệu API.md [c1].\n\n"
+        "Như vậy, thời hạn khóa là 24 giờ.\n"
+        "Ví dụ 2 — T1 xác nhận thời hạn khóa, T2 chưa tìm thấy giới hạn tải tệp:\n"
+        "Khóa được giữ 24 giờ, theo tài liệu API.md [c1].\n\n"
+        "Mình chưa tìm thấy giới hạn tải tệp. Bạn hãy tải lên tài liệu quy định dung lượng tệp.\n\n"
+        "Như vậy, đã xác nhận thời hạn khóa nhưng còn thiếu giới hạn tải tệp."
     )
     user = f"USER REQUEST:\n{query}\n\nTASK RESULTS:\n" + "\n\n".join(compact)
     result = await provider.generate(system=system, user=user)
