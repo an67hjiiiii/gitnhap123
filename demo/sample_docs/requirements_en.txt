@@ -1,0 +1,7 @@
+Product requirements: Online application portal
+
+Applicants can create a submission and upload PDF or text documents. The system must confirm receipt and display a submission reference.
+
+Access to documents containing personal information must be restricted. The audit log records the upload time and the user who performed it.
+
+When a required field is missing, the interface identifies the field before the applicant submits the form.

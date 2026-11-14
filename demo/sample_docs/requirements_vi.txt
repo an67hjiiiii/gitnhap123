@@ -1,0 +1,7 @@
+Yêu cầu sản phẩm: Cổng tiếp nhận hồ sơ trực tuyến
+
+Người dùng có thể tạo hồ sơ và tải lên tài liệu PDF hoặc văn bản. Hệ thống phải xác nhận hồ sơ đã được tiếp nhận và hiển thị mã hồ sơ.
+
+Tài liệu chứa thông tin cá nhân phải được giới hạn quyền truy cập. Nhật ký cần ghi lại thời điểm tải lên và người thực hiện.
+
+Khi thiếu trường bắt buộc, giao diện cần nêu rõ trường nào cần bổ sung trước khi gửi.
