@@ -24,6 +24,8 @@ from time import monotonic
 from unittest.mock import patch
 
 from .metrics import LABELS, score
+from .harness import CONDITION_FLAG_MAP
+from .experiment import config_hash
 
 REPO = Path(__file__).resolve().parents[3]
 CORPUS = REPO / "backend/tests/fixtures/real_exp/corpus.json"
@@ -257,8 +259,16 @@ class CountingEmbedder:
 
 
 def empty_result(corpus, *, dry_run, max_invocations, max_minutes, baseline_only=False):
+    names = ("A",) if baseline_only else ("A", "B0", "B", "C")
+    condition_map = {name: {"condition": name, "rows": [
+        {"requirement_id": r["id"], "expected": r["expected"], "predicted": "UNDETERMINED",
+         "expected_locators": r["expected_locators"], "cited_locators": [], "completed": False}
+        for r in corpus["requirements"]]} for name in names}
     return {
         "schema_version": 1, "corpus_id": corpus["id"], "dry_run": dry_run,
+        "config_hash": config_hash({"conditions": {name: CONDITION_FLAG_MAP[name]
+            for name in names}, "dry_run": dry_run, "max_invocations": max_invocations,
+            "max_minutes": max_minutes, "baseline_only": baseline_only}),
         "mode": "baseline-only" if baseline_only else "full",
         "partial": True, "stop_reason": "Experiment has not completed", "errors": [],
         "total_calls": 0, "embedding_calls": 0, "calls": [], "embeddings": [],
@@ -267,16 +277,12 @@ def empty_result(corpus, *, dry_run, max_invocations, max_minutes, baseline_only
                   "completion_chars": 0, "estimated_calls": 0}, "wall_seconds": 0,
         "limits": {"max_invocations": max_invocations, "max_seconds": max_minutes * 60,
                    "max_concurrent_inferences": 1},
-        "limitations": LIMITATIONS, "grounded_runs": [],
-        "conditions": {name: {"rows": [
-            {"requirement_id": r["id"], "expected": r["expected"], "predicted": "UNDETERMINED",
-             "expected_locators": r["expected_locators"], "cited_locators": [], "completed": False}
-            for r in corpus["requirements"]]} for name in ("A", "B0", "B", "C")},
+        "limitations": LIMITATIONS, "grounded_runs": [], "conditions": condition_map,
     }
 
 
 def markdown(result):
-    lines = ["# Real-model review experiment", "",
+    lines = ["# Real-model review experiment", "", f'Config hash: {result["config_hash"]}', "",
              f"Mode: {result.get('mode', 'full')}", "", result["limitations"], "",
              f"Dry run: {result['dry_run']}; partial: {result['partial']}; stop: {result['stop_reason']}",
              "", "| Condition | Accuracy | False-DEVIATES | Evidence hit |", "|---|---|---|---|"]
@@ -284,7 +290,7 @@ def markdown(result):
         return f"{value['numerator']}/{value['denominator']}"
     for name, condition in result["conditions"].items():
         m = condition["metrics"]
-        lines.append(f"| {name} | {rate(m['exact_match_accuracy'])} | "
+        lines.append(f"| {condition['condition']} | {rate(m['exact_match_accuracy'])} | "
                      f"{rate(m['false_deviates_rate'])} | {rate(m['evidence_hit_rate'])} |")
     lines.extend(["", "Counts below are experiment-wide; B0/B/C calls are shared, not added three times.",
                   "", f"Total calls: {result.get('total_calls', 0)}; embeddings: {result.get('embedding_calls', 0)}; "
