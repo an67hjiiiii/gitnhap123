@@ -236,6 +236,61 @@
                     "SCHEMA_PROPERTY_TYPE_CHANGED":  "Đã thay đổi kiểu của trường.",
                     "SECURITY_CHANGED":  "Đã thay đổi cấu hình bảo mật."
                 },
+    "progress": {
+        "understanding": "Đang đọc và hiểu câu hỏi của bạn…",
+        "planning": "Đang lập kế hoạch gồm các bước nhỏ…",
+        "plan_ready": "Đã chia thành {n} bước: {goals}",
+        "searching": "Đang tìm trong tài liệu cho bước {task_id}…",
+        "step_done": "Xong bước {task_id}.",
+        "writing": "Đang tổng hợp câu trả lời…",
+        "failed": "Mình chưa xử lý được yêu cầu này."
+    },
+    "friendly_errors": {
+        "PLAN_REJECTED": {
+            "message": "Mình chưa chia nhỏ được yêu cầu này thành các bước phù hợp.",
+            "hint": "Bạn thử tách thành từng câu ngắn hơn rồi gửi lại nhé."
+        },
+        "PROVIDER_LIMIT": {
+            "message": "Mô hình đang bận hoặc phản hồi quá chậm.",
+            "hint": "Đợi một chút rồi thử lại nhé."
+        },
+        "CONDITION_NOT_AVAILABLE": {
+            "message": "Chế độ xử lý này hiện chưa khả dụng.",
+            "hint": "Chọn chế độ khác rồi thử lại nhé."
+        },
+        "PIPELINE_RUN_FAILED": {
+            "message": "Mình gặp lỗi khi xử lý yêu cầu này.",
+            "hint": "Thử gửi lại yêu cầu sau nhé."
+        },
+        "UNKNOWN": {
+            "message": "Đã xảy ra lỗi không xác định.",
+            "hint": "Thử lại sau; nếu lỗi tiếp diễn, hãy báo quản trị viên."
+        },
+        "RATE_LIMITED": {
+            "message": "Bạn gửi hơi nhanh, mình cần chậm lại một chút.",
+            "hint": "Thử lại sau vài giây."
+        },
+        "SOURCE_NOT_FOUND": {
+            "message": "Mình không tìm thấy tài liệu bạn chọn.",
+            "hint": "Tải lại danh sách tài liệu rồi thử lại nhé."
+        },
+        "CONVERSATION_NOT_FOUND": {
+            "message": "Mình không tìm thấy cuộc trò chuyện này.",
+            "hint": "Quay lại danh sách rồi mở lại cuộc trò chuyện nhé."
+        },
+        "MESSAGE_REQUIRED": {
+            "message": "Bạn chưa nhập nội dung tin nhắn.",
+            "hint": "Nhập tin nhắn rồi gửi lại nhé."
+        },
+        "PRODUCT_PROVIDER_NOT_CONFIGURED": {
+            "message": "Dịch vụ trả lời chưa được cấu hình.",
+            "hint": "Thử lại sau hoặc liên hệ quản trị viên nhé."
+        },
+        "DERIVED_INDEX_UNAVAILABLE": {
+            "message": "Chỉ mục tìm kiếm hiện chưa khả dụng.",
+            "hint": "Thử lại sau khi chỉ mục sẵn sàng nhé."
+        }
+    },
     "task_failed":  {
                         "PLAN_REJECTED":  {
                                               "todo":  "Thử diễn đạt yêu cầu ngắn hơn hoặc chạy lại.",

@@ -567,3 +567,32 @@ def test_each_task_answer_is_checked_against_only_resolved_evidence(answer_revie
     finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda _: None)
     assert finding.verdict == Verdict.PARTIAL
     assert [e.evidence_id for e in finding.evidence] == [chunk.chunk_id]
+
+
+def test_emits_plan_ready_after_trace_for_multi_step_decomposition(setup_review, monkeypatch):
+    pipeline, case, _, _, _ = setup_review
+    req, = requirements(case)
+    decomposition = {
+        "stage": "decomposition",
+        "tasks": [
+            {"task_id": "T1", "goal": "Check the policy", "domain": "policy", "depends_on": []},
+            {"task_id": "T2", "goal": "Send the notice", "domain": "operations", "depends_on": ["T1"]},
+        ],
+    }
+
+    async def fake_run(query, *, source_ids, condition="A", on_event=None):
+        if on_event:
+            on_event(decomposition.copy())
+        return {"status": "NO_EVIDENCE", "events": [decomposition], "task_results": [],
+                "condition": condition, "config_hash": "test", "effective_config": {}}
+
+    monkeypatch.setattr(pipeline, "run", fake_run)
+    emitted = []
+    PipelineReviewEngine(pipeline).run(case, [req], None, lambda name, payload: emitted.append((name, payload)))
+    names = [name for name, _ in emitted]
+    assert names.index("pipeline.trace") < names.index("plan.ready")
+    _, payload = next(item for item in emitted if item[0] == "plan.ready")
+    assert payload == {"case_id": case.id, "requirement_id": req.id, "steps": [
+        {"task_id": "T1", "goal": "Check the policy", "domain": "policy", "depends_on": []},
+        {"task_id": "T2", "goal": "Send the notice", "domain": "operations", "depends_on": ["T1"]},
+    ]}
