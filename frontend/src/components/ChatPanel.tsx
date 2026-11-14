@@ -27,12 +27,12 @@ interface ChatPanelProps {
 }
 
 const statusDescriptions: Record<string, string> = {
-  READY: "Ready for a new question",
-  RUNNING: "Retrieving evidence and generating an answer",
-  COMPLETE: "Answer ready",
-  PARTIAL: "Answer needs review",
-  NO_EVIDENCE: "No validated evidence found",
-  FAILED: "Run failed",
+  READY: "Sẵn sàng nhận câu hỏi mới",
+  RUNNING: "Đang tìm căn cứ và viết câu trả lời",
+  COMPLETE: "Đã có câu trả lời",
+  PARTIAL: "Câu trả lời cần được xem lại",
+  NO_EVIDENCE: "Chưa tìm thấy căn cứ phù hợp trong tài liệu",
+  FAILED: "Lần chạy không thành công",
 };
 
 export function getChatStatus(run: RunRecord | null, isRunning: boolean): RunStatus {
@@ -63,7 +63,7 @@ function ProductAnswerStatus({ status }: { status?: RunStatus }) {
 }
 
 function statusDescription(status: RunStatus): string {
-  return statusDescriptions[normalizeStatus(status)] ?? "Run status received";
+  return statusDescriptions[normalizeStatus(status)] ?? "Đã nhận trạng thái lần chạy";
 }
 
 function RunStatusCard({
@@ -109,8 +109,8 @@ function RuntimeMetrics({ metrics }: { metrics?: RunMetrics }) {
     ["Latency", formatMetricValue(metrics?.latency_ms, " ms")],
     ["LLM calls", formatMetricValue(metrics?.llm_calls)],
     ["Tokens", formatMetricValue(totalTokens)],
-    ["Selected chunks", formatMetricValue(metrics?.selected_chunks)],
-    ["Valid citations", formatMetricValue(metrics?.citations_valid)],
+    ["Đoạn được chọn", formatMetricValue(metrics?.selected_chunks)],
+    ["Trích dẫn hợp lệ", formatMetricValue(metrics?.citations_valid)],
   ] as const;
   const hasValues = entries.some(([, value]) => value !== "—");
 
@@ -324,7 +324,7 @@ export function ChatPanel({
         {!run && !pendingQuestion && !isRunning ? (
           <div className="welcome-state">
             <div className="welcome-kicker">LOCAL MULTI-AGENT RAG</div>
-            <h2>Start with a focused research question.</h2>
+            <h2>Bắt đầu bằng một câu hỏi cụ thể.</h2>
             <p>
               Import a text source, then run a question to inspect the answer, evidence trace,
               and runtime metrics together.

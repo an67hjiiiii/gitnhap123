@@ -7,14 +7,14 @@ interface StatusBadgeProps {
 
 const labels: Record<string, string> = {
   READY: "Ready",
-  CONNECTING: "Connecting",
-  RUNNING: "Running",
-  EMPTY: "Empty",
-  COMPLETE: "Complete",
-  PARTIAL: "Partial",
-  NO_EVIDENCE: "No evidence",
-  FAILED: "Failed",
-  OFFLINE: "Offline",
+  CONNECTING: "Đang kết nối",
+  RUNNING: "Đang chạy",
+  EMPTY: "Trống",
+  COMPLETE: "Hoàn tất",
+  PARTIAL: "Một phần",
+  NO_EVIDENCE: "Thiếu căn cứ",
+  FAILED: "Thất bại",
+  OFFLINE: "Mất kết nối",
 };
 
 const tones: Record<string, string> = {

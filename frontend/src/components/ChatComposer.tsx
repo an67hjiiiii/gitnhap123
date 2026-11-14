@@ -47,8 +47,8 @@ function ResearchComposer({ showImport = true, isRunning, isImporting, onSubmit,
   return (
     <div className="composer-region">
       <div className="composer-hint" id="composer-help">
-        <span>Ask against your local research corpus</span>
-        <span className="composer-shortcut">Enter to run · Shift + Enter for a new line</span>
+        <span>Hỏi dựa trên tài liệu đã tải lên</span>
+        <span className="composer-shortcut">Enter để gửi · Shift + Enter để xuống dòng</span>
       </div>
       <form
         className="composer"

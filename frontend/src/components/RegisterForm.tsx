@@ -174,7 +174,7 @@ export function RegisterForm({ productMode = false, onCancel, onRegistered }: Re
           Cancel
         </button>
         <button type="submit" className="button-primary" disabled={isSubmitting}>
-          {isSubmitting ? "Creating account…" : "Create account"}
+          {isSubmitting ? "Đang tạo tài khoản…" : "Tạo tài khoản"}
         </button>
       </div>
     </form>

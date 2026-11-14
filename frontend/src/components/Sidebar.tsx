@@ -15,7 +15,7 @@ interface SidebarProps {
   onSelectConversation: (conversationId: string) => void;
 }
 function formatDate(value?: string) {
-  if (!value) return "Unknown time";
+  if (!value) return "Chưa rõ thời gian";
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
     new Date(value),
   );
@@ -46,11 +46,11 @@ export function Sidebar({
 
       <button className="new-run-button" type="button" onClick={researchMode ? onNewRun : onNewConversation}>
         <span aria-hidden="true">＋</span>
-        {researchMode ? "New research run" : "New conversation"}
+        {researchMode ? "Lần chạy mới" : "Cuộc trò chuyện mới"}
       </button>
 
       <div className="sidebar-section-heading">
-        <span>{researchMode ? "Run history" : "Conversations"}</span>
+        <span>{researchMode ? "Lịch sử chạy" : "Cuộc trò chuyện"}</span>
         <span className="section-count">{researchMode ? history.length : productConversations.length}</span>
       </div>
       <div className="run-history" aria-live="polite">
@@ -92,7 +92,7 @@ export function Sidebar({
           <span className="summary-icon" aria-hidden="true">⌁</span>
           <span>
             <strong>{sources.length} sources</strong>
-            <small>Current corpus</small>
+            <small>Tài liệu hiện có</small>
           </span>
         </div>
         <div className="local-only-label">

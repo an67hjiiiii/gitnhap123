@@ -298,7 +298,7 @@ export function App() {
         <main className="auth-required" aria-busy={research.isBooting}>
           <section className="auth-required-panel" aria-labelledby="auth-required-title">
             <p className="eyebrow">Local workspace</p>
-            <h1 id="auth-required-title">{research.isBooting ? "Restoring your session…" : "Sign in to continue"}</h1>
+            <h1 id="auth-required-title">{research.isBooting ? "Đang khôi phục phiên đăng nhập…" : "Đăng nhập để tiếp tục"}</h1>
             <p className="dialog-description">
               {research.isBooting
                 ? "We are checking your local session before opening private sources and runs."
@@ -344,7 +344,7 @@ export function App() {
             </button>
             {researchMode && <p className="eyebrow">Local workspace</p>}
             <h1 id="auth-title">{researchMode
-              ? authScreen === "register" ? "Create your account" : "Sign in"
+              ? authScreen === "register" ? "Tạo tài khoản" : "Đăng nhập"
               : authScreen === "register" ? "Tạo tài khoản" : "Đăng nhập"}</h1>
             {researchMode && <p className="dialog-description">Access your private sources and conversations.</p>}
             {authScreen === "register" ? (

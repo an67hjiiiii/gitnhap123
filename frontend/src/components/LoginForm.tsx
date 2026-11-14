@@ -87,7 +87,7 @@ export function LoginForm({ productMode = false, onCancel, onCreateAccount, onSi
 
   return (
     <form className="register-form" onSubmit={(event) => void submit(event)} aria-busy={isSubmitting}>
-      <label htmlFor="login-identifier">Email or username</label>
+      <label htmlFor="login-identifier">Email hoặc tên đăng nhập</label>
       <input
         id="login-identifier"
         name="identifier"
@@ -115,7 +115,7 @@ export function LoginForm({ productMode = false, onCancel, onCreateAccount, onSi
           Cancel
         </button>
         <button type="submit" className="button-primary" disabled={isSubmitting}>
-          {isSubmitting ? "Signing in…" : "Sign in"}
+          {isSubmitting ? "Đang đăng nhập…" : "Đăng nhập"}
         </button>
       </div>
       <p className="form-hint">
