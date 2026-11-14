@@ -56,9 +56,18 @@ async def rewrite_query(provider, query: str, metrics: RunMetrics) -> str:
         )
         metrics.add_usage(result.usage)
     except Exception:
+        metrics.failed_llm_attempts += 1
         return query
     text = " ".join(str(getattr(result, "text", "") or "").split()).strip(" \"'“”")
     return text if text and len(text) <= 3 * len(query) + 160 else query
+
+
+def run_budget_exceeded(metrics: RunMetrics, cfg, event, step: str) -> bool:
+    total = metrics.input_tokens + metrics.output_tokens
+    if total >= getattr(cfg, "max_run_tokens", float("inf")):
+        event("run_budget_exceeded", total_tokens=total, skipped_step=step)
+        return True
+    return False
 
 
 def _base(pipeline, q: str, chunks, cfg, source_ids, top_k: int, trace: dict | None = None) -> list[SourceChunk]:
@@ -94,19 +103,22 @@ async def product_retrieve(pipeline, provider, metrics: RunMetrics, *, query: st
         base_list = [c for group in per_query for c in group[0]]  # raw scores of every idea, for the weakness test
         merged = rrf_merge([lst for group in per_query for lst in group], top_k)
     else:
-        lists = _lists_for(pipeline, retrieval_query, chunks, cfg, source_ids, top_k, fusion, trace)
+        lists = await asyncio.to_thread(
+            _lists_for, pipeline, retrieval_query, chunks, cfg, source_ids, top_k, fusion, trace)
         base_list = lists[0]
         merged = rrf_merge(lists, top_k) if len(lists) > 1 else base_list
 
     reasons = weakness(query, base_list, min_score=cfg.retrieval_min_score)
     if retry and reasons and os.getenv("RETRIEVAL_RETRY", "0").strip() == "1":
-        rewritten = await rewrite_query(provider, query, metrics)
+        event("retrieval.retry", phase="start", reasons=reasons)
+        rewritten = query if run_budget_exceeded(metrics, cfg, event, "query_rewrite") else await rewrite_query(provider, query, metrics)
         wide = top_k * 2
-        extra = _lists_for(pipeline, rewritten, chunks, cfg, source_ids, wide, "bm25")
+        extra = await asyncio.to_thread(
+            _lists_for, pipeline, rewritten, chunks, cfg, source_ids, wide, "bm25")
         before = {c.chunk_id for c in merged}
         retried = rrf_merge([merged, *extra], wide)
         gained = [c.chunk_id for c in retried if c.chunk_id not in before]
-        event("retrieval.retry", reasons=reasons, rewritten_query=rewritten, top_k=wide,
+        event("retrieval.retry", phase="end", reasons=reasons, rewritten_query=rewritten, top_k=wide,
               before=len(merged), after=len(retried), gained=gained)
         merged = retried
     return merged

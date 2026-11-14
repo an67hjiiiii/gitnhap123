@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -43,7 +44,7 @@ from app.research.provenance import build_provenance
 from app.research.synthesizer import synthesize
 from app.research.token_context import POLICIES, TokenContextController, plan_task_budgets
 from app.research.token_context import context_policy as env_context_policy
-from app.research.product_retrieval import product_retrieve
+from app.research.product_retrieval import product_retrieve, run_budget_exceeded
 from app.research.vanilla import answer_vanilla
 from app.research.worker import execute_task
 from app.retrieval.index_identity import IndexingError
@@ -328,7 +329,7 @@ class ResearchPipeline:
                         multi=multi_retrieval, retry=True,
                     )
                 else:
-                    candidates = self._retrieve_candidates(
+                    candidates = await asyncio.to_thread(self._retrieve_candidates,
                         retrieval_query_text,
                         all_chunks,
                         top_k=cfg.task_top_k,
@@ -360,9 +361,33 @@ class ResearchPipeline:
                     has_vi_marks = any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", query)) or "đ" in query.lower()
                     reply_language = reply_language_hint or (
                         "vi" if has_vi_marks or detect_language(query) != "en" else "en")
-                result = await answer_vanilla(
-                    provider, query, selected, metrics, reply_language=reply_language,
-                    **({"checker": answer_checker} if product_mode and answer_checker is not None else {}))
+                if product_mode and run_budget_exceeded(metrics, cfg, event, "answer"):
+                    result = TaskResult(
+                        task_id="T1", domain="general", status="NO_EVIDENCE",
+                        answer="RUN_BUDGET_EXCEEDED: Token budget exhausted before answer generation.",
+                        missing_information=["answer generation skipped: run token budget exhausted"],
+                    )
+                else:
+                    checked_provider = _AttemptCountingProvider(provider, metrics) if product_mode else provider
+                    checker = (
+                        _BudgetedChecker(answer_checker, metrics, cfg, event)
+                        if product_mode and answer_checker is not None else None
+                    )
+                    try:
+                        result = await answer_vanilla(
+                            checked_provider, query, selected, metrics, reply_language=reply_language,
+                            **({"checker": checker} if checker is not None else {}))
+                    except Exception:
+                        if not product_mode:
+                            raise
+                        result = TaskResult(
+                            task_id="T1", domain="general", status="PARTIAL" if selected else "NO_EVIDENCE",
+                            answer="Answer generation failed. Relevant evidence: " + " ".join(c.text for c in selected)[:500],
+                            evidence_ids=[c.chunk_id for c in selected],
+                            missing_information=["answer generation failed"],
+                        )
+                    if checker is not None and checker.budget_cut:
+                        budget_cut = True
                 if result.guard_notes:
                     event("answer_guard", notes=list(result.guard_notes))
                 if result.status == "NO_EVIDENCE":
@@ -650,7 +675,7 @@ class ResearchPipeline:
                 if flags["O"] and policy == "adaptive_qwen":
                     # Nhu cầu ước từ lượt truy xuất sơ bộ (chưa có ngữ cảnh phụ thuộc); trần áp vào lượt truy xuất thật bên dưới.
                     preview = {
-                        task.task_id: self._retrieve_candidates(
+                        task.task_id: await asyncio.to_thread(self._retrieve_candidates,
                             f"{task.goal} {' '.join(task.evidence_needs)}".strip(),
                             all_chunks,
                             top_k=cfg.task_top_k,
@@ -667,7 +692,7 @@ class ResearchPipeline:
                     retrieval_query = f"{task.goal} {' '.join(task.evidence_needs)} {dependency_context}".strip()
                     r0 = time.perf_counter()
                     retrieval_trace: dict = {}
-                    candidates = self._retrieve_candidates(
+                    candidates = await asyncio.to_thread(self._retrieve_candidates,
                         retrieval_query,
                         all_chunks,
                         top_k=cfg.task_top_k,
@@ -725,6 +750,11 @@ class ResearchPipeline:
                 lifecycle_status=lifecycle_status,
             )
             return finalize(status, answer, tasks, task_results)
+        except asyncio.CancelledError:
+            event("run_failed", lifecycle_status="FAILED", error="CLIENT_CANCELLED",
+                  error_type="CancelledError")
+            finalize("FAILED", "CLIENT_CANCELLED", [], [])
+            raise
         except Exception as exc:
             lifecycle_status = "FAILED"
             event(
@@ -745,6 +775,48 @@ class ResearchPipeline:
         if condition == "C":
             return {"P": True, "N": True, "O": True}
         return {"P": condition != "C-P", "N": condition != "C-N", "O": condition != "C-O"}
+
+
+class _AttemptCountingProvider:
+    """Count provider failures even when a downstream verifier swallows them."""
+
+    def __init__(self, provider, metrics):
+        self.provider = provider
+        self.metrics = metrics
+
+    def __getattr__(self, name):
+        value = getattr(self.provider, name)
+        if name not in {"generate", "generate_grounded"} or not callable(value):
+            return value
+
+        async def generate(**kwargs):
+            try:
+                return await value(**kwargs)
+            except Exception:
+                self.metrics.failed_llm_attempts += 1
+                raise
+
+        return generate
+
+
+class _BudgetedChecker:
+    """Keep the answer when the optional verification call exceeds the budget."""
+
+    def __init__(self, checker, metrics, cfg, event):
+        self.checker, self.metrics, self.cfg, self.event = checker, metrics, cfg, event
+        self.budget_cut = False
+
+    def guard(self, *args, **kwargs):
+        return self.checker.guard(*args, **kwargs)
+
+    def needs_verification(self, query, answer):
+        if not self.checker.needs_verification(query, answer):
+            return False
+        self.budget_cut = run_budget_exceeded(self.metrics, self.cfg, self.event, "verifier")
+        return not self.budget_cut
+
+    async def verify(self, provider, answer, evidence_texts, metrics):
+        return await self.checker.verify(provider, answer, evidence_texts, metrics)
 
 
 def _retrieval_query_with_conversation_context(

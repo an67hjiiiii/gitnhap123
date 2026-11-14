@@ -587,6 +587,23 @@ class PostgresRunStore:
                 for field, value in values.items():
                     setattr(record, field, value)
 
+    def mark_stale_running_runs(self, max_age_seconds: float) -> int:
+        cutoff = _now() - timedelta(seconds=max_age_seconds)
+        updated = 0
+        with self.session_factory.begin() as db:
+            rows = db.scalars(select(RunRecord).where(
+                RunRecord.owner_user_id == self.owner_user_id,
+                RunRecord.created_at < cutoff,
+            ).with_for_update()).all()
+            for row in rows:
+                run = dict(row.extra_data)
+                if (run.get("lifecycle_status") or run.get("status")) != "RUNNING":
+                    continue
+                run.update(status="FAILED", lifecycle_status="FAILED", answer="STALE_RUN", error="STALE_RUN")
+                row.status, row.answer, row.extra_data = "FAILED", "STALE_RUN", run
+                updated += 1
+        return updated
+
     def get(self, run_id: str) -> dict[str, Any] | None:
         with self.session_factory() as db:
             row = db.scalar(select(RunRecord).where(
