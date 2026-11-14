@@ -105,18 +105,19 @@ def test_rewrite_query_falls_back_on_error():
     assert asyncio.run(rewrite_query(Broken(), "abc?", RunMetrics())) == "abc?"
 
 
-def test_verifier_drops_flagged_sentences_but_keeps_one_and_survives_garbage():
+def test_verifier_drops_unsupported_sentences_replaces_all_and_survives_garbage():
     answer = "Giới hạn là 100 yêu cầu mỗi phút. Khoá hết hạn sau 45 ngày."
     metrics = RunMetrics()
     new, notes = asyncio.run(verify_sentences(Provider('{"unsupported":[2]}'), answer, ["100 yêu cầu"], metrics))
-    assert new == "Giới hạn là 100 yêu cầu mỗi phút." and notes == ["VERIFY_DROPPED:1"]
+    assert new == "Giới hạn là 100 yêu cầu mỗi phút." and notes == ["VERIFY_RAN", "VERIFY_DROPPED:1"]
     same, notes = asyncio.run(verify_sentences(Provider('{"unsupported":[1,2]}'), answer, ["x"], metrics))
-    assert same == answer and notes == ["VERIFY_ALL_UNSUPPORTED_KEPT"]
+    assert same == "Mình chưa đủ căn cứ trong tài liệu để khẳng định điều này."
+    assert notes == ["VERIFY_RAN", "VERIFY_ALL_UNSUPPORTED_REPLACED"]
     # the model flags a sentence that the sources do support: rules veto the drop
     kept, notes = asyncio.run(verify_sentences(Provider('{"unsupported":[1]}'), answer, ["Giới hạn là 100 yêu cầu mỗi phút, khoá hết hạn sau 45 ngày"], metrics))
-    assert kept == answer and notes == ["VERIFY_FLAGGED_KEPT:1"]
+    assert kept == answer and notes == ["VERIFY_RAN", "VERIFY_FLAGGED_KEPT:1"]
     same, notes = asyncio.run(verify_sentences(Provider("không biết"), answer, ["x"], metrics))
-    assert same == answer and notes == []
+    assert same == answer and notes == ["VERIFY_FAILED"]
 
 
 def test_needs_verification_only_for_risky_answers(monkeypatch):
