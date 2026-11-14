@@ -192,9 +192,23 @@ def test_truncation_stays_within_pipeline_failure_boundary(monkeypatch, counted_
     provider = CountingFake(fail_stage=stage)
     monkeypatch.setattr(pipeline_module, "get_provider", lambda name: provider)
     result = asyncio.run(pipeline.run("Review API architecture", condition=condition, source_ids=ids))
-    assert result["status"] == "FAILED"
-    assert result["lifecycle_status"] == "FAILED"
-    assert provider.calls[stage] == 1
+    if stage == "TASK_PLAN_BUILDER":
+        assert result["status"] == "PARTIAL"
+        assert result["lifecycle_status"] == "COMPLETED"
+        assert provider.calls[stage] == 2
+        assert result["answer"]
+        assert sum(event["stage"] == "planning_repair" for event in result["events"]) == 1
+        assert any(event["stage"] == "planning_degraded" for event in result["events"])
+    elif stage == "SYNTHESIZER":
+        assert result["status"] == "COMPLETE"
+        assert result["lifecycle_status"] == "COMPLETED"
+        assert provider.calls[stage] == 1
+        assert result["task_results"][0]["answer"] in result["answer"]
+        assert "**Tóm tắt**" not in result["answer"]
+    else:
+        assert result["status"] == "FAILED"
+        assert result["lifecycle_status"] == "FAILED"
+        assert provider.calls[stage] == 1
 
 
 def test_planner_existing_exception_handler_accepts_typed_truncation():

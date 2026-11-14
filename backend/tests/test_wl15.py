@@ -108,3 +108,64 @@ def test_trailing_filler_drop_does_not_downgrade_status():
     result = guard_answer("Nhật ký ghi thời điểm tải lên. Không có thông tin cụ thể về dung lượng.",
                           status="COMPLETE", evidence_texts=["Nhật ký cần ghi lại thời điểm tải lên."])
     assert "TRAILING_NEGATIVE_DROPPED:1" in result.notes and result.removed_claims == []
+
+
+# ---- Đợt 2: mở rộng đường trả thẳng + dọn thẻ ----
+@pytest.mark.parametrize("message", ["REST là gì?", "What is a REST API?", "Giải thích Docker là gì"])
+def test_definition_questions_are_candidates_for_direct(message):
+    d = classify_intent(message)
+    assert d.intent == "general_knowledge" and d.reason == "DEFINITION"
+
+
+@pytest.mark.parametrize("message", ["Tài liệu này là gì?", "Hồ sơ là gì trong yêu cầu của dự án?"])
+def test_definition_with_document_words_stays_document_question(message):
+    assert classify_intent(message).intent == "document_question"
+
+
+def test_history_cue_only_with_history():
+    q = "Trường hợp 1: 2, trường hợp 2: 8. Ở trường hợp 1 vừa rồi là số mấy?"
+    assert classify_intent(q, has_history=True).intent == "history_answer"
+    assert classify_intent(q, has_history=False).intent != "history_answer"
+
+
+def test_strip_placeholder_tags():
+    from app.core.text_clean import strip_placeholder_tags
+
+    assert strip_placeholder_tags("theo tài liệu <source name>a.md</source name> ok") == "theo tài liệu a.md ok"
+    assert strip_placeholder_tags("Không có thẻ.") == "Không có thẻ."
+
+
+def test_definition_without_documents_answers_directly_with_note(chat_http):  # noqa: F811
+    body = chat_http.post("/api/chat", json={"message": "REST là gì?", "product_mode": True}).json()
+    assert body["status"] == "COMPLETE" and body["run_id"] is None
+    assert body["events"][0]["path"] == "DIRECT" and body["events"][0]["grounded"] is False
+    assert "Không dựa trên tài liệu của bạn" in body["answer"]
+
+
+def test_definition_that_matches_documents_goes_to_documents(chat_http):  # noqa: F811
+    chat_http.post("/api/sources/text", json={"source_name": "rest.md", "text": "REST là kiểu kiến trúc API của hệ thống cổng hồ sơ."})
+    body = chat_http.post("/api/chat", json={"message": "REST là gì?", "product_mode": True}).json()
+    assert body["intent"]["reason"] == "GATE_DOCUMENT_MATCH" and body["run_id"]
+
+
+def test_history_answer_is_direct_and_records_path(chat_http):  # noqa: F811
+    first = chat_http.post("/api/chat", json={"message": "Tính 12 + 30 bằng bao nhiêu?", "product_mode": True}).json()
+    body = chat_http.post("/api/chat", json={
+        "message": "Ở câu vừa rồi kết quả là số mấy?", "conversation_id": first["conversation_id"],
+        "product_mode": True}).json()
+    assert body["events"][0]["path"] in {"HISTORY", "DIRECT"} or body["intent"]["intent"] == "follow_up"
+    assert body["intent"]["intent"] in {"history_answer", "follow_up"}
+
+
+def test_gate_requires_the_defined_term_in_a_chunk():
+    from app.chat.intent import definition_terms, mentions_terms
+
+    assert definition_terms("REST là gì?") == ["rest"]
+    assert not mentions_terms(["rest"], ["Hồ sơ cần xác nhận khi tải lên.", "interest rate"])
+    assert mentions_terms(["rest"], ["API REST trả JSON."])
+
+
+def test_chunk_id_angle_tags_are_removed():
+    from app.core.text_clean import strip_placeholder_tags
+
+    assert strip_placeholder_tags("theo tài liệu a.txt <src_ab12_c0003>. Hết.") == "theo tài liệu a.txt. Hết."

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.core.text_clean import strip_placeholder_tags
+
 import json
 import re
 
@@ -76,7 +78,7 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
     metrics.add_citations(valid, invalid)
 
     status = str(obj.get("status") or "PARTIAL").upper()
-    answer = str(obj.get("answer") or "").strip()
+    answer = strip_placeholder_tags(str(obj.get("answer") or "").strip())
     missing = [str(x) for x in obj.get("missing_information") or []]
     if invalid:
         status = "PARTIAL"
