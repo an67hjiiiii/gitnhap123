@@ -208,7 +208,7 @@ def test_fully_absent_evidence_maps_to_not_found(case):
     )
     calls = []
 
-    async def run(query, *, source_ids):
+    async def run(query, *, source_ids, condition="A"):
         calls.append((query, source_ids))
         # Exercise the real answerer's empty-evidence path; no provider call.
         task = await answer_vanilla(None, query, [], RunMetrics())
