@@ -46,6 +46,96 @@
     ]
   },
   {
+    "id": "present_slot_retention_vi", "kind": "present",
+    "query": "Nhật ký xác thực được lưu trong 180 ngày.",
+    "relevant_ids": ["slot_retention_vi"],
+    "chunks": [
+      {"id": "slot_retention_vi", "source_id": "security", "text": "Nhật ký xác thực được lưu trong 180 days."},
+      {"id": "slot_retention_menu", "source_id": "interface", "text": "Nhật ký xác thực có nút tìm kiếm."}
+    ]
+  },
+  {
+    "id": "present_slot_timeout_vi", "kind": "present",
+    "query": "Phiên đăng nhập hết hạn sau 30 phút.",
+    "relevant_ids": ["slot_timeout_vi"],
+    "chunks": [
+      {"id": "slot_timeout_vi", "source_id": "sessions", "text": "Phiên đăng nhập hết hạn sau 30 minutes."},
+      {"id": "slot_timeout_label", "source_id": "interface", "text": "Phiên đăng nhập có nhãn hiển thị."}
+    ]
+  },
+  {
+    "id": "present_slot_availability", "kind": "present",
+    "query": "Service availability must be 99.9%.",
+    "relevant_ids": ["slot_availability"],
+    "chunks": [
+      {"id": "slot_availability", "source_id": "operations", "text": "Service availability must be 99.9 percent."},
+      {"id": "slot_availability_panel", "source_id": "interface", "text": "Service availability appears on the status panel."}
+    ]
+  },
+  {
+    "id": "present_slot_upload_size", "kind": "present",
+    "query": "Uploaded attachments must have a limit of 10 MB.",
+    "relevant_ids": ["slot_upload_size"],
+    "chunks": [
+      {"id": "slot_upload_size", "source_id": "uploads", "text": "Uploaded attachments must have a limit of 10 megabytes."},
+      {"id": "slot_upload_panel", "source_id": "interface", "text": "Uploaded attachments appear in a sortable table."}
+    ]
+  },
+  {
+    "id": "present_slot_hours_vi", "kind": "present",
+    "query": "Bản sao lưu hoàn tất trong 2 giờ.",
+    "relevant_ids": ["slot_hours_vi"],
+    "chunks": [
+      {"id": "slot_hours_vi", "source_id": "operations", "text": "Bản sao lưu hoàn tất trong 120 phút."},
+      {"id": "slot_hours_menu", "source_id": "interface", "text": "Bản sao lưu có biểu tượng thư mục."}
+    ]
+  },
+  {
+    "id": "present_slot_years_vi", "kind": "present",
+    "query": "Hồ sơ kiểm toán được lưu trong 1 năm.",
+    "relevant_ids": ["slot_years_vi"],
+    "chunks": [
+      {"id": "slot_years_vi", "source_id": "audit", "text": "Hồ sơ kiểm toán được lưu trong 365 ngày."},
+      {"id": "slot_years_label", "source_id": "interface", "text": "Hồ sơ kiểm toán có nhãn tìm kiếm."}
+    ]
+  },
+  {
+    "id": "present_slot_literal", "kind": "present",
+    "query": "Authentication failures must return \"AUTH_REQUIRED\".",
+    "relevant_ids": ["slot_literal"],
+    "chunks": [
+      {"id": "slot_literal", "source_id": "access", "text": "Authentication failures must return the code AUTH_REQUIRED."},
+      {"id": "slot_literal_panel", "source_id": "interface", "text": "Authentication failures appear in a red notification banner."}
+    ]
+  },
+  {
+    "id": "present_slot_entity", "kind": "present",
+    "query": "Authentication must integrate Microsoft Entra ID.",
+    "relevant_ids": ["slot_entity"],
+    "chunks": [
+      {"id": "slot_entity", "source_id": "identity", "text": "Authentication must integrate Microsoft Entra ID for employee sign-in."},
+      {"id": "slot_entity_panel", "source_id": "interface", "text": "Authentication settings appear in the account menu."}
+    ]
+  },
+  {
+    "id": "present_slot_path", "kind": "present",
+    "query": "Invoice creation must use /v1/invoices.",
+    "relevant_ids": ["slot_path"],
+    "chunks": [
+      {"id": "slot_path", "source_id": "billing", "text": "Invoice creation must use /v1/invoices with a signed request."},
+      {"id": "slot_path_panel", "source_id": "interface", "text": "Invoice creation has a preview form."}
+    ]
+  },
+  {
+    "id": "present_slot_code", "kind": "present",
+    "query": "Stored invoices must use AES256 encryption.",
+    "relevant_ids": ["slot_code"],
+    "chunks": [
+      {"id": "slot_code", "source_id": "billing", "text": "Stored invoices must use AES256 encryption."},
+      {"id": "slot_code_label", "source_id": "interface", "text": "Stored invoices have a preview thumbnail."}
+    ]
+  },
+  {
     "id": "absent_retention_duration", "kind": "absent",
     "query": "Authentication logs must be retained for 180 days.",
     "relevant_ids": [],
