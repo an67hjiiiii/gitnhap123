@@ -12,6 +12,7 @@ from collections.abc import Callable
 from app.research.pipeline import CONDITIONS, ResearchPipeline
 from app.research.token_context import POLICIES
 from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
+from app.review_adapters.slot_check import check_slots
 from app.review_adapters.verdict_rules import assess, check_answer
 
 
@@ -212,6 +213,15 @@ class PipelineReviewEngine:
                             self._emit(emit, "verdict.answer_inconsistent", {
                                 **payload, "detail": " ".join(notes),
                                 "evidence_ids": [e.evidence_id for e in evidence],
+                            })
+                    if verdict in {Verdict.SATISFIED, Verdict.PARTIAL}:
+                        coverage = check_slots(requirement.text, (e.excerpt for e in evidence))
+                        if coverage.missing_slots and (not coverage.any_covered or verdict == Verdict.SATISFIED):
+                            verdict = Verdict.PARTIAL if coverage.any_covered else Verdict.NOT_FOUND
+                            if verdict == Verdict.NOT_FOUND:
+                                evidence = []
+                            self._emit(emit, "verdict.slots_missing", {
+                                **payload, "missing_slots": list(coverage.missing_slots),
                             })
                 except Exception as exc:
                     verdict = Verdict.UNDETERMINED

@@ -18,6 +18,7 @@ from app.retrieval.candidate_index import CandidateIndex
 from app.retrieval.embeddings import LocalHashEmbedder
 from app.review.schemas import Requirement, ReviewCase, Verdict
 from app.review_adapters.pipeline_engine import PipelineReviewEngine
+from app.review_adapters.slot_check import extract_slots
 from app.storage.vector_store import InMemoryVectorStore
 
 
@@ -28,6 +29,7 @@ TOP_K = 4
 MIN_SCORE = 0.18  # The current runtime default, pinned for this measurement.
 RECALL_FLOOR = 0.95  # Measured baseline 1.0, with a 0.05 margin.
 ABSENT = [case for case in CASES if case["kind"] == "absent"]
+PRESENT = [case for case in CASES if case["kind"] == "present"]
 
 
 @pytest.fixture(autouse=True)
@@ -224,3 +226,95 @@ def test_fully_absent_evidence_maps_to_not_found(case):
     assert finding.verdict != Verdict.DEVIATES
     assert finding.evidence == []
     assert [name for name, _ in events] == ["task.started", "pipeline.trace", "finding.created"]
+
+
+def _review_retrieved(case):
+    """Isolate verification using real retrieval and a controlled COMPLETE answer.
+
+    This deliberately optimistic answer cites every retrieved candidate. It
+    measures the deterministic guard, not provider accuracy or entailment.
+    """
+    chunks = _chunks(case)
+    found, _ = _retrieve(case)
+    ids = [chunk.chunk_id for chunk in found]
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    review = ReviewCase(
+        id=case["id"], owner_user_id="seed-owner", title="Slot sufficiency",
+        request_text=case["query"], source_ids=list(dict.fromkeys(c.source_id for c in chunks)),
+        created_at=now, updated_at=now,
+    )
+    requirement = Requirement(
+        id="requirement", case_id=review.id, text=case["query"], origin="USER", confirmed=True, order=0,
+    )
+
+    async def run(query, *, source_ids, condition="A"):
+        return {"status": "COMPLETE" if ids else "NO_EVIDENCE", "task_results": [{
+            "answer": None, "citations": ids, "evidence_ids": ids,
+        }]}
+
+    events = []
+    finding, = PipelineReviewEngine(SimpleNamespace(run=run, source_store=_source_store(chunks))).run(
+        review, [requirement], None, lambda *event: events.append(event),
+    )
+    flagged = any(name == "verdict.slots_missing" for name, _ in events)
+    if flagged:
+        assert finding.verdict in {Verdict.NOT_FOUND, Verdict.PARTIAL}
+    assert {e.evidence_id for e in finding.evidence} <= set(ids)
+    return finding, flagged
+
+
+def test_slot_insufficiency_measurement():
+    # Author-built cases: 4 absent, 5 original present, 10 new explicit facts.
+    # A positive is a slots_missing downgrade. Natural NO_EVIDENCE abstentions
+    # are shown separately and do not count as a successful slot check.
+    assert len(ABSENT) == 4 and len(PRESENT) >= 13
+    tp = fp = fn = tn = 0
+    print("\nAuthor-built slot-sufficiency cases")
+    print("case | truth | verdict | slot-insufficient | outcome")
+    for case in [*ABSENT, *PRESENT]:
+        finding, flagged = _review_retrieved(case)
+        absent = case["kind"] == "absent"
+        outcome = "TP" if absent and flagged else "FN" if absent else "FP" if flagged else "TN"
+        tp += outcome == "TP"
+        fp += outcome == "FP"
+        fn += outcome == "FN"
+        tn += outcome == "TN"
+        print(f"{case['id']} | {case['kind']} | {finding.verdict.value} | {flagged} | {outcome}")
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn)
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    print("TP | FP | FN | TN | precision | recall | F1 | false absent | missed absent")
+    print(f"{tp} | {fp} | {fn} | {tn} | {precision:.3f} | {recall:.3f} | {f1:.3f} | {fp} | {fn}")
+    # Measured 1.000 / 0.250 / 0.400, with a 0.05 margin.
+    assert precision >= 0.95
+    assert recall >= 0.20
+    assert f1 >= 0.35
+    assert fp == 0
+
+
+@pytest.mark.parametrize("case", PRESENT, ids=lambda case: case["id"])
+def test_present_facts_are_retrieved_and_not_reported_slot_insufficient(case):
+    found, _ = _retrieve(case)
+    assert set(case["relevant_ids"]) <= {chunk.chunk_id for chunk in found}
+    finding, flagged = _review_retrieved(case)
+    assert not flagged
+    assert finding.verdict == Verdict.SATISFIED
+
+
+def test_topical_retrieval_without_retention_value_is_not_found():
+    case = next(case for case in ABSENT if case["id"] == "absent_retention_duration")
+    finding, flagged = _review_retrieved(case)
+    assert flagged
+    assert finding.verdict == Verdict.NOT_FOUND
+    assert finding.evidence == []
+
+
+@pytest.mark.parametrize("case", [case for case in ABSENT if not extract_slots(case["query"])],
+                         ids=lambda case: case["id"])
+@pytest.mark.xfail(
+    strict=False,
+    reason="SUSPECTED DEFECT: slotless absent questions cannot trigger a value-coverage downgrade",
+)
+def test_all_absent_queries_trigger_slot_insufficiency(case):
+    _, flagged = _review_retrieved(case)
+    assert flagged

@@ -234,8 +234,8 @@ def add_cited_excerpts(pipeline, case, texts):
     ("PARTIAL", "Authentication logs retained for 90 days", Verdict.DEVIATES),
     ("NO_EVIDENCE", "Authentication logs retained for 90 days", Verdict.NOT_FOUND),
     ("FAILED", "Authentication logs retained for 90 days", Verdict.UNDETERMINED),
-    ("COMPLETE", "Authentication backups retained for 90 days", Verdict.SATISFIED),
-    ("PARTIAL", "Authentication backups retained for 90 days", Verdict.PARTIAL),
+    ("COMPLETE", "Authentication backups retained for 90 days", Verdict.NOT_FOUND),
+    ("PARTIAL", "Authentication backups retained for 90 days", Verdict.NOT_FOUND),
 ])
 def test_evidence_backed_status_mapping(setup_review, monkeypatch, status, text, expected):
     pipeline, case, _, _, _ = setup_review
@@ -292,7 +292,7 @@ def test_bilingual_and_polarity_conflicts_in_engine(setup_review, monkeypatch, t
 
 
 @pytest.mark.parametrize("status,expected", [
-    ("COMPLETE", Verdict.UNDETERMINED), ("PARTIAL", Verdict.PARTIAL),
+    ("COMPLETE", Verdict.UNDETERMINED), ("PARTIAL", Verdict.NOT_FOUND),
     ("NO_EVIDENCE", Verdict.NOT_FOUND),
 ])
 def test_uncited_conflicts_cannot_produce_deviates(setup_review, monkeypatch, status, expected):
@@ -306,7 +306,7 @@ def test_uncited_conflicts_cannot_produce_deviates(setup_review, monkeypatch, st
     assert finding.evidence == []
 
 
-def test_missing_excerpt_falls_back_to_legacy_mapping(setup_review, monkeypatch):
+def test_missing_excerpt_cannot_cover_required_slot(setup_review, monkeypatch):
     pipeline, case, _, _, _ = setup_review
     chunk, = add_cited_excerpts(pipeline, case, ["Logs retained for 180 days"])
     control_result(monkeypatch, "COMPLETE", [chunk.chunk_id])
@@ -320,9 +320,8 @@ def test_missing_excerpt_falls_back_to_legacy_mapping(setup_review, monkeypatch)
     reqs = requirements(case)
     reqs[0].text = "retain logs for 180 days"
     finding, = engine.run(case, reqs, None, lambda _: None)
-    assert finding.verdict == Verdict.SATISFIED
-    assert finding.evidence[0].evidence_id == chunk.chunk_id
-    assert finding.evidence[0].excerpt == ""
+    assert finding.verdict == Verdict.NOT_FOUND
+    assert finding.evidence == []
 
 
 @pytest.mark.parametrize("failure_stage", ["pipeline", "evidence", "assessment"])
@@ -391,12 +390,12 @@ def test_unexpected_exception_emits_diagnostics_and_continues(
     ("COMPLETE", ["Logs retained for 90 days"], Verdict.DEVIATES),
     ("PARTIAL", ["Logs retained for 90 days"], Verdict.DEVIATES),
     ("COMPLETE", ["Logs retained for 180 days", "Logs retained for 90 days"], Verdict.DEVIATES),
-    ("COMPLETE", ["Backups retained for 90 days"], Verdict.SATISFIED),
+    ("COMPLETE", ["Backups retained for 90 days"], Verdict.NOT_FOUND),
     ("COMPLETE", ["Logs retained for 4320 hours"], Verdict.SATISFIED),
     ("COMPLETE", ["Logs retained for 180 days. Logs retained for 90 days."], Verdict.DEVIATES),
-    ("COMPLETE", [""], Verdict.SATISFIED),
+    ("COMPLETE", [""], Verdict.NOT_FOUND),
     ("COMPLETE", [], Verdict.UNDETERMINED),
-    ("PARTIAL", [], Verdict.PARTIAL),
+    ("PARTIAL", [], Verdict.NOT_FOUND),
     ("NO_EVIDENCE", [], Verdict.NOT_FOUND),
 ])
 def test_in_memory_pipeline_verdict_contract(sf1_fake_provider_env, status, texts, expected):
