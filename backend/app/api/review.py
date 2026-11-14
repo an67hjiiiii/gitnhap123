@@ -221,6 +221,7 @@ class ReviewRuntime:
         return PipelineReviewEngine(
             pipeline_factory=self.pipeline_factory,
             source_ids_getter=lambda case: self.selected_sources(case.owner_user_id, case.source_ids),
+            condition=os.getenv("REVIEW_PIPELINE_CONDITION") or "A",
         )
 
     def source_document(self, owner, source_id):

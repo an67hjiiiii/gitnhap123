@@ -80,7 +80,7 @@ def test_pipeline_status_mapping(setup_review, monkeypatch, status, cited, verdi
     assert finding.confidence == Confidence.L1
     assert finding.review == Decision.NONE
     assert reqs[0].confirmed is True
-    assert calls == [(reqs[0].text, {"source_ids": case.source_ids})]
+    assert calls == [(reqs[0].text, {"source_ids": case.source_ids, "condition": "A"})]
     assert [event[0] for event in events] == ["task.started", "finding.created"]
     assert events[1][1] == finding.model_dump(mode="json")
 
@@ -344,7 +344,7 @@ def test_unexpected_exception_emits_diagnostics_and_continues(
     def fail(*args):
         raise RuntimeError("Controlled adapter failure")
 
-    async def run(query, *, source_ids):
+    async def run(query, *, source_ids, condition="A"):
         calls.append(query)
         if len(calls) == 2:
             return {"status": "NO_EVIDENCE", "task_results": []}
@@ -409,7 +409,7 @@ def test_in_memory_pipeline_verdict_contract(sf1_fake_provider_env, status, text
     chunks = [SimpleNamespace(chunk_id=f"chunk-{i}", source_id="source-1", text=text, provenance={})
               for i, text in enumerate(texts)]
 
-    async def run(query, *, source_ids):
+    async def run(query, *, source_ids, condition="A"):
         assert source_ids == case.source_ids
         assert query == "retain logs for 180 days"
         ids = [c.chunk_id for c in chunks]
@@ -453,7 +453,7 @@ def answer_review(sf1_fake_provider_env):
         "answer": None, "citations": [chunk.chunk_id], "evidence_ids": [chunk.chunk_id],
     }]}
 
-    async def run(query, *, source_ids):
+    async def run(query, *, source_ids, condition="A"):
         assert source_ids == case.source_ids
         return result
 
