@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 import re
 import time
 from collections.abc import Callable
 
 from app.research.pipeline import CONDITIONS, ResearchPipeline
+from app.research.token_context import POLICIES
 from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
 from app.review_adapters.verdict_rules import assess, check_answer
 
@@ -22,7 +24,7 @@ class PipelineReviewEngine:
     The seconds budget is checked between calls, never interrupts an active call.
     Named event callbacks receive (name, payload). The ReviewEngine protocol's
     legacy one-argument callbacks receive only Finding objects.
-    Non-A conditions emit pipeline.trace; A preserves the legacy event sequence.
+    Every completed pipeline call emits pipeline.trace. A records only provenance.
     """
 
     def __init__(
@@ -33,6 +35,7 @@ class PipelineReviewEngine:
         owner_user_id: str | Callable[[ReviewCase], str] | None = None,
         source_ids_getter: Callable[[ReviewCase], list[str]] | None = None,
         condition: str = "A",
+        context_policy: str | None = None,
     ) -> None:
         if (pipeline is None) == (pipeline_factory is None):
             raise ValueError("Supply exactly one pipeline or pipeline_factory")
@@ -40,6 +43,16 @@ class PipelineReviewEngine:
         if condition not in CONDITIONS:
             raise ValueError(f"Unknown review pipeline condition {condition!r}; expected one of {sorted(CONDITIONS)}")
         self.condition = condition
+        policy = context_policy if context_policy is not None else os.getenv("REVIEW_CONTEXT_POLICY")
+        if policy is not None:
+            policy = policy.strip().lower()
+            if policy not in POLICIES:
+                raise ValueError(
+                    f"Unknown review context policy {policy!r}; expected one of {sorted(POLICIES)}"
+                )
+        elif condition.startswith("C"):
+            policy = "adaptive_qwen"
+        self.context_policy = None if condition == "A" else policy
         self.pipeline = pipeline
         self.pipeline_factory = pipeline_factory
         self.owner_user_id = owner_user_id
@@ -145,19 +158,30 @@ class PipelineReviewEngine:
                     )
                     source_ids = [sid for sid in case.source_ids if sid in selected]
                     pipeline = self.pipeline_factory(owner) if self.pipeline_factory else self.pipeline
+                    policy_kwargs = (
+                        {"context_policy": self.context_policy} if self.context_policy is not None else {}
+                    )
                     result = await pipeline.run(
                         requirement.text, source_ids=source_ids, condition=self.condition,
+                        **policy_kwargs,
                     )
-                    if self.condition != "A":
-                        stages = {event.get("stage"): event for event in result.get("events", [])}
-                        self._emit(emit, "pipeline.trace", {
-                            **payload,
-                            "condition": result.get("condition"),
-                            "config_hash": result.get("config_hash"),
-                            "planning_retrieval": stages.get("planning_retrieval"),
-                            "normalization": stages.get("normalization"),
-                            "context_policy": result.get("effective_config", {}).get("context_policy"),
-                        })
+                    stages = {event.get("stage"): event for event in result.get("events", [])}
+                    budget_plan = stages.get("adaptive_budget_plan")
+                    self._emit(emit, "pipeline.trace", {
+                        **payload,
+                        "condition": result.get("condition"),
+                        "config_hash": result.get("config_hash"),
+                        "planning_retrieval": stages.get("planning_retrieval") if self.condition != "A" else None,
+                        "normalization": stages.get("normalization") if self.condition != "A" else None,
+                        "context_policy": (
+                            result.get("effective_config", {}).get("context_policy")
+                            if self.condition != "A" else None
+                        ),
+                        "task_budget": (
+                            {key: budget_plan.get(key) for key in ("policy", "total_tokens", "needs", "limits")}
+                            if self.condition != "A" and budget_plan is not None else None
+                        ),
+                    })
                     evidence = self._evidence(pipeline, result, source_ids)
                     status = result.get("status")
                     if status == "COMPLETE" and evidence:

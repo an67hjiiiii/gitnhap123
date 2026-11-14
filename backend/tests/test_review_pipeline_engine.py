@@ -81,8 +81,8 @@ def test_pipeline_status_mapping(setup_review, monkeypatch, status, cited, verdi
     assert finding.review == Decision.NONE
     assert reqs[0].confirmed is True
     assert calls == [(reqs[0].text, {"source_ids": case.source_ids, "condition": "A"})]
-    assert [event[0] for event in events] == ["task.started", "finding.created"]
-    assert events[1][1] == finding.model_dump(mode="json")
+    assert [event[0] for event in events] == ["task.started", "pipeline.trace", "finding.created"]
+    assert events[2][1] == finding.model_dump(mode="json")
 
 
 def test_only_cited_retrieved_scoped_chunks_become_evidence(setup_review, monkeypatch):
@@ -371,14 +371,16 @@ def test_unexpected_exception_emits_diagnostics_and_continues(
     assert calls == [req.text for req in reqs]
     assert [finding.verdict for finding in findings] == [Verdict.UNDETERMINED, Verdict.NOT_FOUND]
     assert findings[0].evidence == []
+    first_trace = [] if failure_stage == "pipeline" else ["pipeline.trace"]
     assert [name for name, _ in events] == [
-        "task.started", "task.failed", "finding.created", "task.started", "finding.created",
+        "task.started", *first_trace, "task.failed", "finding.created",
+        "task.started", "pipeline.trace", "finding.created",
     ]
-    assert events[1][1] == {
+    assert events[1 + len(first_trace)][1] == {
         "case_id": case.id, "requirement_id": reqs[0].id,
         "error_type": "RuntimeError", "error": "Controlled adapter failure",
     }
-    assert events[2][1] == findings[0].model_dump(mode="json")
+    assert events[2 + len(first_trace)][1] == findings[0].model_dump(mode="json")
 
 
 @pytest.mark.parametrize("status,texts,expected", [

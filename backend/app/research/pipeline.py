@@ -12,7 +12,7 @@ from app.core.types import SourceChunk, Task, TaskPlan, TaskResult, RunMetrics
 from app.providers.factory import get_provider
 from app.research.context_controller import ContextController
 from app.research.provenance import build_provenance
-from app.research.token_context import TokenContextController, context_policy, plan_task_budgets
+from app.research.token_context import POLICIES, TokenContextController, context_policy as env_context_policy, plan_task_budgets
 from app.research.conversation_context import ConversationContext
 from app.research.decomposer import (
     canonicalize_task_plan,
@@ -134,6 +134,7 @@ class ResearchPipeline:
         conversation_context: ConversationContext | str | None = None,
         conversation_id: str | None = None,
         product_mode: bool = False,
+        context_policy: str | None = None,
     ) -> dict:
         condition = condition.upper()
         if condition not in CONDITIONS:
@@ -177,7 +178,9 @@ class ResearchPipeline:
             "conversation_id": conversation_id,
             "conversation_context": conversation_context.to_trace(),
         }
-        policy = context_policy()
+        policy = env_context_policy() if context_policy is None else context_policy
+        if policy not in POLICIES:
+            raise ValueError(f"Unsupported context_policy={policy!r}; expected one of {sorted(POLICIES)}")
         effective["context_policy"] = policy
         embedder = getattr(self.candidate_index, "embedder", None)
         provenance = build_provenance(
