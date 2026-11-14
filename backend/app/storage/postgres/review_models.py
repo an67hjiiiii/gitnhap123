@@ -29,6 +29,8 @@ class ReviewCaseRecord(Base):
     status: Mapped[str] = mapped_column(String(32))
     request_text: Mapped[str] = mapped_column(Text)
     source_ids: Mapped[list[str]] = mapped_column(REVIEW_JSON, default=list)
+    kind: Mapped[str] = mapped_column(String(32), default="requirement_review", server_default="requirement_review")
+    meta: Mapped[dict[str, Any] | None] = mapped_column(REVIEW_JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -1,6 +1,7 @@
 """Owner-scoped review HTTP API with selectable durable persistence."""
 
 import os
+import math
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Literal
@@ -10,17 +11,18 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.jobs import EventLog, JobRunner, format_sse
 from app.review.engine import FakeReviewEngine
 from app.review.repository import InMemoryCaseRepository
 from app.review.schemas import CaseStatus, Decision, Evidence, Finding, JobState, Requirement, RequirementOrigin
-from app.review_adapters import PipelineReviewEngine
+from app.review_adapters import PipelineReviewEngine, SpecChangeEngine
 from app.review_adapters.durable_jobs import DurableJobRunner
 from app.review_adapters.pg_repository import PostgresCaseRepository
 from app.review.service import (
     CaseNotFound, InvalidDecision, RequirementsUnconfirmed, ReviewCaseService, RunCancelled,
+    review_route_decision,
 )
 from app.retrieval.index_identity import IndexingError
 
@@ -85,6 +87,15 @@ class CaseInput(Input):
     title: str = Field(min_length=1, max_length=500)
     source_ids: list[str] = Field(default_factory=list)
     request_text: str = Field(min_length=1)
+    kind: Literal["requirement_review", "spec_change"] = "requirement_review"
+    old_source_id: str | None = None
+    new_source_id: str | None = None
+
+    @model_validator(mode="after")
+    def source_pair_required(self):
+        if self.kind == "spec_change" and not (self.old_source_id and self.new_source_id):
+            raise ValueError("spec_change requires old_source_id and new_source_id")
+        return self
 
 
 class RequirementInput(Input):
@@ -99,6 +110,18 @@ class RequirementsInput(Input):
 
 class RunInput(Input):
     budget: dict | None = None
+
+    @model_validator(mode="after")
+    def valid_limits(self):
+        for key in ("max_tokens", "max_model_calls"):
+            value = (self.budget or {}).get(key)
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError(f"{key} must be a nonnegative integer")
+        seconds = (self.budget or {}).get("max_seconds")
+        if seconds is not None and (isinstance(seconds, bool) or not isinstance(seconds, (int, float))
+                                    or not math.isfinite(seconds)):
+            raise ValueError("max_seconds must be finite")
+        return self
 
 
 class DecisionInput(Input):
@@ -122,12 +145,22 @@ class _RunEngine:
                 emit(scoped(args[0]))
             elif args[0] == "finding.created":
                 emit(scoped(Finding.model_validate(args[1])))
-            else:
+            elif args[0] != "budget.skipped":
                 self.event_emit(*args)
 
         return [scoped(finding) for finding in self.engine.run(
             case, requirements, budget, forward,
         )]
+
+
+class _ReviewJobRunner(JobRunner):
+    """Record routing before the runner's lifecycle events, including queued runs."""
+
+    def submit(self, job_input):
+        with self._lock:
+            job_id = super().submit(job_input)
+            self._emit(job_id, "route.decided", job_input["route_decision"])
+            return job_id
 
 
 class ReviewRuntime:
@@ -139,7 +172,7 @@ class ReviewRuntime:
         self.source_store_factory = source_store_factory
         backend = (storage_backend or os.getenv("APP_STORAGE_BACKEND", "file")).strip().lower()
         self.durable = backend == "postgres" and session_factory is not None
-        self.repository = (PostgresCaseRepository(session_factory) if self.durable
+        self.repository = (PostgresCaseRepository(session_factory, route_decider=review_route_decision) if self.durable
                            else InMemoryCaseRepository())
         self.events = EventLog()
         self.runs = {}
@@ -148,7 +181,7 @@ class ReviewRuntime:
             self.runner = DurableJobRunner(self.repository, self._work, str(uuid4()), 30, self.now)
             self.events = self.runner
         else:
-            self.runner = JobRunner(self._work, self.events, self.now,
+            self.runner = _ReviewJobRunner(self._work, self.events, self.now,
                                     lambda: str(uuid4()), max_concurrent=1)
 
     def startup(self):
@@ -178,6 +211,29 @@ class ReviewRuntime:
             source_ids_getter=lambda case: self.selected_sources(case.owner_user_id, case.source_ids),
         )
 
+    def source_document(self, owner, source_id):
+        store = self.source_store_factory(owner) if self.source_store_factory is not None else None
+        source = store.source(source_id) if store is not None else None
+        if source is None:
+            raise HTTPException(404, {"code": "SOURCE_NOT_FOUND", "message": "Source not found"})
+        if isinstance(source.get("text"), str):
+            return source["text"]
+        # Chunk indices preserve document order; separators can split JSON tokens.
+        chunks = sorted(source["chunks"], key=lambda item: item["index"])
+        separator = "" if chunks and chunks[0]["text"].lstrip().startswith("{") else "\n\n"
+        return separator.join(chunk["text"] for chunk in chunks)
+
+    def case_engine(self, case, selected=None):
+        decision = review_route_decision(case, len(self.repository.get_requirements(case.owner_user_id, case.id)))
+        if case.kind == "spec_change" and decision["route"] == "DETERMINISTIC":
+            self.source_document(case.owner_user_id, case.old_source_id)
+            self.source_document(case.owner_user_id, case.new_source_id)
+            return SpecChangeEngine(
+                lambda value: self.source_document(value.owner_user_id, value.old_source_id),
+                lambda value: self.source_document(value.owner_user_id, value.new_source_id),
+            )
+        return selected if selected is not None else self.engine()
+
     def mutable(self, owner, case_id):
         self.service(None)._case(case_id, owner)
         if self.durable:
@@ -201,13 +257,11 @@ class ReviewRuntime:
             evidence = [Evidence(evidence_id=chunk.chunk_id, source_id=chunk.source_id,
                                  locator=chunk.chunk_id, excerpt=chunk.text)
                         for chunk in self.source_store_factory(owner).chunks(source_ids)]
-        selected_engine = run.get("engine")
-        if selected_engine is None:
-            selected_engine = get_review_engine()
-            if selected_engine is None:
-                selected_engine = self.engine()
+        selected_engine = self.case_engine(case, run.get("engine") or get_review_engine())
+        if isinstance(selected_engine, SpecChangeEngine):
+            evidence = selected_engine.evidence(case)
         service = self.service(_RunEngine(selected_engine, job_id, emit), evidence)
-        pipeline_events = isinstance(selected_engine, PipelineReviewEngine)
+        pipeline_events = isinstance(selected_engine, (PipelineReviewEngine, SpecChangeEngine))
 
         def check():
             if cancelled():
@@ -217,7 +271,7 @@ class ReviewRuntime:
             check()
             if not self.durable:
                 emit("finding.created", finding.model_dump(mode="json"))
-            if finding.verdict.value == "SKIPPED_BUDGET" and not pipeline_events:
+            if finding.verdict.value == "SKIPPED_BUDGET":
                 emit("budget.skipped", {"requirement_id": finding.requirement_id})
             emit("task.done", {"requirement_id": finding.requirement_id})
 
@@ -288,14 +342,21 @@ def build_router(*, current_user, runtime: ReviewRuntime):
     def owner(request: Request):
         return str(current_user(request)["user_id"])
 
-    def engine(selected=Depends(get_review_engine)):
-        return selected if selected is not None else runtime.engine()
+    def engine(case_id: str, user=Depends(owner), selected=Depends(get_review_engine)):
+        case = runtime.service(None)._case(case_id, user)
+        return runtime.case_engine(case, selected)
 
     @router.post("/cases", status_code=201, responses=error_responses(404, 422))
     def create_case(body: CaseInput, user=Depends(owner)):
         if len(runtime.selected_sources(user, body.source_ids)) != len(body.source_ids):
             raise HTTPException(404, {"code": "SOURCE_NOT_FOUND", "message": "Source not found"})
-        return runtime.service(None).create_case(user, body.title, body.request_text, body.source_ids)
+        if body.kind == "spec_change":
+            runtime.source_document(user, body.old_source_id)
+            runtime.source_document(user, body.new_source_id)
+        return runtime.service(None).create_case(
+            user, body.title, body.request_text, body.source_ids, kind=body.kind,
+            old_source_id=body.old_source_id, new_source_id=body.new_source_id,
+        )
 
     @router.get("/cases", responses=error_responses(422))
     def list_cases(user=Depends(owner)):
@@ -334,6 +395,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                 "seq": {"last": events[-1].seq if events else 0, "count": len(events)},
                 "started_at": value.get("started_at"),
                 "finished_at": value.get("finished_at"),
+                "route_decision": next((event.data for event in events if event.type == "route.decided"), None),
             }
         event_findings = {event.data.get("requirement_id"): event.data
                           for event in events if event.type == "finding.created"}
@@ -374,6 +436,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             })
         return {
             "case": {"id": case.id, "title": case.title, "status": case.status.value,
+                     "kind": case.kind, "old_source_id": case.old_source_id, "new_source_id": case.new_source_id,
                      "source_ids": list(case.source_ids), "created_at": case.created_at,
                      "updated_at": case.updated_at},
             "requirements": requirements,
@@ -430,7 +493,9 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                     "code": "RUN_BUDGET_EXCEEDED",
                     "message": "Run budget cannot cover one requirement",
                 })
-            run = {"owner": user, "case_id": case_id, "budget": body.budget, "engine": engine}
+            case = runtime.service(None)._case(case_id, user)
+            run = {"owner": user, "case_id": case_id, "budget": body.budget, "engine": engine,
+                   "route_decision": review_route_decision(case, len(requirements))}
             try:
                 job_id = runtime.runner.submit(run)
             except ValueError as exc:

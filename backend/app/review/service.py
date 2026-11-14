@@ -1,10 +1,14 @@
 from datetime import datetime, timezone
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from app.orchestration.budget import BudgetCost, BudgetManager
+from app.orchestration.router import Route, RouteRequest, route_request
+
 from .engine import ReviewEngine
 from .repository import CaseRepository
 from .schemas import (
     CaseStatus,
+    Confidence,
     Decision,
     Finding,
     JobState,
@@ -14,6 +18,18 @@ from .schemas import (
     RunJob,
     Verdict,
 )
+
+
+def review_route_decision(case: ReviewCase, requirement_count: int) -> dict:
+    """Use the shared router while retaining the configured requirement engine."""
+    decision = route_request(RouteRequest(
+        text=case.request_text, mode="case", has_sources=bool(case.source_ids or case.old_source_id),
+        requirement_count=requirement_count, has_structured_artifacts=case.kind == "spec_change",
+        estimated_tokens=(len(case.request_text) + 2) // 3,
+        force_route=Route.DETERMINISTIC if case.kind == "spec_change" else None,
+    ))
+    return {"route": decision.route.value, "reasons": decision.reasons,
+            "budget_hint": decision.budget_hint}
 
 
 class CaseNotFound(LookupError):
@@ -63,6 +79,8 @@ class ReviewCaseService:
         title: str,
         request_text: str,
         source_ids: list[str] | None = None,
+        *, kind: str = "requirement_review", old_source_id: str | None = None,
+        new_source_id: str | None = None,
     ) -> ReviewCase:
         """Create and store a review case for its owner."""
         now = self.clock()
@@ -72,6 +90,9 @@ class ReviewCaseService:
             title=title,
             request_text=request_text,
             source_ids=list(source_ids or []),
+            kind=kind,
+            old_source_id=old_source_id if kind == "spec_change" else None,
+            new_source_id=new_source_id if kind == "spec_change" else None,
             created_at=now,
             updated_at=now,
         )
@@ -166,6 +187,22 @@ class ReviewCaseService:
             used = sum(item.verdict != Verdict.SKIPPED_BUDGET for item in findings)
             remaining["max_requirements"] = max(0, remaining["max_requirements"] - used)
         started = self.clock()
+        manager = None
+        if budget is not None:
+            manager = BudgetManager(
+                max_tokens=budget["max_tokens"] if budget.get("max_tokens") is not None else 2**63 - 1,
+                max_seconds=budget["max_seconds"] if budget.get("max_seconds") is not None else 10**12,
+                max_model_calls=budget["max_model_calls"] if budget.get("max_model_calls") is not None else 2**63 - 1,
+                clock=lambda: max(0, (self.clock() - started).total_seconds()),
+            )
+            # Replayed checkpoints still consume the original run's allowance.
+            if case.kind != "spec_change":
+                for item in requirements:
+                    if any(f.requirement_id == item.id and f.verdict != Verdict.SKIPPED_BUDGET
+                           for f in findings):
+                        cost = max(1, (len(item.text) + 2) // 3)
+                        if not manager.should_skip(BudgetCost(tokens=cost)).skip:
+                            manager.reserve("requirements", cost)
 
         def publish(finding):
             if cancelled is not None and cancelled():
@@ -199,10 +236,35 @@ class ReviewCaseService:
                 published = set()
 
                 def step(finding):
+                    if legacy_exhausted:
+                        finding = finding.model_copy(update={"verdict": Verdict.SKIPPED_BUDGET, "evidence": []})
                     publish(finding)
                     published.add(finding.requirement_id)
 
-                produced = self.engine.run(case, [requirement], call_budget, step)
+                cost = BudgetCost(
+                    tokens=0 if case.kind == "spec_change" else max(1, (len(requirement.text) + 2) // 3),
+                    model_calls=0 if case.kind == "spec_change" else 1,
+                )
+                skipped = []
+                if manager is not None:
+                    _, skipped = manager.degrade_plan([{"requirement": requirement, "cost": cost}])
+                legacy_exhausted = call_budget is not None and (
+                    (call_budget.get("max_requirements") is not None and call_budget["max_requirements"] <= 0)
+                    or (call_budget.get("max_seconds") is not None and call_budget["max_seconds"] <= 0)
+                )
+                if skipped:
+                    produced = []
+                else:
+                    if manager is not None and cost.model_calls and not legacy_exhausted:
+                        manager.reserve("requirements", cost.tokens)
+                    # Preserve legacy engine budget callbacks and checkpoint behavior.
+                    produced = self.engine.run(case, [requirement], call_budget, step)
+                if (skipped or legacy_exhausted) and requirement.id not in published:
+                    produced = [Finding(
+                        id=str(uuid5(NAMESPACE_URL, f"{job_id or case_id}:budget:{requirement.id}")),
+                        case_id=case_id, requirement_id=requirement.id,
+                        verdict=Verdict.SKIPPED_BUDGET, confidence=Confidence.L0,
+                    )]
                 for finding in produced:
                     if finding.requirement_id not in published:
                         step(finding)

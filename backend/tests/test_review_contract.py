@@ -88,3 +88,12 @@ def test_review_snapshot_preserves_previous_paths_methods_and_input_fields():
     schemas = snapshot["components"]["schemas"]
     for name, fields in prior_fields.items():
         assert fields <= schemas[name]["properties"].keys()
+
+
+def test_spec_change_contract_fields_are_optional_and_additive():
+    snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    case = snapshot["components"]["schemas"]["CaseInput"]
+    assert case["required"] == ["title", "request_text"]
+    assert case["properties"]["kind"]["default"] == "requirement_review"
+    assert case["properties"]["kind"]["enum"] == ["requirement_review", "spec_change"]
+    assert {"old_source_id", "new_source_id"} <= case["properties"].keys()
