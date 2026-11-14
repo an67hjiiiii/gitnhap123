@@ -10,7 +10,7 @@ from collections.abc import Callable
 
 from app.research.pipeline import ResearchPipeline
 from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
-from app.review_adapters.verdict_rules import assess
+from app.review_adapters.verdict_rules import assess, check_answer
 
 
 class PipelineReviewEngine:
@@ -159,6 +159,17 @@ class PipelineReviewEngine:
                                 "conflicting_evidence_ids": [
                                     e.evidence_id for e in assessment.conflicting
                                 ],
+                            })
+                    if status == "COMPLETE" and verdict == Verdict.SATISFIED:
+                        checks = [check_answer(requirement.text, task.get("answer"), evidence)
+                                  for task in result.get("task_results", [])]
+                        notes = [note for check in checks if check.status == "UNSUPPORTED_CLAIM"
+                                 for note in check.notes]
+                        if notes:
+                            verdict = Verdict.PARTIAL
+                            self._emit(emit, "verdict.answer_inconsistent", {
+                                **payload, "detail": " ".join(notes),
+                                "evidence_ids": [e.evidence_id for e in evidence],
                             })
                 except Exception as exc:
                     verdict = Verdict.UNDETERMINED

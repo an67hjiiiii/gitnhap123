@@ -435,3 +435,124 @@ def test_in_memory_pipeline_verdict_contract(sf1_fake_provider_env, status, text
         assert "90 days" in conflict_events[0]["detail"]
     else:
         assert conflict_events == []
+
+
+@pytest.fixture
+def answer_review(sf1_fake_provider_env):
+    """A fake pipeline using resolved in-memory chunks and explicit task answers."""
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    case = ReviewCase(
+        id="answer-case", owner_user_id="owner-1", title="Answer consistency",
+        request_text="Review answers", source_ids=["source-1"],
+        created_at=now, updated_at=now,
+    )
+    chunk = SimpleNamespace(
+        chunk_id="chunk-1", source_id="source-1", text="", provenance={"locator": "Section 1"},
+    )
+    result = {"status": "COMPLETE", "task_results": [{
+        "answer": None, "citations": [chunk.chunk_id], "evidence_ids": [chunk.chunk_id],
+    }]}
+
+    async def run(query, *, source_ids):
+        assert source_ids == case.source_ids
+        return result
+
+    pipeline = SimpleNamespace(run=run, source_store=SimpleNamespace(chunks=lambda ids: [chunk]))
+    return pipeline, case, chunk, result
+
+
+@pytest.mark.parametrize("requirement,answer,expected", [
+    ("Sessions must expire within 30 minutes", "Sessions must expire within 3:00 minutes.",
+     Verdict.PARTIAL),
+    ("Incident notifications must be sent by email",
+     "Incident notifications must be sent by email and SMS.", Verdict.PARTIAL),
+    ("Phiên phải hết hạn trong vòng 30 phút", "Phiên phải hết hạn trong vòng 3:00 phút.",
+     Verdict.PARTIAL),
+    ("Thông báo sự cố phải gửi qua email", "Thông báo sự cố phải gửi qua email và SMS.",
+     Verdict.PARTIAL),
+    ("Sessions must expire within 30 minutes", "Sessions must expire within 30 minutes.",
+     Verdict.SATISFIED),
+    ("Sessions must expire within 30 minutes", "Sessions must expire within 0.5 hours.",
+     Verdict.SATISFIED),
+    ("Incident notifications must be sent by email",
+     "Incident notifications must be sent by email.", Verdict.SATISFIED),
+    ("Phiên phải hết hạn trong vòng 30 phút", "Phiên phải hết hạn trong vòng 30 phút.",
+     Verdict.SATISFIED),
+    ("Sessions must expire within 30 minutes", "Unrelated answer", Verdict.SATISFIED),
+    ("Sessions must expire within 30 minutes", None, Verdict.SATISFIED),
+    ("Sessions must expire within 30 minutes", "", Verdict.SATISFIED),
+    ("Sessions must expire within 30 minutes", 42, Verdict.SATISFIED),
+])
+def test_answer_consistency_status_and_diagnostic_event(answer_review, requirement, answer, expected):
+    pipeline, case, chunk, result = answer_review
+    chunk.text = requirement
+    result["task_results"][0]["answer"] = answer
+    reqs = requirements(case)
+    reqs[0].text = requirement
+    events = []
+    engine = PipelineReviewEngine(pipeline)
+    finding, = engine.run(case, reqs, None, lambda *args: events.append(args))
+    assert finding.verdict == expected
+    assert finding.confidence == Confidence.L1
+    assert [e.evidence_id for e in finding.evidence] == [chunk.chunk_id]
+    assert finding.evidence[0].excerpt == requirement
+    assert finding.evidence[0].locator == "Section 1"
+    diagnostics = [payload for name, payload in events if name == "verdict.answer_inconsistent"]
+    assert bool(diagnostics) == (expected == Verdict.PARTIAL)
+    if diagnostics:
+        assert diagnostics[0]["case_id"] == case.id
+        assert diagnostics[0]["requirement_id"] == reqs[0].id
+        assert diagnostics[0]["evidence_ids"] == [chunk.chunk_id]
+        assert "Unsupported answer" in diagnostics[0]["detail"]
+        assert ("3:00" in diagnostics[0]["detail"]) or ("SMS" in diagnostics[0]["detail"])
+    assert events[-1] == ("finding.created", finding.model_dump(mode="json"))
+    delivered = []
+    repeated, = engine.run(case, reqs, None, delivered.append)
+    assert repeated == finding
+    assert delivered == [finding]
+    assert result["status"] == "COMPLETE"
+
+
+@pytest.mark.parametrize("status,text,cited,expected", [
+    ("COMPLETE", "Sessions expire within 30 minutes", True, Verdict.PARTIAL),
+    ("PARTIAL", "Sessions expire within 30 minutes", True, Verdict.PARTIAL),
+    ("NO_EVIDENCE", "Sessions expire within 30 minutes", True, Verdict.NOT_FOUND),
+    ("FAILED", "Sessions expire within 30 minutes", True, Verdict.UNDETERMINED),
+    ("COMPLETE", "Sessions expire within 45 minutes", True, Verdict.DEVIATES),
+    ("PARTIAL", "Sessions expire within 45 minutes", True, Verdict.DEVIATES),
+    ("COMPLETE", "Sessions expire within 30 minutes", False, Verdict.UNDETERMINED),
+])
+def test_answer_check_never_upgrades_or_overrides_evidence_conflict(
+    answer_review, status, text, cited, expected,
+):
+    pipeline, case, chunk, result = answer_review
+    chunk.text = text
+    result["status"] = status
+    result["task_results"][0]["answer"] = "Sessions expire within 3:00 minutes"
+    if not cited:
+        result["task_results"][0]["citations"] = []
+    reqs = requirements(case)
+    reqs[0].text = "Sessions expire within 30 minutes"
+    events = []
+    finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda *args: events.append(args))
+    assert finding.verdict == expected
+    assert [e.evidence_id for e in finding.evidence] == ([chunk.chunk_id] if cited else [])
+    assert any(name == "verdict.answer_inconsistent" for name, _ in events) == (
+        status == "COMPLETE" and expected == Verdict.PARTIAL
+    )
+
+
+def test_each_task_answer_is_checked_against_only_resolved_evidence(answer_review):
+    pipeline, case, chunk, result = answer_review
+    chunk.text = "Incident notifications must be sent by email"
+    # Unretrieved and foreign citations must not authorize the extra channel.
+    result["task_results"].append({
+        "answer": "Incident notifications must be sent by email and SMS.",
+        "evidence_ids": ["unresolved-sms"], "citations": ["unresolved-sms"],
+    })
+    result["task_results"][0]["answer"] = chunk.text
+    reqs = requirements(case)
+    reqs[0].text = chunk.text
+    finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda _: None)
+    assert finding.verdict == Verdict.PARTIAL
+    assert [e.evidence_id for e in finding.evidence] == [chunk.chunk_id]
