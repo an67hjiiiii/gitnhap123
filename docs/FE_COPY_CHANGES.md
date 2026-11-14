@@ -36,3 +36,7 @@ Chỉ đổi nội dung chuỗi hiển thị (không đổi biến, khoá, JSX, 
 | frontend/src/components/LoginForm.tsx:90 | `>Email or username<` | `>Email hoặc tên đăng nhập<` | tiếng Việt |
 | frontend/src/components/LoginForm.tsx:118 | `"Signing in…" : "Sign in"` | `"Đang đăng nhập…" : "Đăng nhập"` | tiếng Việt |
 | frontend/src/components/RegisterForm.tsx:177 | `"Creating account…" : "Create account"` | `"Đang tạo tài khoản…" : "Tạo tài khoản"` | tiếng Việt |
+
+## Áp lại trên FE mới của nhóm (9650134)
+
+32 chỉnh sửa ở trên vẫn còn nguyên: các file đó không nằm trong 2 commit mới của nhóm. Các trang nhóm vừa đổi (Landing, Login, Register, ForgotPassword, auth/*, PaperStory) đã là tiếng Việt tự nhiên nên không thêm chỉnh sửa nào.

@@ -1,152 +1,128 @@
 <#
-  RUN_WEB.ps1 - one command: backend + frontend (Vite dev) + demo data, for manual testing.
-    powershell -File scripts\RUN_WEB.ps1            real local model (Ollama, Qwen3-4B Instruct-2507)
-    powershell -File scripts\RUN_WEB.ps1 -Fake      fake provider (no Ollama; answers are NOT real model output)
-  Environment variables are set for this process tree only. Storage is file based in a temp folder
-  (-DataDir), so the Owner PostgreSQL / Qdrant / data folders are never touched. Ctrl+C stops both servers.
-  The frontend code is not modified: Vite already proxies /api to $env:API_TARGET.
+  RUN_WEB.ps1 - MOT LENH bat toan bo stack nhu nhom chay that: Docker (PostgreSQL) + Ollama + Backend + Frontend.
+    powershell -ExecutionPolicy Bypass -File scripts\RUN_WEB.ps1 [-AdminEmail email] [-Fake]
+  Goi lai scripts\dev\* cua nhom (start-ollama, start-backend gom docker compose + alembic, start-frontend, make-admin).
+  Docker Desktop: script tu mo neu chua chay (nen mo truoc cho nhanh). Bien moi truong chi dat trong tien trinh nay.
+  Mac dinh dung mo hinh that qwen3:4b-instruct-2507 (-Fake: provider gia). Ctrl+C dung Backend va Frontend
+  (PostgreSQL va Ollama van chay; du lieu khong bi xoa).
 #>
 param(
-    [switch]$Fake,
-    [int]$BackendPort = 8000,
-    [int]$FrontendPort = 5173,
-    [string]$Python = '',
+    [string]$AdminEmail = 'demo@example.test',
+    [string]$AdminPassword = 'demo-pass-123',
     [string]$Model = 'qwen3:4b-instruct-2507-q4_K_M',
-    [string]$DataDir = '',
-    [switch]$SkipSeed,
-    [string]$DatabaseUrl = ''   # optional scratch PostgreSQL (enables Studio workspaces/admin); never use the Owner dev DB
+    [switch]$Fake,
+    [switch]$SkipSeed
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$backend = Join-Path $root 'backend'
-$frontend = Join-Path $root 'frontend'
-$mode = if ($Fake) { 'fake' } else { 'real' }
-if (-not $DataDir) { $DataDir = Join-Path ([IO.Path]::GetTempPath()) "cap1-web-$mode" }
-$logs = Join-Path $DataDir 'logs'
-New-Item -ItemType Directory -Force -Path $DataDir, $logs | Out-Null
+$dev = Join-Path $root 'scripts\dev'
+. (Join-Path $dev '_common.ps1')
+$ErrorActionPreference = 'Stop'
+$logs = Join-Path $root 'runtime-logs'
+New-Item -ItemType Directory -Force -Path $logs | Out-Null
+$base = 'http://127.0.0.1:8000'; $fe = 'http://127.0.0.1:5173'
+$sw = [Diagnostics.Stopwatch]::StartNew()
+function Step($m) { Write-Host ("[{0,5:N0}s] {1}" -f $sw.Elapsed.TotalSeconds, $m) }
+function Stop-Tree([int]$ProcessId) { if ($ProcessId) { & taskkill.exe /T /F /PID $ProcessId 2>$null | Out-Null } }
 
-function Test-PortBusy([int]$Port) {
-    return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
-}
-function Stop-Tree([int]$ProcessId) {
-    if ($ProcessId) { & taskkill.exe /T /F /PID $ProcessId 2>$null | Out-Null }
-}
-
-# ---- checks -------------------------------------------------------------------------------------
-if (-not $Python) {
-    foreach ($candidate in @((Join-Path $backend '.venv\Scripts\python.exe'), (Join-Path $root '.venv\Scripts\python.exe'))) {
-        if (Test-Path $candidate) { $Python = $candidate; break }
+foreach ($port in 8000, 5173) {
+    if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) {
+        throw "Cong $port dang bi chiem. Dong chuong trinh dang dung cong do (vd Backend/Frontend cu) roi chay lai."
     }
 }
-if (-not $Python -or -not (Test-Path $Python)) {
-    throw "Chua co Python venv cho backend. Chay scripts\SETUP_BACKEND.ps1 hoac truyen -Python <duong dan python.exe> (can cac goi trong backend\requirements.txt)."
-}
-foreach ($port in @($BackendPort, $FrontendPort)) {
-    if (Test-PortBusy $port) { throw "Cong $port dang bi chiem. Dong chuong trinh dang dung cong do hoac doi cong bang -BackendPort/-FrontendPort." }
-}
-if (-not $Fake) {
-    try { Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 5 | Out-Null }
-    catch { throw "Ollama chua chay tai 127.0.0.1:11434. Mo Ollama roi chay lai, hoac dung -Fake de demo bang provider gia." }
-}
-if (-not (Test-Path (Join-Path $frontend 'node_modules'))) {
-    Write-Host 'Chua co frontend\node_modules, chay npm ci (can mang, mot lan)...'
-    Push-Location $frontend
-    try { & npm.cmd ci --no-audit --no-fund; if ($LASTEXITCODE -ne 0) { throw 'npm ci that bai' } }
-    catch { throw "Khong cai duoc node_modules: $($_.Exception.Message). Can Node 20+ va mang; sau do chay: cd frontend; npm ci" }
-    finally { Pop-Location }
+if (-not (Test-Path (Join-Path $root 'backend\.venv\Scripts\python.exe'))) { throw 'Chua co backend\.venv. Chay scripts\dev\setup.ps1 truoc.' }
+if (-not (Test-Path (Join-Path $root 'frontend\node_modules'))) {
+    Step 'Cai thu vien frontend (npm ci, lan dau)'
+    Push-Location (Join-Path $root 'frontend'); try { npm.cmd ci --no-audit --no-fund } finally { Pop-Location }
 }
 
-# ---- backend environment (this process tree only) -------------------------------------------------
-$env:APP_STORAGE_BACKEND = 'file'
-if ($DatabaseUrl) { $env:APP_STORAGE_BACKEND = 'postgres'; $env:DATABASE_URL = $DatabaseUrl }
-$env:VECTOR_BACKEND = 'disabled'
-$env:APP_DATA_DIR = Join-Path $DataDir 'data'
-$env:RUNS_DIR = Join-Path $DataDir 'runs'
-$env:SESSION_COOKIE_SECURE = 'false'
-$env:IMPLEMENTATION_PROFILE = 'dev'
-$env:PYTHONIOENCODING = 'utf-8'
-$env:PYTHON_DOTENV_DISABLED = '1'
-if ($Fake) {
-    $env:PROVIDER = 'fake'; $env:APP_ENV = 'test'; $env:REVIEW_ENGINE = 'fake'
-} else {
-    $env:PROVIDER = 'ollama'; $env:LOCAL_LLM_MODEL = $Model; $env:APP_ENV = 'development'
-    Remove-Item Env:\REVIEW_ENGINE -ErrorAction SilentlyContinue
-}
-$env:REVIEW_RATE_RUNS_PER_MIN = '30'; $env:REVIEW_RATE_READS_PER_MIN = '600'; $env:REVIEW_RATE_STATUS_PER_MIN = '1200'
-New-Item -ItemType Directory -Force -Path $env:APP_DATA_DIR, $env:RUNS_DIR | Out-Null
-$env:API_TARGET = "http://127.0.0.1:$BackendPort"
-
-$be = $null; $fe = $null
+$procs = @()
 try {
-    if ($DatabaseUrl) {
-        Push-Location $backend
-        try { & $Python -m alembic upgrade head; if ($LASTEXITCODE -ne 0) { throw 'alembic upgrade head that bai' } } finally { Pop-Location }
+    if (-not $Fake) {
+        Step 'Bat Ollama (scripts\dev\start-ollama.ps1)'
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dev 'start-ollama.ps1') -NoWait
+        if ($LASTEXITCODE -ne 0) { throw 'Ollama khong san sang. Cai/mo Ollama roi chay lai (hoac dung -Fake, khi do tra loi KHONG phai tu mo hinh that).' }
+        $env:PROVIDER = 'ollama'; $env:LOCAL_LLM_MODEL = $Model
+    } else {
+        $env:PROVIDER = 'fake'; $env:APP_ENV = 'test'; $env:REVIEW_ENGINE = 'fake'
     }
-    $be = Start-Process -FilePath $Python -PassThru -WindowStyle Hidden -WorkingDirectory $backend `
-        -ArgumentList @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', "$BackendPort") `
+    $env:REVIEW_RATE_RUNS_PER_MIN = '30'; $env:REVIEW_RATE_READS_PER_MIN = '600'; $env:REVIEW_RATE_STATUS_PER_MIN = '1200'
+    $env:PYTHONIOENCODING = 'utf-8'
+    # Cung project Docker Compose voi may Owner (thu muc worktree khac ten se tao project khac, tro nham container/volume cu).
+    $env:COMPOSE_PROJECT_NAME = 'cap1_ai_studio_c1se27'
+
+    Step 'Bat Backend (Docker PostgreSQL + alembic upgrade head + uvicorn)'
+    $be = Start-Process powershell -PassThru -WindowStyle Hidden -WorkingDirectory $root `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $dev 'start-backend.ps1')) `
         -RedirectStandardOutput (Join-Path $logs 'backend.out.log') -RedirectStandardError (Join-Path $logs 'backend.err.log')
-    $base = "http://127.0.0.1:$BackendPort"
+    $procs += $be
     $ready = $false
-    for ($i = 0; $i -lt 60 -and -not $be.HasExited; $i++) {
-        try { Invoke-RestMethod "$base/api/health" -TimeoutSec 3 | Out-Null; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
+    for ($i = 0; $i -lt 240 -and -not $be.HasExited; $i++) {
+        try { Invoke-RestMethod "$base/api/ready" -TimeoutSec 3 | Out-Null; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
     }
-    if (-not $ready) { throw "Backend khong len duoc. Xem $logs\backend.err.log" }
+    if (-not $ready) { throw "Backend khong len duoc. Xem $logs\backend.err.log va backend.out.log" }
+    Step 'Backend san sang (/api/ready)'
 
-    $fe = Start-Process -FilePath 'cmd.exe' -PassThru -WindowStyle Hidden -WorkingDirectory $frontend `
-        -ArgumentList @('/c', 'npm.cmd', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', "$FrontendPort", '--strictPort') `
+    Step 'Bat Frontend (scripts\dev\start-frontend.ps1)'
+    $fp = Start-Process powershell -PassThru -WindowStyle Hidden -WorkingDirectory $root `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $dev 'start-frontend.ps1')) `
         -RedirectStandardOutput (Join-Path $logs 'frontend.out.log') -RedirectStandardError (Join-Path $logs 'frontend.err.log')
-    $feUp = $false
-    for ($i = 0; $i -lt 60 -and -not $fe.HasExited; $i++) {
-        try { Invoke-WebRequest "http://127.0.0.1:$FrontendPort/" -UseBasicParsing -TimeoutSec 3 | Out-Null; $feUp = $true; break } catch { Start-Sleep -Seconds 1 }
+    $procs += $fp
+    $up = $false
+    for ($i = 0; $i -lt 90 -and -not $fp.HasExited; $i++) {
+        try { Invoke-WebRequest "$fe/" -UseBasicParsing -TimeoutSec 3 | Out-Null; $up = $true; break } catch { Start-Sleep -Seconds 1 }
     }
-    if (-not $feUp) { throw "Frontend khong len duoc. Xem $logs\frontend.err.log" }
+    if (-not $up) { throw "Frontend khong len duoc. Xem $logs\frontend.err.log" }
+    Step 'Frontend san sang'
 
-    # ---- seed demo data ---------------------------------------------------------------------------
-    $email = 'demo@example.test'; $password = 'demo-pass-123'
     if (-not $SkipSeed) {
-        $jar = Join-Path $DataDir 'cookies.txt'
+        Step 'Seed: tai khoan ADMIN, 2 tai lieu mau, 1 case review'
+        $jar = Join-Path $logs 'cookies.txt'; $tmp = Join-Path $logs 'req.json'
         function Send-Json($Method, $Path, $Object) {
-            $file = Join-Path $DataDir 'req.json'
-            [IO.File]::WriteAllText($file, ($Object | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding $false))
-            $out = & curl.exe -sS -b $jar -c $jar -X $Method -H 'Content-Type: application/json' --data-binary "@$file" "$base$Path" -w "`n%{http_code}"
-            $lines = @($out -split "`n"); $code = $lines[-1].Trim()
-            return [pscustomobject]@{ Code = [int]$code; Body = (($lines[0..($lines.Count - 2)]) -join "`n") }
+            [IO.File]::WriteAllText($tmp, ($Object | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding $false))
+            $out = & curl.exe -sS -b $jar -c $jar -X $Method -H 'Content-Type: application/json' --data-binary "@$tmp" "$base$Path" -w "`n%{http_code}"
+            $lines = @($out -split "`n")
+            [pscustomobject]@{ Code = [int]$lines[-1].Trim(); Body = (($lines[0..($lines.Count - 2)]) -join "`n") }
         }
-        $reg = Send-Json 'POST' '/api/auth/register' @{ email = $email; password = $password; display_name = 'Demo' }
-        $login = Send-Json 'POST' '/api/auth/login' @{ identifier = $email; password = $password }
-        if ($login.Code -ne 200) { throw "Dang nhap demo that bai ($($login.Code)): $($login.Body)" }
-        $sourceIds = @()
-        foreach ($doc in Get-ChildItem (Join-Path $root 'demo\sample_docs') -File) {
-            $up = & curl.exe -sS -b $jar -c $jar -F "file=@$($doc.FullName)" "$base/api/sources/file" | ConvertFrom-Json
-            if ($up.source_id) { $sourceIds += $up.source_id }
-        }
-        if ($sourceIds.Count -gt 0) {
-            $case = Send-Json 'POST' '/api/review/cases' @{
-                title = 'Demo: kiem tra chinh sach'; source_ids = @($sourceIds[0])
-                request_text = 'Mat khau phai co it nhat 12 ky tu. Tai khoan bi khoa sau 5 lan dang nhap sai. Phien het han sau 30 phut khong hoat dong.'
+        Send-Json 'POST' '/api/auth/register' @{ email = $AdminEmail; password = $AdminPassword; display_name = 'Demo' } | Out-Null
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dev 'make-admin.ps1') -Email $AdminEmail
+        $login = Send-Json 'POST' '/api/auth/login' @{ identifier = $AdminEmail; password = $AdminPassword }
+        if ($login.Code -ne 200) { Write-Host "Khong dang nhap duoc $AdminEmail (khac mat khau -AdminPassword?); bo qua seed tai lieu." }
+        else {
+            $existing = (& curl.exe -sS -b $jar "$base/api/sources" | ConvertFrom-Json).sources
+            $ids = @(); if ($existing) { $ids = @($existing | ForEach-Object { $_.source_id }) }
+            if ($ids.Count -lt 2) {
+                foreach ($doc in Get-ChildItem (Join-Path $root 'demo\sample_docs') -File) {
+                    $upl = & curl.exe -sS -b $jar -c $jar -F "file=@$($doc.FullName)" "$base/api/sources/file" | ConvertFrom-Json
+                    if ($upl.source_id) { $ids += $upl.source_id }
+                }
             }
-            if ($case.Code -eq 201) {
-                $caseId = ($case.Body | ConvertFrom-Json).id
-                $prop = Send-Json 'POST' "/api/review/cases/$caseId/requirements:propose" @{}
-                if ($prop.Code -eq 200) {
-                    $items = @(($prop.Body | ConvertFrom-Json) | ForEach-Object { @{ id = $_.id; text = $_.text; confirmed = $true } })
-                    Send-Json 'PUT' "/api/review/cases/$caseId/requirements" @{ requirements = $items } | Out-Null
+            $cases = Send-Json 'GET' '/api/review/cases' @{}
+            if ($ids.Count -gt 0 -and $cases.Code -eq 200 -and @($cases.Body | ConvertFrom-Json).Count -eq 0) {
+                $case = Send-Json 'POST' '/api/review/cases' @{ title = 'Demo: kiem tra chinh sach'; source_ids = @($ids[0])
+                    request_text = 'Mat khau phai co it nhat 12 ky tu. Tai khoan bi khoa sau 5 lan dang nhap sai. Phien het han sau 30 phut khong hoat dong.' }
+                if ($case.Code -eq 201) {
+                    $cid = ($case.Body | ConvertFrom-Json).id
+                    $prop = Send-Json 'POST' "/api/review/cases/$cid/requirements:propose" @{}
+                    if ($prop.Code -eq 200) {
+                        $items = @(($prop.Body | ConvertFrom-Json) | ForEach-Object { @{ id = $_.id; text = $_.text; confirmed = $true } })
+                        Send-Json 'PUT' "/api/review/cases/$cid/requirements" @{ requirements = $items } | Out-Null
+                    }
                 }
             }
         }
     }
 
     Write-Host ''
-    Write-Host "Che do: $mode$(if ($Fake) { ' (provider gia, cau tra loi KHONG phai tu mo hinh that)' } else { " (Ollama, $Model)" })"
-    Write-Host "Frontend : http://127.0.0.1:$FrontendPort/"
-    Write-Host "Backend  : $base/   (tai lieu API: $base/docs)"
-    Write-Host "Tai khoan demo: $email / $password"
-    Write-Host "Du lieu  : $DataDir   Log: $logs"
-    Write-Host 'Nhan Ctrl+C de dung ca hai.'
-    while (-not $be.HasExited -and -not $fe.HasExited) { Start-Sleep -Seconds 2 }
-    Write-Host 'Mot trong hai may chu da dung; xem log.'
+    Step "Xong. Che do: $(if ($Fake) { 'FAKE (khong phai mo hinh that)' } else { "Ollama $Model" })"
+    Write-Host "Frontend : $fe/"
+    Write-Host "Backend  : $base/   Tai lieu API: $base/docs"
+    Write-Host "Tai khoan: $AdminEmail / $AdminPassword  (ADMIN; dang xuat roi dang nhap lai de thay trang Co so du lieu)"
+    Write-Host "Log      : $logs"
+    Write-Host 'Nhan Ctrl+C de dung Backend va Frontend.'
+    while (-not $be.HasExited -and -not $fp.HasExited) { Start-Sleep -Seconds 2 }
+    Write-Host 'Mot may chu da dung; xem log.'
 }
 finally {
-    if ($fe) { Stop-Tree $fe.Id }
-    if ($be) { Stop-Tree $be.Id }
+    foreach ($p in $procs) { Stop-Tree $p.Id }
 }
