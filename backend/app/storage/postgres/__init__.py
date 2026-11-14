@@ -1,6 +1,7 @@
 """PostgreSQL persistence for authoritative product runtime state."""
 
 from app.storage.postgres.base import Base
+from app.storage.postgres import review_models  # noqa: F401 - register review metadata
 from app.storage.postgres.config import (
     PostgresConfigurationError,
     create_postgres_engine,
