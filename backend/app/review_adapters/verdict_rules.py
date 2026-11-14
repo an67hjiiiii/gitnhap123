@@ -244,3 +244,123 @@ def assess(requirement_text: str | None, evidence_items: Iterable[Any] | None) -
             supporting.append(item)
     hint = "DEVIATES" if conflicting else SATISFIES if supporting else UNRELATED
     return Assessment(hint, supporting, conflicting, notes)
+
+
+@dataclass(frozen=True)
+class AnswerCheck:
+    status: str
+    notes: list[str]
+
+
+# Separate from the evidence lexer: malformed numeric tokens must stay whole,
+# rather than letting e.g. the trailing "00 minutes" in "3:00 minutes" match.
+_ANSWER_UNITS = {**_UNITS, "seconds": ("seconds", 1), "second": ("seconds", 1),
+                 "giay": ("seconds", 1)}
+_ANSWER_QUANTITY = re.compile(
+    r"(?<![\w.,:+-])(?P<number>[+-]?\d+(?:[.,:]\d+)*)(?:\s*)"
+    r"(?P<unit>" + "|".join(re.escape(u) for u in sorted(_ANSWER_UNITS, key=len, reverse=True))
+    + r")(?!\w)"
+)
+_CHANNELS = {"email", "e-mail", "sms", "mms", "push", "slack", "teams", "webhook",
+             "whatsapp", "telegram", "zalo"}
+_ANSWER_ALTERNATIVE = re.compile(
+    r"(?=\b(?P<base>[\w-]+)\s+(?i:and(?:/or)?|và|va)\s+(?P<extra>[\w-]+)"
+    r"(?=\s*(?:[,;.!?\n]|$|\b(?i:and|or|và|va|hoặc)\b)))"
+)
+
+
+def _answer_clauses(text: str) -> list[str]:
+    # Quoted mentions, examples, conditionals and negations are not clear claims.
+    unquoted = _QUOTED.sub(" ", text)
+    clauses = re.split(r"[;!?\n]+|\.(?!\d)", unquoted)
+    return [clause for clause in clauses if clause.strip() and not (
+        _CONTEXT.search(_fold(clause))
+        or re.search(r"\b(?:not|no|never|khong)\b", _fold(clause))
+    )]
+
+
+def _answer_subject(text: str) -> set[str]:
+    return set(_subject(_ANSWER_QUANTITY.sub(" ", _fold(text))).split())
+
+
+def _answer_quantities(text: str) -> list[tuple[str, Decimal | str, str]]:
+    quantities = []
+    for match in _ANSWER_QUANTITY.finditer(_fold(text)):
+        number = match["number"]
+        unit, factor = _ANSWER_UNITS[match["unit"]]
+        # A comma decimal is common in Vietnamese; conventional comma grouping
+        # is unambiguous here. Other malformed formats remain distinct literals.
+        if re.fullmatch(r"[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?", number):
+            number = number.replace(",", "")
+        elif re.fullmatch(r"[+-]?\d+,\d+", number):
+            number = number.replace(",", ".")
+        if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", number):
+            value = Decimal(number) * factor
+            if unit == "minutes":
+                value *= 60
+                unit = "seconds"
+        else:
+            value = "literal:" + number
+        quantities.append((unit, value, match[0]))
+    return quantities
+
+
+def check_answer(
+    requirement_text: str | None, answer_text: str | None,
+    evidence_items: Iterable[Any] | None,
+) -> AnswerCheck:
+    """Check explicit answer quantities and narrow channel-list additions.
+
+    Only lexically aligned subjects are checked. Quantity support may come from
+    the requirement or any excerpt; channel additions need an excerpt. UNKNOWN
+    means this small lexer cannot establish a comparable assertion, not failure.
+    This check never changes the evidence assessment or infers semantic conflict.
+    """
+    if not isinstance(requirement_text, str) or not isinstance(answer_text, str):
+        return AnswerCheck("UNKNOWN", [])
+    requirements = _answer_clauses(requirement_text)
+    answers = _answer_clauses(answer_text)
+    excerpts = []
+    for item in evidence_items if evidence_items is not None else ():
+        excerpt = item if isinstance(item, str) else (
+            item.get("excerpt", "") if isinstance(item, dict) else getattr(item, "excerpt", "")
+        )
+        if isinstance(excerpt, str) and excerpt.strip():
+            excerpts.append(excerpt)
+    if not requirements or not answers or not excerpts:
+        return AnswerCheck("UNKNOWN", [])
+    supported = {(unit, value) for text in [requirement_text, *excerpts]
+                 for unit, value, _ in _answer_quantities(text)}
+    evidence_tokens = set(re.findall(r"[\w-]+", _fold(" ".join(excerpts))))
+    subjects = [_answer_subject(text) for text in requirements]
+    notes = []
+    checked = False
+    for clause in answers:
+        subject = _answer_subject(clause)
+        if not any(subject & req and (subject <= req or req <= subject) for req in subjects):
+            continue
+        for part in re.split(r"\b(?:and(?!\s+\d)|but|va(?!\s+\d)|nhung)\b", _fold(clause)):
+            part_subject = _answer_subject(part)
+            if not any(part_subject & req and (part_subject <= req or req <= part_subject)
+                       for req in subjects):
+                continue
+            for unit, value, span in _answer_quantities(part):
+                checked = True
+                if (unit, value) not in supported:
+                    notes.append(f"Unsupported answer quantity [{span}] for requirement "
+                                 f"[{requirement_text}]; absent from requirement and evidence excerpts.")
+        for match in _ANSWER_ALTERNATIVE.finditer(clause):
+            extra = match["extra"]
+            if _fold(match["base"]) not in _CHANNELS:
+                continue
+            if _fold(extra) not in _CHANNELS and not extra[0].isupper():
+                continue
+            checked = True
+            if _fold(extra) not in evidence_tokens:
+                notes.append(f"Unsupported answer alternative [{extra}]; "
+                             "absent from evidence excerpts.")
+        if subject and subject <= set(_subject(_fold(" ".join(excerpts))).split()):
+            checked = True
+        if _CHANNELS & evidence_tokens & set(re.findall(r"[\w-]+", _fold(clause))):
+            checked = True
+    return AnswerCheck("UNSUPPORTED_CLAIM" if notes else "CONSISTENT" if checked else "UNKNOWN", notes)
