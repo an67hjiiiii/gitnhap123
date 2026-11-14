@@ -339,12 +339,60 @@ def test_runner_wall_expiry_returns_partial_report(tmp_path):
 
 
 @pytest.mark.parametrize("text,expected", [
-    ("SATISFIED", "SATISFIED"), ('{"verdict":"PARTIAL"}', "PARTIAL"),
-    ("Maybe SATISFIED or DEVIATES", "UNDETERMINED"), ("not SATISFIED", "UNDETERMINED"),
-    ('{"verdict":"DEVIATES","extra":true}', "UNDETERMINED"), ("[]", "UNDETERMINED"),
+    ("VERDICT: SATISFIED", "SATISFIED"),
+    ("Reason: uncertain\nVERDICT: partial", "PARTIAL"),
+    ("VERDICT: PARTIAL\nReason: reconsidered\nVERDICT: DEVIATES", "DEVIATES"),
+    ("**VERDICT: `NOT_FOUND`**", "NOT_FOUND"),
+    ("<think>VERDICT: DEVIATES</think>\nVERDICT: SATISFIED", "SATISFIED"),
+    ("Maybe SATISFIED or DEVIATES", "UNDETERMINED"),
+    ('{"verdict":"PARTIAL"}', "UNDETERMINED"), ("[]", "UNDETERMINED"),
 ])
 def test_baseline_parser_is_deterministic(text, expected):
     assert runner.parse_baseline(text) == expected
+
+
+def test_verbose_baseline_output_ignores_thinking_and_reads_trailing_verdict():
+    output = ("<think>" + "reasoning " * 400 + "VERDICT: DEVIATES</think>\n"
+              "Reason: The policy explicitly covers the request.\nVERDICT: SATISFIED")
+    assert runner.parse_baseline(output) == "SATISFIED"
+
+
+def test_baseline_only_runs_six_calls_without_pipeline_or_index(monkeypatch):
+    def memory_report(result, out):
+        for condition in result["conditions"].values():
+            condition["metrics"] = runner.score(condition["rows"])
+    monkeypatch.setattr(runner, "write_report", memory_report)
+    fake = FakeModel("Reason: Covered.\nVERDICT: SATISFIED")
+    result = asyncio.run(runner.run_experiment(out=Path.cwd(), dry_run=True,
+                                               provider=fake, baseline_only=True))
+    assert result["mode"] == "baseline-only"
+    assert result["partial"] is False
+    assert result["total_calls"] == len(fake.requests) == 6
+    assert result["embedding_calls"] == 0 and result["grounded_runs"] == []
+    assert all(call["stage"] == "baseline" for call in result["calls"])
+    assert all(row["predicted"] == "SATISFIED" for row in result["conditions"]["A"]["rows"])
+    assert "Mode: baseline-only" in runner.markdown(result)
+
+
+def test_baseline_only_stops_at_lower_invocation_cap(monkeypatch):
+    def memory_report(result, out):
+        for condition in result["conditions"].values():
+            condition["metrics"] = runner.score(condition["rows"])
+    monkeypatch.setattr(runner, "write_report", memory_report)
+    garbage = "unstructured verbose response " * 12
+    fake = FakeModel(garbage)
+    result = asyncio.run(runner.run_experiment(out=Path.cwd(), dry_run=True,
+                                               provider=fake, baseline_only=True,
+                                               max_invocations=3))
+    assert result["mode"] == "baseline-only"
+    assert result["partial"] is True and "Invocation cap 3" in result["stop_reason"]
+    assert result["total_calls"] == len(fake.requests) == 3
+    assert result["embedding_calls"] == 0 and result["grounded_runs"] == []
+    output_errors = [error for error in result["errors"]
+                     if error["error"].startswith("Unparseable baseline output:")]
+    assert len(output_errors) == 3
+    assert all(error["error"] == f"Unparseable baseline output: {garbage[:200]}"
+               for error in output_errors)
 
 
 @pytest.mark.parametrize("real,env", [(False, None), (True, None), (False, "1")])
