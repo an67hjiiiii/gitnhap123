@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 class RunStore:
@@ -16,6 +17,24 @@ class RunStore:
         if not path.exists():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def mark_stale_running_runs(self, max_age_seconds: float) -> int:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        updated = 0
+        for path in self.root.glob("*.json"):
+            try:
+                run = json.loads(path.read_text(encoding="utf-8"))
+                created_at = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            if (run.get("lifecycle_status") or run.get("status")) != "RUNNING" or created_at >= cutoff:
+                continue
+            run.update(status="FAILED", lifecycle_status="FAILED", answer="STALE_RUN", error="STALE_RUN")
+            self.save(run)
+            updated += 1
+        return updated
 
     def list(self, limit: int = 30) -> list[dict]:
         rows: list[dict] = []

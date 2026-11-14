@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from dataclasses import dataclass
 from typing import Protocol
 
 from app.retrieval.text import normalize_text, terms
 
 
-EMBEDDING_VERSION = "local-hash-embedding-v1"
+EMBEDDING_VERSION = "local-hash-embedding-v1+hdr1"
 
 
 class TextEmbedder(Protocol):
@@ -16,6 +17,9 @@ class TextEmbedder(Protocol):
     version: str
 
     def embed(self, text: str) -> tuple[float, ...]: ...
+
+    # Optional at runtime: callers fall back to embed for older implementations.
+    def embed_many(self, texts: list[str]) -> list[tuple[float, ...]]: ...
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,9 @@ class LocalHashEmbedder:
         if self.dimension < 1:
             raise ValueError("embedding dimension must be positive")
 
+    def embed_many(self, texts: list[str]) -> list[tuple[float, ...]]:
+        return [self.embed(text) for text in texts]
+
     def embed(self, text: str) -> tuple[float, ...]:
         if not isinstance(text, str):
             raise TypeError("text must be a string")
@@ -45,8 +52,9 @@ class LocalHashEmbedder:
         if not tokens and clean:
             tokens = [clean.casefold()]
         for token in tokens:
+            # Header versioning changes index compatibility, not hash coordinates.
             digest = hashlib.sha256(
-                f"{self.version}\0{token}".encode("utf-8")
+                f"{self.version.removesuffix('+hdr1')}\0{token}".encode("utf-8")
             ).digest()
             index = int.from_bytes(digest[:4], "big") % self.dimension
             values[index] += 1.0 if digest[4] & 1 else -1.0
@@ -74,30 +82,50 @@ class OllamaEmbedder:
         return f"ollama:{self.model}:{self.dimension}"
 
     def embed(self, text: str) -> tuple[float, ...]:
-        if not isinstance(text, str):
+        return self.embed_many([text])[0]
+
+    def embed_many(self, texts: list[str]) -> list[tuple[float, ...]]:
+        if any(not isinstance(text, str) for text in texts):
             raise TypeError("text must be a string")
-        import httpx
-
-        response = httpx.post(
-            f"{self.base_url.rstrip('/')}/api/embed",
-            json={"model": self.model, "input": text or " "},
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        vectors = response.json().get("embeddings") or []
-        if not vectors or len(vectors[0]) != self.dimension:
-            raise ValueError(
-                f"Ollama embedding {self.model} returned dimension "
-                f"{len(vectors[0]) if vectors else 0}, expected {self.dimension}"
+        result: list[tuple[float, ...]] = []
+        for start in range(0, len(texts), 16):
+            batch = texts[start:start + 16]
+            response = embedding_post(
+                f"{self.base_url.rstrip('/')}/api/embed",
+                json={"model": self.model, "input": [text or " " for text in batch]},
+                timeout=self.timeout,
             )
-        return tuple(float(v) for v in vectors[0])
+            response.raise_for_status()
+            vectors = response.json().get("embeddings") or []
+            if len(vectors) != len(batch):
+                raise ValueError("Ollama returned an unexpected embedding count")
+            for vector in vectors:
+                if len(vector) != self.dimension:
+                    raise ValueError(f"Ollama embedding {self.model} returned dimension {len(vector)}, expected {self.dimension}")
+                result.append(tuple(float(v) for v in vector))
+        return result
 
 
-def make_embedder(dimension: int = 768) -> TextEmbedder:
+def embedding_post(*args, **kwargs):
+    """Module-level HTTP seam for offline tests."""
+    import httpx
+    return httpx.post(*args, **kwargs)
+
+
+def effective_dimension(vector_size: int | None = None) -> int:
+    return int(os.getenv("EMBEDDING_DIMENSION") or
+               (vector_size if vector_size is not None else os.getenv("VECTOR_SIZE", "768")))
+
+
+def validate_embedding_config(embedder: TextEmbedder, collection_dimension: int) -> None:
+    if embedder.dimension != collection_dimension:
+        raise ValueError(f"Embedding dimension {embedder.dimension} differs from collection dimension {collection_dimension}")
+
+
+def make_embedder(dimension: int | None = None) -> TextEmbedder:
     """Chọn embedder theo EMBEDDING_BACKEND (hash | ollama). Mặc định hash, giữ hành vi cũ."""
-    import os
-
     backend = os.getenv("EMBEDDING_BACKEND", "hash").strip().lower()
+    dimension = effective_dimension(dimension)
     if backend == "hash":
         return LocalHashEmbedder(dimension=dimension)
     if backend == "ollama":
@@ -109,4 +137,4 @@ def make_embedder(dimension: int = 768) -> TextEmbedder:
     raise ValueError(f"Unsupported EMBEDDING_BACKEND={backend}")
 
 
-__all__ = ["EMBEDDING_VERSION", "LocalHashEmbedder", "OllamaEmbedder", "TextEmbedder", "make_embedder"]
+__all__ = ["EMBEDDING_VERSION", "LocalHashEmbedder", "OllamaEmbedder", "TextEmbedder", "make_embedder", "effective_dimension", "validate_embedding_config"]

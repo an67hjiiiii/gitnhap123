@@ -95,6 +95,7 @@ class TaskResult:
 @dataclass
 class RunMetrics:
     llm_calls: int = 0
+    failed_llm_attempts: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     context_tokens_est: int = 0

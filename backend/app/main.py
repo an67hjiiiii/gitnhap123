@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,7 +28,7 @@ from app.ingestion.documents import (
 from app.providers.ollama import OllamaProvider
 from app.research.pipeline import ResearchPipeline
 from app.retrieval.candidate_index import CandidateIndex, IndexingError
-from app.retrieval.embeddings import make_embedder
+from app.retrieval.embeddings import effective_dimension, make_embedder, validate_embedding_config
 from app.review.memory import InMemoryMemoryStore
 from app.storage.conversation_store import ConversationStore
 from app.storage.postgres import create_postgres_engine, create_session_factory
@@ -115,6 +116,27 @@ def start_review_runtime():
 def stop_review_runtime():
     review_runtime.runner.shutdown()
 
+
+@app.on_event("startup")
+def mark_stale_chat_runs():
+    max_age = float(os.getenv("CHAT_STALE_RUN_SECONDS", "3600"))
+    if STORAGE_BACKEND == "postgres":
+        from sqlalchemy import inspect, select
+        from app.storage.postgres.models import RunRecord
+
+        with app.state.session_factory() as db:
+            # Review-only deployments may not have a chat runs table yet.
+            if not inspect(db.get_bind()).has_table(RunRecord.__tablename__):
+                return
+            owners = db.scalars(select(RunRecord.owner_user_id).distinct()).all()
+        for owner in owners:
+            PostgresRunStore(app.state.session_factory, owner).mark_stale_running_runs(max_age)
+    else:
+        run_store.mark_stale_running_runs(max_age)
+        for root in (Path(RUNS_DIR) / "owners").glob("*"):
+            if root.is_dir():
+                RunStore(str(root)).mark_stale_running_runs(max_age)
+
 def owner_source_store(user: dict):
     if STORAGE_BACKEND == "postgres":
         return PostgresSourceStore(app.state.session_factory, str(user["user_id"]))
@@ -135,13 +157,13 @@ def owner_pipeline(user: dict, conversation_id: str | None = None) -> ResearchPi
     if VECTOR_BACKEND not in {"", "disabled", "off", "none"}:
         vector_store = _configured_vector_store()
         if vector_store is not None:
+            embedder = make_embedder(int(getattr(vector_store, "vector_size", 768) or 768))
+            validate_embedding_config(embedder, int(getattr(vector_store, "vector_size", 768) or 768))
             candidate_index = CandidateIndex(
                 sources,
                 vector_store,
                 owner_user_id=str(user["user_id"]),
-                embedder=make_embedder(
-                    int(getattr(vector_store, "vector_size", 768) or 768)
-                ),
+                embedder=embedder,
             )
     return ResearchPipeline(
         sources,
@@ -163,7 +185,7 @@ def _configured_vector_store():
     if _derived_vector_store is not None and _derived_vector_store_backend == backend:
         return _derived_vector_store
     try:
-        vector_size = int(VECTOR_SIZE)
+        vector_size = effective_dimension(int(VECTOR_SIZE))
     except (TypeError, ValueError) as exc:
         raise IndexingError("VECTOR_SIZE must be a positive integer") from exc
     if vector_size < 1:
@@ -191,13 +213,13 @@ def _index_imported_source(user: dict, source_store, imported: dict) -> dict:
         vector_store = _configured_vector_store()
         if vector_store is None:
             return imported
+        embedder = make_embedder(int(getattr(vector_store, "vector_size", 768) or 768))
+        validate_embedding_config(embedder, int(getattr(vector_store, "vector_size", 768) or 768))
         index = CandidateIndex(
             source_store,
             vector_store,
             owner_user_id=str(user["user_id"]),
-            embedder=make_embedder(
-                int(getattr(vector_store, "vector_size", 768) or 768)
-            ),
+            embedder=embedder,
         )
         result = index.index_source(source_id)
     except Exception as exc:
@@ -400,6 +422,7 @@ def _chat_condition(body, runtime_config):
 
 async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notify=None):
     """One chat turn: intent -> memory/rewrite -> path choice -> pipeline. notify(step, text) reports progress."""
+    from app.chat.answer_guard import AnswerChecker
     from app.chat.intent import classify_intent, classify_with_llm
     from app.chat.language import document_language, text_language, translate_query
     from app.chat.memory import build_memory, has_reference, render_context, rewrite_follow_up
@@ -415,6 +438,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         raise HTTPException(400, "MESSAGE_REQUIRED")
     try:
         user = current_user(request)
+        t_start = time.perf_counter()
         runtime_config = RuntimeConfig.from_env()
         condition, provider_name, condition_fixed = _chat_condition(body, runtime_config)
         runtime_config.assert_condition(condition)
@@ -452,7 +476,46 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
                 "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
             }
 
+        timings = {"intent_ms": int((time.perf_counter() - t_start) * 1000)}
+        store = owner_source_store(user)
+        if decision.intent == "general_knowledge":  # self-contained: answer directly, no retrieval, no pipeline
+            say("answering", "Câu này không cần tài liệu, mình trả lời trực tiếp.")
+            g0 = time.perf_counter()
+            result = await provider.generate(
+                system=("Answer the question directly and concisely, in the same language as the question. "
+                        "Do not mention documents or sources."),
+                user=message,
+            )
+            timings["answer_ms"] = int((time.perf_counter() - g0) * 1000)
+            answer = str(getattr(result, "text", result)).strip()
+            conversations.add_message(conversation_id, "USER", message)
+            conversations.add_message(conversation_id, "ASSISTANT", answer)
+            return {
+                "run_id": None, "status": "COMPLETE", "answer": answer, "citations": [], "task_results": [],
+                "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "DIRECT"},
+                           {"stage": "timings", **timings}],
+                "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
+            }
+        try:
+            has_ready_sources = any(s.get("status", "READY") == "READY" for s in store.list_sources())
+        except Exception:
+            has_ready_sources = True
+        if not has_ready_sources:
+            reply = ("Hiện chưa có tài liệu nào trong kho nên mình chưa thể trả lời từ tài liệu. "
+                     "Hãy tải tài liệu lên, hoặc hỏi một câu không cần tài liệu." if intent_info["language"] == "vi"
+                     else "There are no documents yet, so I cannot answer from documents. "
+                          "Upload a document, or ask a question that needs none.")
+            conversations.add_message(conversation_id, "USER", message)
+            conversations.add_message(conversation_id, "ASSISTANT", reply)
+            return {
+                "run_id": None, "status": "NO_EVIDENCE", "answer": reply, "citations": [], "task_results": [],
+                "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "EMPTY_STORE"},
+                           {"stage": "timings", **timings}],
+                "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
+            }
+        m0 = time.perf_counter()
         memory = await build_memory(provider, str(user["user_id"]), conversation, cache=_SUMMARY_CACHE)
+        timings["memory_ms"] = int((time.perf_counter() - m0) * 1000)
         query = message
         if has_history and (decision.intent == "follow_up" or has_reference(message)):
             say("rewriting", "Đang hiểu câu hỏi nối tiếp của bạn…")
@@ -463,11 +526,16 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         # the answer still follows the asker's language.
         asker_language = text_language(message)
         reply_hint = None
-        try:
-            sample = owner_source_store(user).chunks(selected_source_ids)
+        try:  # a few chunks of a few sources are enough to guess the documents' language
+            sample = []
+            for entry in store.list_sources()[:5]:
+                if selected_source_ids is not None and entry["source_id"] not in selected_source_ids:
+                    continue
+                sample += [c.get("text", "") for c in (store.source(entry["source_id"]) or {}).get("chunks", [])[:6]]
         except Exception:
             sample = []
-        doc_language = document_language(c.text for c in sample)
+        doc_language = document_language(sample)
+        timings["language_ms"] = int((time.perf_counter() - t_start) * 1000) - timings["intent_ms"]
         if doc_language and doc_language != asker_language:
             say("translating", "Đang chuyển câu hỏi sang ngôn ngữ của tài liệu…")
             translated = await translate_query(provider, query, doc_language)
@@ -488,14 +556,17 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         elif body.product_mode:
             route = {"path": "C" if condition.startswith("C") else "B", "reason": "CONFIGURED", "params": {}}
         if route is not None:
-            say("route", "Câu hỏi nhiều ý, mình sẽ chia nhỏ để trả lời." if route["path"] == "C"
+            say("route", "Câu hỏi nhiều ý, mình sẽ tìm riêng từng ý rồi gộp lại." if route["path"] == "C"
                 else "Mình tra cứu trực tiếp trong tài liệu.")
 
         # Multi-step planning for chat is opt-in: in the local transcript it was slower (3-8x) and lost answers
         # that one grounded call found. Review runs use AUTO (route.chosen) separately.
         force_plan = bool(route and route["path"] == "C" and os.getenv("CHAT_FORCE_PLAN", "").strip() == "1")
+        multi_retrieval = bool(
+            route and route["path"] == "C" and not force_plan
+            and os.getenv("CHAT_MULTI_RETRIEVAL", "1").strip() != "0")
         if route is not None:
-            route["executed"] = "C" if force_plan else "B"
+            route["executed"] = "C" if force_plan else ("C_MULTI" if multi_retrieval else "B")
         conversations.add_message(conversation_id, "USER", message)
         run = await owner_pipeline(user, conversation_id).run(
             query,
@@ -508,6 +579,8 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             on_event=on_event,
             force_plan=force_plan,
             reply_language_hint=reply_hint,
+            multi_retrieval=multi_retrieval,
+            answer_checker=AnswerChecker(),
         )
         conversations.add_message(
             conversation_id,
@@ -515,9 +588,11 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             str(run.get("answer") or run.get("status") or "Run completed"),
             run_id=run["run_id"],
         )
+        timings["total_ms"] = int((time.perf_counter() - t_start) * 1000)
         events = list(run.get("events") or [])
         if route is not None:
             events.append({"stage": "route_chosen", **route})
+        events.append({"stage": "timings", **timings})
         return {
             **run, "events": events, "conversation_id": conversation_id, "intent": intent_info,
             "route": route, "rewritten_query": query if query != message else None,
@@ -582,6 +657,11 @@ async def chat_stream(body: ChatRequest, request: Request):
         finally:
             if not task.done():
                 task.cancel()
+            # Wait for pipeline cancellation to persist its terminal run status.
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                pass
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

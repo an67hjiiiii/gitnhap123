@@ -25,7 +25,7 @@ REPLY_LANGUAGE_HINT = {
 }
 
 
-async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None, guard: bool = False) -> TaskResult:
+async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None, checker=None) -> TaskResult:
     if not evidence:
         return TaskResult(
             task_id="T1",
@@ -86,14 +86,28 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         missing.append("answer has no valid citation")
 
     guard_notes: list[str] = []
-    if guard and answer:
-        from app.chat.answer_guard import guard_answer
-
-        checked = guard_answer(
+    if checker is not None and answer:
+        cited = [c for c in evidence if c.chunk_id in valid]
+        cited_texts = [c.text for c in cited]
+        source_label = ", ".join(dict.fromkeys(
+            c.source_name or c.source_id or c.chunk_id for c in (cited or evidence)
+        ))
+        checked = checker.guard(
             answer, status=status, evidence_texts=[c.text for c in evidence],
-            source_label=str(evidence[0].source_name or ""),
+            source_label=source_label, cited_texts=cited_texts,
         )
         answer, guard_notes = checked.answer, checked.notes
+        removed_claims = list(checked.removed_claims)
+        replaced = any(n in guard_notes for n in {"ANSWER_REPLACED_BY_EXCERPT", "ANSWER_REPLACED_UNSUPPORTED"})
+        if not replaced and status in {"COMPLETE", "PARTIAL"} and checker.needs_verification(query, answer):
+            answer, verify_notes = await checker.verify(
+                provider, answer, [c.text for c in evidence], metrics,
+                source_label=source_label, cited_texts=cited_texts, removed_claims=removed_claims,
+            )
+            guard_notes = [*guard_notes, *verify_notes]
+        if removed_claims:
+            status = "PARTIAL"
+            missing.extend("đã bỏ câu không có căn cứ: " + claim[:60] for claim in removed_claims)
 
     if valid:
         answer = answer.rstrip() + "\n\nNguồn: " + ", ".join(f"[{cid}]" for cid in valid)

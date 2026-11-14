@@ -1,0 +1,1188 @@
+[
+  {
+    "qid": "q01",
+    "question": "tài khoản về thời hạn mật khẩu là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec01",
+        "attribute": "thời hạn mật khẩu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_001.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q02",
+    "question": "nhật ký truy cập về thời hạn lưu là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec02",
+        "attribute": "thời hạn lưu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_002.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q03",
+    "question": "quản trị viên về xác thực hai yếu tố là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec03",
+        "attribute": "xác thực hai yếu tố",
+        "value": "bắt buộc",
+        "unit": "",
+        "normalised_value_seconds_or_number": "bắt buộc"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_003.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q04",
+    "question": "người dùng thường về xác thực hai yếu tố là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec04",
+        "attribute": "xác thực hai yếu tố",
+        "value": "không bắt buộc",
+        "unit": "",
+        "normalised_value_seconds_or_number": "không bắt buộc"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_004.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q05",
+    "question": "mật khẩu về độ dài tối thiểu là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec05",
+        "attribute": "độ dài tối thiểu",
+        "value": "12",
+        "unit": "ký tự",
+        "normalised_value_seconds_or_number": 12.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_005.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q06",
+    "question": "phiên đăng nhập về thời hạn là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec06",
+        "attribute": "thời hạn",
+        "value": "8",
+        "unit": "giờ",
+        "normalised_value_seconds_or_number": 28800.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_006.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q07",
+    "question": "tài khoản về khóa sau là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec07",
+        "attribute": "khóa sau",
+        "value": "5",
+        "unit": "lần",
+        "normalised_value_seconds_or_number": 5.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_007.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q08",
+    "question": "mã khôi phục về thời hạn là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec08",
+        "attribute": "thời hạn",
+        "value": "24",
+        "unit": "giờ",
+        "normalised_value_seconds_or_number": 86400
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_008.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q09",
+    "question": "nhân viên về quyền sửa nhật ký là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec09",
+        "attribute": "quyền sửa nhật ký",
+        "value": "không được phép sửa",
+        "unit": "",
+        "normalised_value_seconds_or_number": "không được phép sửa"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_009.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q10",
+    "question": "kiểm toán viên về quyền sửa nhật ký là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "sec10",
+        "attribute": "quyền sửa nhật ký",
+        "value": "được phép sửa",
+        "unit": "",
+        "normalised_value_seconds_or_number": "được phép sửa"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_010.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "q11",
+    "question": "API về thời gian chờ là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api01",
+        "attribute": "thời gian chờ",
+        "value": "30",
+        "unit": "giây",
+        "normalised_value_seconds_or_number": 30.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_011.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q12",
+    "question": "API về giới hạn tốc độ là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api02",
+        "attribute": "giới hạn tốc độ",
+        "value": "100",
+        "unit": "yêu cầu/phút",
+        "normalised_value_seconds_or_number": 100.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_012.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q13",
+    "question": "tải lên về dung lượng tối đa là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api03",
+        "attribute": "dung lượng tối đa",
+        "value": "25",
+        "unit": "MB",
+        "normalised_value_seconds_or_number": 25.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_013.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q14",
+    "question": "phân trang về kích thước mặc định là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api04",
+        "attribute": "kích thước mặc định",
+        "value": "20",
+        "unit": "bản ghi",
+        "normalised_value_seconds_or_number": 20.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_014.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q15",
+    "question": "phân trang về kích thước tối đa là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api05",
+        "attribute": "kích thước tối đa",
+        "value": "100",
+        "unit": "bản ghi",
+        "normalised_value_seconds_or_number": 100.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_015.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q16",
+    "question": "API về phiên bản là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api06",
+        "attribute": "phiên bản",
+        "value": "v2",
+        "unit": "",
+        "normalised_value_seconds_or_number": "v2"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_016.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q17",
+    "question": "webhook về số lần thử lại là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api07",
+        "attribute": "số lần thử lại",
+        "value": "3",
+        "unit": "lần",
+        "normalised_value_seconds_or_number": 3.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_017.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q18",
+    "question": "webhook về khoảng thử lại là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api08",
+        "attribute": "khoảng thử lại",
+        "value": "30",
+        "unit": "giây",
+        "normalised_value_seconds_or_number": 30.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_018.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q19",
+    "question": "API về định dạng thời gian là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api09",
+        "attribute": "định dạng thời gian",
+        "value": "ISO 8601",
+        "unit": "",
+        "normalised_value_seconds_or_number": "ISO 8601"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_019.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q20",
+    "question": "khóa API về chu kỳ xoay vòng là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "api10",
+        "attribute": "chu kỳ xoay vòng",
+        "value": "180",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 180.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_020.md",
+      "heading": "Api requirements"
+    }
+  },
+  {
+    "qid": "q21",
+    "question": "bản sao lưu về tần suất là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak01",
+        "attribute": "tần suất",
+        "value": "24",
+        "unit": "giờ",
+        "normalised_value_seconds_or_number": 86400
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_021.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q22",
+    "question": "bản sao lưu về thời hạn lưu là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak02",
+        "attribute": "thời hạn lưu",
+        "value": "30",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 30.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_022.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q23",
+    "question": "khôi phục về mục tiêu thời gian là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak03",
+        "attribute": "mục tiêu thời gian",
+        "value": "4",
+        "unit": "giờ",
+        "normalised_value_seconds_or_number": 14400.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_023.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q24",
+    "question": "khôi phục về mục tiêu mất dữ liệu là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak04",
+        "attribute": "mục tiêu mất dữ liệu",
+        "value": "15",
+        "unit": "phút",
+        "normalised_value_seconds_or_number": 900.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_024.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q25",
+    "question": "bản sao lưu về mã hóa là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak05",
+        "attribute": "mã hóa",
+        "value": "AES-256",
+        "unit": "",
+        "normalised_value_seconds_or_number": "AES-256"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_025.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q26",
+    "question": "kiểm tra khôi phục về tần suất là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak06",
+        "attribute": "tần suất",
+        "value": "1",
+        "unit": "tháng",
+        "normalised_value_seconds_or_number": 1.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_026.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q27",
+    "question": "bản sao lưu về vị trí bản sao là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak07",
+        "attribute": "vị trí bản sao",
+        "value": "2",
+        "unit": "khu vực",
+        "normalised_value_seconds_or_number": 2.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_027.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q28",
+    "question": "khôi phục về người phê duyệt là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak08",
+        "attribute": "người phê duyệt",
+        "value": "2",
+        "unit": "người",
+        "normalised_value_seconds_or_number": 2.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_028.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q29",
+    "question": "bản sao lưu về thời hạn lưu là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak09",
+        "attribute": "thời hạn lưu",
+        "value": "365",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 31536000
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_029.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q30",
+    "question": "khôi phục về kiểm tra toàn vẹn là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "bak10",
+        "attribute": "kiểm tra toàn vẹn",
+        "value": "SHA-256",
+        "unit": "",
+        "normalised_value_seconds_or_number": "SHA-256"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_030.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "q31",
+    "question": "nhật ký kiểm toán về thời hạn lưu là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "log01",
+        "attribute": "thời hạn lưu",
+        "value": "365",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 31536000
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_001.md",
+      "heading": "Logging requirements"
+    }
+  },
+  {
+    "qid": "q32",
+    "question": "nhật ký ứng dụng về thời hạn lưu là gì?",
+    "language": "vi",
+    "expected_facts": [
+      {
+        "fact_id": "log02",
+        "attribute": "thời hạn lưu",
+        "value": "30",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 30.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 ngày"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_002.md",
+      "heading": "Logging requirements"
+    }
+  },
+  {
+    "qid": "trap1",
+    "question": "90 ngày áp dụng cho thuộc tính nào của tài khoản?",
+    "language": "vi",
+    "trap": true,
+    "expected_facts": [
+      {
+        "fact_id": "sec01",
+        "attribute": "thời hạn mật khẩu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "thời hạn lưu"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_001.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "trap2",
+    "question": "90 ngày áp dụng cho thuộc tính nào của nhật ký truy cập?",
+    "language": "vi",
+    "trap": true,
+    "expected_facts": [
+      {
+        "fact_id": "sec02",
+        "attribute": "thời hạn lưu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "thời hạn mật khẩu"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_002.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "trap3",
+    "question": "90 ngày áp dụng cho thuộc tính nào của tài khoản?",
+    "language": "vi",
+    "trap": true,
+    "expected_facts": [
+      {
+        "fact_id": "sec01",
+        "attribute": "thời hạn mật khẩu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "thời hạn lưu"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_001.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "trap4",
+    "question": "90 ngày áp dụng cho thuộc tính nào của nhật ký truy cập?",
+    "language": "vi",
+    "trap": true,
+    "expected_facts": [
+      {
+        "fact_id": "sec02",
+        "attribute": "thời hạn lưu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "thời hạn mật khẩu"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_002.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "trap5",
+    "question": "90 ngày áp dụng cho thuộc tính nào của tài khoản?",
+    "language": "vi",
+    "trap": true,
+    "expected_facts": [
+      {
+        "fact_id": "sec01",
+        "attribute": "thời hạn mật khẩu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "thời hạn lưu"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_001.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "trap6",
+    "question": "90 ngày áp dụng cho thuộc tính nào của nhật ký truy cập?",
+    "language": "vi",
+    "trap": true,
+    "expected_facts": [
+      {
+        "fact_id": "sec02",
+        "attribute": "thời hạn lưu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "thời hạn mật khẩu"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_002.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "en1",
+    "question": "What is the thời hạn mật khẩu rule for tài khoản?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "sec01",
+        "attribute": "thời hạn mật khẩu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 days"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_001.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "en2",
+    "question": "What is the thời hạn lưu rule for nhật ký truy cập?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "sec02",
+        "attribute": "thời hạn lưu",
+        "value": "90",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 90.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 days"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_002.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "en3",
+    "question": "What is the xác thực hai yếu tố rule for quản trị viên?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "sec03",
+        "attribute": "xác thực hai yếu tố",
+        "value": "bắt buộc",
+        "unit": "",
+        "normalised_value_seconds_or_number": "bắt buộc"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 days"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_003.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "en4",
+    "question": "What is the xác thực hai yếu tố rule for người dùng thường?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "sec04",
+        "attribute": "xác thực hai yếu tố",
+        "value": "không bắt buộc",
+        "unit": "",
+        "normalised_value_seconds_or_number": "không bắt buộc"
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 days"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_004.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "en5",
+    "question": "What is the độ dài tối thiểu rule for mật khẩu?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "sec05",
+        "attribute": "độ dài tối thiểu",
+        "value": "12",
+        "unit": "ký tự",
+        "normalised_value_seconds_or_number": 12.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 days"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_005.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "en6",
+    "question": "What is the thời hạn rule for phiên đăng nhập?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "sec06",
+        "attribute": "thời hạn",
+        "value": "8",
+        "unit": "giờ",
+        "normalised_value_seconds_or_number": 28800.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [
+      "999 days"
+    ],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_006.md",
+      "heading": "Security requirements"
+    }
+  },
+  {
+    "qid": "multi1",
+    "question": "What are the tần suất and thời hạn lưu values?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "bak01",
+        "attribute": "tần suất",
+        "value": "24",
+        "unit": "giờ",
+        "normalised_value_seconds_or_number": 86400
+      },
+      {
+        "fact_id": "bak02",
+        "attribute": "thời hạn lưu",
+        "value": "30",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 30.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_021.md",
+      "heading": "Backup requirements"
+    }
+  },
+  {
+    "qid": "multi2",
+    "question": "What are the thời hạn lưu and thời hạn lưu values?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "log01",
+        "attribute": "thời hạn lưu",
+        "value": "365",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 31536000
+      },
+      {
+        "fact_id": "log02",
+        "attribute": "thời hạn lưu",
+        "value": "30",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 30.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_001.md",
+      "heading": "Logging requirements"
+    }
+  },
+  {
+    "qid": "multi3",
+    "question": "What are the thời hạn thanh toán and thời gian xử lý values?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "bil01",
+        "attribute": "thời hạn thanh toán",
+        "value": "30",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 30.0
+      },
+      {
+        "fact_id": "bil02",
+        "attribute": "thời gian xử lý",
+        "value": "5",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 5.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_011.md",
+      "heading": "Billing requirements"
+    }
+  },
+  {
+    "qid": "multi4",
+    "question": "What are the thời gian thiết lập and liên kết mời hết hạn values?",
+    "language": "en",
+    "expected_facts": [
+      {
+        "fact_id": "onb01",
+        "attribute": "thời gian thiết lập",
+        "value": "1",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 86400
+      },
+      {
+        "fact_id": "onb03",
+        "attribute": "liên kết mời hết hạn",
+        "value": "7",
+        "unit": "ngày",
+        "normalised_value_seconds_or_number": 7.0
+      }
+    ],
+    "expected_status": "ANSWERABLE",
+    "must_not_contain": [],
+    "gold_chunk_hint": {
+      "doc": "n30/docs/doc_021.md",
+      "heading": "Onboarding requirements"
+    }
+  },
+  {
+    "qid": "none1",
+    "question": "Cho biết the retention for biometric voiceprints?",
+    "language": "vi",
+    "expected_facts": [],
+    "expected_status": "NO_EVIDENCE",
+    "must_not_contain": [
+      "365 ngày",
+      "90 ngày",
+      "365 days"
+    ],
+    "gold_chunk_hint": null
+  },
+  {
+    "qid": "none2",
+    "question": "What is the retention for biometric voiceprints?",
+    "language": "en",
+    "expected_facts": [],
+    "expected_status": "NO_EVIDENCE",
+    "must_not_contain": [
+      "365 ngày",
+      "90 ngày",
+      "365 days"
+    ],
+    "gold_chunk_hint": null
+  },
+  {
+    "qid": "none3",
+    "question": "Cho biết the retention for biometric voiceprints?",
+    "language": "vi",
+    "expected_facts": [],
+    "expected_status": "NO_EVIDENCE",
+    "must_not_contain": [
+      "365 ngày",
+      "90 ngày",
+      "365 days"
+    ],
+    "gold_chunk_hint": null
+  },
+  {
+    "qid": "none4",
+    "question": "What is the retention for biometric voiceprints?",
+    "language": "en",
+    "expected_facts": [],
+    "expected_status": "NO_EVIDENCE",
+    "must_not_contain": [
+      "365 ngày",
+      "90 ngày",
+      "365 days"
+    ],
+    "gold_chunk_hint": null
+  },
+  {
+    "qid": "none5",
+    "question": "Cho biết the retention for biometric voiceprints?",
+    "language": "vi",
+    "expected_facts": [],
+    "expected_status": "NO_EVIDENCE",
+    "must_not_contain": [
+      "365 ngày",
+      "90 ngày",
+      "365 days"
+    ],
+    "gold_chunk_hint": null
+  },
+  {
+    "qid": "none6",
+    "question": "What is the retention for biometric voiceprints?",
+    "language": "en",
+    "expected_facts": [],
+    "expected_status": "NO_EVIDENCE",
+    "must_not_contain": [
+      "365 ngày",
+      "90 ngày",
+      "365 days"
+    ],
+    "gold_chunk_hint": null
+  },
+  {
+    "qid": "none7",
+    "question": "Cho biết the retention for biometric voiceprints?",
+    "language": "vi",
+    "expected_facts": [],
+    "expected_status": "NO_EVIDENCE",
+    "must_not_contain": [
+      "365 ngày",
+      "90 ngày",
+      "365 days"
+    ],
+    "gold_chunk_hint": null
+  },
+  {
+    "qid": "none8",
+    "question": "What is the retention for biometric voiceprints?",
+    "language": "en",
+    "expected_facts": [],
+    "expected_status": "NO_EVIDENCE",
+    "must_not_contain": [
+      "365 ngày",
+      "90 ngày",
+      "365 days"
+    ],
+    "gold_chunk_hint": null
+  }
+]

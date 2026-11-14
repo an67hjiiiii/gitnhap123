@@ -53,7 +53,8 @@ def test_labels_are_clean_vietnamese_utf8():
 def test_progress_and_friendly_error_labels_are_complete():
     labels = load_labels()
     assert set(labels["progress"]) == {
-        "understanding", "planning", "plan_ready", "searching", "step_done", "writing", "failed"
+        "understanding", "planning", "plan_ready", "searching", "step_done", "writing", "failed",
+        "multi_search", "retrying", "verifying",
     }
     assert set(labels["friendly_errors"]) == {
         "PLAN_REJECTED", "PROVIDER_LIMIT", "CONDITION_NOT_AVAILABLE", "PIPELINE_RUN_FAILED",

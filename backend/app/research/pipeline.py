@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -43,6 +44,7 @@ from app.research.provenance import build_provenance
 from app.research.synthesizer import synthesize
 from app.research.token_context import POLICIES, TokenContextController, plan_task_budgets
 from app.research.token_context import context_policy as env_context_policy
+from app.research.product_retrieval import product_retrieve, run_budget_exceeded
 from app.research.vanilla import answer_vanilla
 from app.research.worker import execute_task
 from app.retrieval.index_identity import IndexingError
@@ -82,6 +84,8 @@ class ResearchPipeline:
     ) -> list[SourceChunk]:
         variants = build_query_variants(query)
         if self.candidate_index is None:
+            if chunks is None:
+                chunks = self.source_store.chunks(source_ids)
             merged: dict[str, SourceChunk] = {}
             for variant in variants:
                 for chunk in retrieve(variant.text, chunks, top_k=top_k, min_score=min_score):
@@ -92,7 +96,6 @@ class ResearchPipeline:
 
         # CandidateIndex applies owner/source filters in the vector query before top-k.
         # Hydrate only canonical chunks already scoped by the owner source store.
-        chunks_by_id = {chunk.chunk_id: chunk for chunk in chunks}
         matches_by_id = {}
         for variant in variants:
             for match in self.candidate_index.candidates(variant.text, limit=top_k, source_ids=source_ids):
@@ -100,6 +103,15 @@ class ResearchPipeline:
                 if existing is None or match.score > existing.score:
                     matches_by_id[str(match.payload.get("chunk_id") or "")] = match
         matches = sorted(matches_by_id.values(), key=lambda match: match.score, reverse=True)[:top_k]
+        hydrate = getattr(self.source_store, "chunks_by_ids", None)
+        if callable(hydrate):
+            matched_chunks = hydrate([str(m.payload.get("chunk_id") or "") for m in matches], source_ids=source_ids)
+        elif chunks is not None:
+            matched_chunks = chunks
+        else:
+            raise TypeError("source store must implement chunks_by_ids for lazy hydration")
+        chunks_by_id = {chunk.chunk_id: chunk for chunk in matched_chunks
+                        if source_ids is None or chunk.source_id in source_ids}
         candidates: list[SourceChunk] = []
         for match in matches:
             chunk_id = str(match.payload.get("chunk_id") or "")
@@ -113,6 +125,8 @@ class ResearchPipeline:
         # The index is derived and can miss paraphrases. Fall back only over the
         # already owner-scoped canonical chunks supplied by the source store.
         # Keep the same top-k and score gate; normalize only generic query fillers.
+        if chunks is None:
+            chunks = self.source_store.chunks(source_ids)
         fallback_map: dict[str, SourceChunk] = {}
         for variant in variants:
             lexical_query = " ".join(sorted(terms(variant.text) - _LEXICAL_FALLBACK_FILLERS)) or variant.text
@@ -143,6 +157,8 @@ class ResearchPipeline:
         on_event: Callable[[dict], None] | None = None,
         force_plan: bool = False,
         reply_language_hint: str | None = None,
+        multi_retrieval: bool = False,
+        answer_checker=None,
     ) -> dict:
         condition = condition.upper()
         if condition not in CONDITIONS:
@@ -293,7 +309,7 @@ class ResearchPipeline:
                 and condition != "A"
                 and not force_plan
                 and understanding is not None
-                and is_simple_project_question(query, understanding.domains)
+                and (multi_retrieval or is_simple_project_question(query, understanding.domains))
             )
             if product_mode and condition != "A":
                 route = (
@@ -312,19 +328,29 @@ class ResearchPipeline:
                 )
                 event("request_understanding", **understanding.to_dict())
 
-            all_chunks = self.source_store.chunks(source_ids)
+            # With a candidate index only the retrieved chunk ids are hydrated (chunks_by_ids); the whole
+            # corpus is loaded lazily and only by lexical fallback / BM25 fusion.
+            all_chunks = None if self.candidate_index is not None else self.source_store.chunks(source_ids)
             budget_cut = False
             if condition == "A" or simple_product_request:
                 r0 = time.perf_counter()
                 retrieval_trace: dict = {}
-                candidates = self._retrieve_candidates(
-                    _retrieval_query_with_conversation_context(query, conversation_context),
-                    all_chunks,
-                    top_k=cfg.task_top_k,
-                    min_score=cfg.retrieval_min_score,
-                    source_ids=source_ids,
-                    fallback_trace=retrieval_trace,
-                )
+                retrieval_query_text = _retrieval_query_with_conversation_context(query, conversation_context)
+                if product_mode:
+                    candidates = await product_retrieve(
+                        self, provider, metrics, query=query, retrieval_query=retrieval_query_text,
+                        chunks=all_chunks, cfg=cfg, source_ids=source_ids, trace=retrieval_trace, event=event,
+                        multi=multi_retrieval, retry=True,
+                    )
+                else:
+                    candidates = await asyncio.to_thread(self._retrieve_candidates,
+                        retrieval_query_text,
+                        all_chunks,
+                        top_k=cfg.task_top_k,
+                        min_score=cfg.retrieval_min_score,
+                        source_ids=source_ids,
+                        fallback_trace=retrieval_trace,
+                    )
                 metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                 metrics.retrieved_chunks += len(candidates)
                 selected, budget_dropped = apply_token_budget(candidates, cfg.max_context_tokens)
@@ -349,11 +375,42 @@ class ResearchPipeline:
                     has_vi_marks = any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", query)) or "đ" in query.lower()
                     reply_language = reply_language_hint or (
                         "vi" if has_vi_marks or detect_language(query) != "en" else "en")
-                result = await answer_vanilla(
-                    provider, query, selected, metrics, reply_language=reply_language,
-                    **({"guard": True} if product_mode else {}))
+                if product_mode and run_budget_exceeded(metrics, cfg, event, "answer"):
+                    result = TaskResult(
+                        task_id="T1", domain="general", status="NO_EVIDENCE",
+                        answer="RUN_BUDGET_EXCEEDED: Token budget exhausted before answer generation.",
+                        missing_information=["answer generation skipped: run token budget exhausted"],
+                    )
+                else:
+                    checked_provider = _AttemptCountingProvider(provider, metrics) if product_mode else provider
+                    checker = (
+                        _BudgetedChecker(answer_checker, metrics, cfg, event)
+                        if product_mode and answer_checker is not None else None
+                    )
+                    try:
+                        result = await answer_vanilla(
+                            checked_provider, query, selected, metrics, reply_language=reply_language,
+                            **({"checker": checker} if checker is not None else {}))
+                    except Exception:
+                        if not product_mode:
+                            raise
+                        result = TaskResult(
+                            task_id="T1", domain="general", status="PARTIAL" if selected else "NO_EVIDENCE",
+                            answer="Answer generation failed. Relevant evidence: " + " ".join(c.text for c in selected)[:500],
+                            evidence_ids=[c.chunk_id for c in selected],
+                            missing_information=["answer generation failed"],
+                        )
+                    if checker is not None and checker.budget_cut:
+                        budget_cut = True
                 if result.guard_notes:
                     event("answer_guard", notes=list(result.guard_notes))
+                if result.status == "NO_EVIDENCE":
+                    event(
+                        "no_evidence",
+                        reason="MODEL_REFUSED" if selected else "NO_CHUNKS",
+                        retrieved=[c.chunk_id for c in candidates],
+                        selected=[c.chunk_id for c in selected],
+                    )
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                 tasks, task_results = [task], [result]
                 answer = result.answer
@@ -632,7 +689,7 @@ class ResearchPipeline:
                 if flags["O"] and policy == "adaptive_qwen":
                     # Nhu cầu ước từ lượt truy xuất sơ bộ (chưa có ngữ cảnh phụ thuộc); trần áp vào lượt truy xuất thật bên dưới.
                     preview = {
-                        task.task_id: self._retrieve_candidates(
+                        task.task_id: await asyncio.to_thread(self._retrieve_candidates,
                             f"{task.goal} {' '.join(task.evidence_needs)}".strip(),
                             all_chunks,
                             top_k=cfg.task_top_k,
@@ -649,7 +706,7 @@ class ResearchPipeline:
                     retrieval_query = f"{task.goal} {' '.join(task.evidence_needs)} {dependency_context}".strip()
                     r0 = time.perf_counter()
                     retrieval_trace: dict = {}
-                    candidates = self._retrieve_candidates(
+                    candidates = await asyncio.to_thread(self._retrieve_candidates,
                         retrieval_query,
                         all_chunks,
                         top_k=cfg.task_top_k,
@@ -707,6 +764,11 @@ class ResearchPipeline:
                 lifecycle_status=lifecycle_status,
             )
             return finalize(status, answer, tasks, task_results)
+        except asyncio.CancelledError:
+            event("run_failed", lifecycle_status="FAILED", error="CLIENT_CANCELLED",
+                  error_type="CancelledError")
+            finalize("FAILED", "CLIENT_CANCELLED", [], [])
+            raise
         except Exception as exc:
             lifecycle_status = "FAILED"
             event(
@@ -727,6 +789,48 @@ class ResearchPipeline:
         if condition == "C":
             return {"P": True, "N": True, "O": True}
         return {"P": condition != "C-P", "N": condition != "C-N", "O": condition != "C-O"}
+
+
+class _AttemptCountingProvider:
+    """Count provider failures even when a downstream verifier swallows them."""
+
+    def __init__(self, provider, metrics):
+        self.provider = provider
+        self.metrics = metrics
+
+    def __getattr__(self, name):
+        value = getattr(self.provider, name)
+        if name not in {"generate", "generate_grounded"} or not callable(value):
+            return value
+
+        async def generate(**kwargs):
+            try:
+                return await value(**kwargs)
+            except Exception:
+                self.metrics.failed_llm_attempts += 1
+                raise
+
+        return generate
+
+
+class _BudgetedChecker:
+    """Keep the answer when the optional verification call exceeds the budget."""
+
+    def __init__(self, checker, metrics, cfg, event):
+        self.checker, self.metrics, self.cfg, self.event = checker, metrics, cfg, event
+        self.budget_cut = False
+
+    def guard(self, *args, **kwargs):
+        return self.checker.guard(*args, **kwargs)
+
+    def needs_verification(self, query, answer):
+        if not self.checker.needs_verification(query, answer):
+            return False
+        self.budget_cut = run_budget_exceeded(self.metrics, self.cfg, self.event, "verifier")
+        return not self.budget_cut
+
+    async def verify(self, provider, answer, evidence_texts, metrics, **kwargs):
+        return await self.checker.verify(provider, answer, evidence_texts, metrics, **kwargs)
 
 
 def _retrieval_query_with_conversation_context(

@@ -473,6 +473,23 @@ class PostgresSourceStore:
         if available != requested:
             raise LookupError("source not found")
 
+    def chunks_by_ids(self, ids, source_ids: list[str] | None = None) -> list[SourceChunk]:
+        wanted = [str(i) for i in ids if i]
+        if not wanted:
+            return []
+        with self.session_factory() as db:
+            filters = [
+                KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                KnowledgeSourceRecord.status == "READY",
+                KnowledgeChunkRecord.chunk_id.in_(wanted),
+            ]
+            if source_ids is not None:
+                filters.append(KnowledgeChunkRecord.source_id.in_(source_ids))
+            rows = db.scalars(
+                select(KnowledgeChunkRecord).join(KnowledgeSourceRecord).where(*filters)
+            ).all()
+            return [self._chunk(row) for row in rows]
+
     def list_sources(self) -> list[dict[str, Any]]:
         with self.session_factory() as db:
             rows = db.execute(
@@ -586,6 +603,23 @@ class PostgresRunStore:
             else:
                 for field, value in values.items():
                     setattr(record, field, value)
+
+    def mark_stale_running_runs(self, max_age_seconds: float) -> int:
+        cutoff = _now() - timedelta(seconds=max_age_seconds)
+        updated = 0
+        with self.session_factory.begin() as db:
+            rows = db.scalars(select(RunRecord).where(
+                RunRecord.owner_user_id == self.owner_user_id,
+                RunRecord.created_at < cutoff,
+            ).with_for_update()).all()
+            for row in rows:
+                run = dict(row.extra_data)
+                if (run.get("lifecycle_status") or run.get("status")) != "RUNNING":
+                    continue
+                run.update(status="FAILED", lifecycle_status="FAILED", answer="STALE_RUN", error="STALE_RUN")
+                row.status, row.answer, row.extra_data = "FAILED", "STALE_RUN", run
+                updated += 1
+        return updated
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         with self.session_factory() as db:

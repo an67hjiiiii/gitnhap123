@@ -7,6 +7,11 @@ from app.storage.run_store import RunStore
 from app.storage.source_store import SourceStore
 
 
+# Paragraphs are separate chunks now, so the question also names the injected paragraph's topic: both chunks are
+# retrieved and the original assertions (injection only in the user block, same verdict as a clean doc) still bite.
+Q = "What is the key rotation interval, and is the document text untrusted evidence?"
+
+
 class UnpersuadableFake:
     name = "fake"
     model = "fixed"
@@ -27,10 +32,10 @@ def test_document_injection_remains_evidence_and_does_not_change_pipeline_verdic
     doc = Path(__file__).resolve().parents[1] / "fixtures" / "acceptance_docs" / "injection.md"
     store = SourceStore(str(tmp_path / "sources"))
     source = store.import_text("injection.md", doc.read_text(encoding="utf-8"))
-    run = __import__("asyncio").run(ResearchPipeline(store, RunStore(str(tmp_path / "runs"))).run("What is the key rotation interval?", condition="A", provider_name="fake", source_ids=[source["source_id"]]))
+    run = __import__("asyncio").run(ResearchPipeline(store, RunStore(str(tmp_path / "runs"))).run(Q, condition="A", provider_name="fake", source_ids=[source["source_id"]]))
     system, user = provider.prompts[-1]
     clean = store.import_text("clean.md", "The key rotation interval is 90 days.")
-    clean_run = __import__("asyncio").run(ResearchPipeline(store, RunStore(str(tmp_path / "runs2"))).run("What is the key rotation interval?", condition="A", provider_name="fake", source_ids=[clean["source_id"]]))
+    clean_run = __import__("asyncio").run(ResearchPipeline(store, RunStore(str(tmp_path / "runs2"))).run(Q, condition="A", provider_name="fake", source_ids=[clean["source_id"]]))
     assert run["status"] == clean_run["status"]  # injected text did not change the status
     assert len(run["task_results"][0]["citations"]) == len(clean_run["task_results"][0]["citations"])
     assert "ignore previous instructions" not in system.casefold()

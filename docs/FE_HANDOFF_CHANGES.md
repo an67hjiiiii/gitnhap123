@@ -93,3 +93,20 @@ Khi quyết định là EDIT và có edited_text, export thêm dòng `   - Edite
 | Review: chạy + SSE tiến độ | POST /review/cases/{id}/runs, GET /review/runs/{id}/events | 202, sự kiện route.decided→job.done | Không |
 | Review: quyết định, xuất | PUT findings/{id}/decision, GET export | 200 | Không |
 | Studio workspaces/admin | GET /studio/workspaces, /studio/admin/* | 503 nếu kho file; 200 với PostgreSQL | Hiện thông báo cần PostgreSQL (đề xuất #5) |
+
+## Điều phối thông minh hơn (W-I)
+
+Chỉ thêm, không đổi hợp đồng cũ.
+
+- **`route.executed`** có thêm giá trị `"C_MULTI"`: câu nhiều ý (route C) được truy hồi riêng từng ý rồi gộp vào một bối cảnh, một lượt trả lời. `"B"` và `"C"` (kế hoạch nhiều bước, chỉ khi `CHAT_FORCE_PLAN=1`) giữ nguyên. Tắt bằng `CHAT_MULTI_RETRIEVAL=0`.
+- **Sự kiện mới trong `events` của run** (và thành dòng `status` trong `/api/chat/stream`, nhãn lấy từ `labels.vi.json` mục `progress`):
+
+| stage | khi nào | trường | nhãn tiếng Việt |
+|---|---|---|---|
+| `retrieval.multi` | câu có ≥2 ý | `ideas[]`, `dependent`, `queries` | Câu hỏi có {n} ý, mình tìm riêng từng ý rồi gộp lại… |
+| `retrieval.retry` | kết quả tìm yếu (luật), tối đa 1 lần | `reasons[]` (`NO_CANDIDATES`/`FEW_STRONG`/`MISSING_QUANTITY`), `rewritten_query`, `top_k`, `before`, `after`, `gained[]` | Kết quả tìm còn yếu, mình thử lại một lần với cách diễn đạt khác… |
+| `answer_guard` | câu trả lời bị lọc/đối chiếu | `notes[]` (`TRAILING_NEGATIVE_DROPPED:n`, `UNSUPPORTED_NUMBER_DROPPED:…`, `VERIFY_RAN`, `VERIFY_DROPPED:n`, `VERIFY_FLAGGED_KEPT:n`) | Đã đối chiếu câu trả lời với tài liệu. (chỉ hiện khi có `VERIFY_RAN`) |
+
+- Thứ tự một lượt chat: `routing` → (`rewriting`) → (`translating`) → `route` → `retrieval.multi` → `retrieval.retry` → `answer_guard`. Mọi bước đều tuỳ chọn trừ `routing` và `route`.
+- Biến môi trường (chỉ đọc trong BE): `RETRIEVAL_FUSION=bm25|off` (mặc định `bm25`: BM25 gộp với truy hồi hiện có bằng RRF), `RETRIEVAL_RETRY=0` tắt thử lại, `EMBEDDING_DIMENSION` (cho bge-m3 = 1024).
+- FE không cần sửa để chạy; để hiện vết điều phối, đọc `events[].stage` ở trên hoặc dòng `status` của stream.
