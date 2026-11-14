@@ -43,6 +43,7 @@ from app.research.provenance import build_provenance
 from app.research.synthesizer import synthesize
 from app.research.token_context import POLICIES, TokenContextController, plan_task_budgets
 from app.research.token_context import context_policy as env_context_policy
+from app.research.product_retrieval import product_retrieve
 from app.research.vanilla import answer_vanilla
 from app.research.worker import execute_task
 from app.retrieval.index_identity import IndexingError
@@ -143,6 +144,7 @@ class ResearchPipeline:
         on_event: Callable[[dict], None] | None = None,
         force_plan: bool = False,
         reply_language_hint: str | None = None,
+        multi_retrieval: bool = False,
     ) -> dict:
         condition = condition.upper()
         if condition not in CONDITIONS:
@@ -293,7 +295,7 @@ class ResearchPipeline:
                 and condition != "A"
                 and not force_plan
                 and understanding is not None
-                and is_simple_project_question(query, understanding.domains)
+                and (multi_retrieval or is_simple_project_question(query, understanding.domains))
             )
             if product_mode and condition != "A":
                 route = (
@@ -317,14 +319,22 @@ class ResearchPipeline:
             if condition == "A" or simple_product_request:
                 r0 = time.perf_counter()
                 retrieval_trace: dict = {}
-                candidates = self._retrieve_candidates(
-                    _retrieval_query_with_conversation_context(query, conversation_context),
-                    all_chunks,
-                    top_k=cfg.task_top_k,
-                    min_score=cfg.retrieval_min_score,
-                    source_ids=source_ids,
-                    fallback_trace=retrieval_trace,
-                )
+                retrieval_query_text = _retrieval_query_with_conversation_context(query, conversation_context)
+                if product_mode:
+                    candidates = await product_retrieve(
+                        self, provider, metrics, query=query, retrieval_query=retrieval_query_text,
+                        chunks=all_chunks, cfg=cfg, source_ids=source_ids, trace=retrieval_trace, event=event,
+                        multi=multi_retrieval, retry=True,
+                    )
+                else:
+                    candidates = self._retrieve_candidates(
+                        retrieval_query_text,
+                        all_chunks,
+                        top_k=cfg.task_top_k,
+                        min_score=cfg.retrieval_min_score,
+                        source_ids=source_ids,
+                        fallback_trace=retrieval_trace,
+                    )
                 metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                 metrics.retrieved_chunks += len(candidates)
                 selected, budget_dropped = apply_token_budget(candidates, cfg.max_context_tokens)

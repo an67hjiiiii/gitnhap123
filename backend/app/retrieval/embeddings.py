@@ -98,6 +98,7 @@ def make_embedder(dimension: int = 768) -> TextEmbedder:
     import os
 
     backend = os.getenv("EMBEDDING_BACKEND", "hash").strip().lower()
+    dimension = int(os.getenv("EMBEDDING_DIMENSION", str(dimension)))  # bge-m3 = 1024; needs its own collection
     if backend == "hash":
         return LocalHashEmbedder(dimension=dimension)
     if backend == "ollama":

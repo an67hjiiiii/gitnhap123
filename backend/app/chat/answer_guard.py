@@ -14,7 +14,7 @@ from app.review_adapters.slot_check import _numbers
 
 _NEGATIVE = re.compile(
     r"(không có thông tin|chưa có thông tin|không tìm thấy|không đề cập|không nêu|không được nêu|"
-    r"không có dữ liệu|không rõ|no information|not mentioned|does not mention|doesn't mention|not specified)",
+    r"không có dữ liệu|không rõ|không liên quan|no information|not mentioned|does not mention|doesn't mention|not specified)",
     re.IGNORECASE,
 )
 _SENTENCE_END = re.compile(r"(?<=[.!?…])\s+|\n+")
@@ -94,3 +94,64 @@ def guard_answer(answer: str, *, status: str, evidence_texts: Iterable[str],
         if removed:
             notes.append(f"TRAILING_NEGATIVE_DROPPED:{removed}")
     return GuardResult(body, notes)
+
+
+_DIGIT = re.compile(r"\d")
+
+
+def needs_verification(query: str, answer: str) -> bool:
+    """Flag only risky answers: they contain digits, or the question has several ideas."""
+    from app.research.product_retrieval import split_ideas
+
+    return bool(_DIGIT.search(answer)) or bool(split_ideas(query)[0])
+
+
+async def verify_sentences(provider, answer: str, evidence_texts: Iterable[str], metrics) -> tuple[str, list[str]]:
+    """Read-only checker: one call asks which numbered sentences are NOT supported by the sources.
+
+    Unsupported sentences are dropped (at least one sentence is always kept). Any failure keeps the answer.
+    """
+    sentences = split_sentences(answer)
+    texts = [t for t in evidence_texts if t]
+    if len(sentences) == 0 or not texts:
+        return answer, []
+    numbered = "\n".join(f"{i}. {s}" for i, s in enumerate(sentences, start=1))
+    try:
+        result = await provider.generate(
+            system=("You are a strict fact checker. You can only read. Given SOURCES and numbered ANSWER sentences, "
+                    "list the numbers of sentences whose facts are NOT stated in the sources. "
+                    'Reply with JSON only: {"unsupported":[numbers]}. If all are supported reply {"unsupported":[]}.'),
+            user="SOURCES:\n" + "\n---\n".join(texts) + "\n\nANSWER:\n" + numbered,
+        )
+        metrics.add_usage(result.usage)
+        import json
+
+        match = re.search(r"\{.*\}", str(result.text), re.S)
+        bad = {int(n) for n in (json.loads(match.group(0)).get("unsupported") or [])} if match else set()
+    except Exception:
+        return answer, []
+    bad = {n for n in bad if 1 <= n <= len(sentences)}
+    if not bad:
+        return answer, []
+    if len(bad) >= len(sentences):
+        return answer, ["VERIFY_ALL_UNSUPPORTED_KEPT"]
+    # A 4B checker over-flags. Drop a flagged sentence only if rules agree: most of its content words
+    # (or any of its numbers) are missing from the sources.
+    from app.retrieval.hybrid import tokens
+
+    joined = " ".join(texts)
+    evidence_terms = set(tokens(joined))
+    number = re.compile(r"\d+(?:[.,]\d+)?")
+    evidence_digits = set(number.findall(joined))
+    confirmed: set[int] = set()
+    for n in bad:
+        sentence = sentences[n - 1]
+        words = set(tokens(sentence))
+        missing_ratio = len(words - evidence_terms) / max(1, len(words))
+        wrong_number = any(d not in evidence_digits for d in number.findall(sentence))
+        if missing_ratio >= 0.5 or wrong_number:
+            confirmed.add(n)
+    if not confirmed or len(confirmed) >= len(sentences):
+        return answer, [f"VERIFY_FLAGGED_KEPT:{len(bad)}"]
+    kept = [s for i, s in enumerate(sentences, start=1) if i not in confirmed]
+    return " ".join(kept), [f"VERIFY_DROPPED:{len(confirmed)}"]

@@ -488,14 +488,17 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         elif body.product_mode:
             route = {"path": "C" if condition.startswith("C") else "B", "reason": "CONFIGURED", "params": {}}
         if route is not None:
-            say("route", "Câu hỏi nhiều ý, mình sẽ chia nhỏ để trả lời." if route["path"] == "C"
+            say("route", "Câu hỏi nhiều ý, mình sẽ tìm riêng từng ý rồi gộp lại." if route["path"] == "C"
                 else "Mình tra cứu trực tiếp trong tài liệu.")
 
         # Multi-step planning for chat is opt-in: in the local transcript it was slower (3-8x) and lost answers
         # that one grounded call found. Review runs use AUTO (route.chosen) separately.
         force_plan = bool(route and route["path"] == "C" and os.getenv("CHAT_FORCE_PLAN", "").strip() == "1")
+        multi_retrieval = bool(
+            route and route["path"] == "C" and not force_plan
+            and os.getenv("CHAT_MULTI_RETRIEVAL", "1").strip() != "0")
         if route is not None:
-            route["executed"] = "C" if force_plan else "B"
+            route["executed"] = "C" if force_plan else ("C_MULTI" if multi_retrieval else "B")
         conversations.add_message(conversation_id, "USER", message)
         run = await owner_pipeline(user, conversation_id).run(
             query,
@@ -508,6 +511,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             on_event=on_event,
             force_plan=force_plan,
             reply_language_hint=reply_hint,
+            multi_retrieval=multi_retrieval,
         )
         conversations.add_message(
             conversation_id,

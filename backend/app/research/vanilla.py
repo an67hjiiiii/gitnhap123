@@ -87,13 +87,16 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
 
     guard_notes: list[str] = []
     if guard and answer:
-        from app.chat.answer_guard import guard_answer
+        from app.chat.answer_guard import guard_answer, needs_verification, verify_sentences
 
         checked = guard_answer(
             answer, status=status, evidence_texts=[c.text for c in evidence],
             source_label=str(evidence[0].source_name or ""),
         )
         answer, guard_notes = checked.answer, checked.notes
+        if status in {"COMPLETE", "PARTIAL"} and needs_verification(query, answer):
+            answer, verify_notes = await verify_sentences(provider, answer, [c.text for c in evidence], metrics)
+            guard_notes = [*guard_notes, "VERIFY_RAN", *verify_notes]
 
     if valid:
         answer = answer.rstrip() + "\n\nNguồn: " + ", ".join(f"[{cid}]" for cid in valid)

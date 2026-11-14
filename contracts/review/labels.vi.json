@@ -250,6 +250,9 @@
         "searching": "Đang tìm trong tài liệu cho bước {task_id}…",
         "step_done": "Xong bước {task_id}.",
         "writing": "Đang tổng hợp câu trả lời…",
+        "multi_search": "Câu hỏi có {n} ý, mình tìm riêng từng ý rồi gộp lại…",
+        "retrying": "Kết quả tìm còn yếu, mình thử lại một lần với cách diễn đạt khác…",
+        "verifying": "Đã đối chiếu câu trả lời với tài liệu.",
         "failed": "Mình chưa xử lý được yêu cầu này."
     },
     "friendly_errors": {

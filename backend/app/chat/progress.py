@@ -9,6 +9,9 @@ _PROGRESS_STEPS = {
     "task_retrieval": "searching",
     "task_completed": "step_done",
     "synthesis": "writing",
+    "retrieval.multi": "multi_search",
+    "retrieval.retry": "retrying",
+    "answer_guard": "verifying",
     "run_failed": "failed",
 }
 _ENGLISH = {
@@ -18,6 +21,9 @@ _ENGLISH = {
     "searching": "Searching documents for step {task_id}?",
     "step_done": "Finished step {task_id}.",
     "writing": "Putting the answer together?",
+    "multi_search": "Your question has {n} parts; searching each one, then merging.",
+    "retrying": "Search results looked weak; trying once more with different wording.",
+    "verifying": "Checked the answer against the documents.",
     "failed": "I couldn?t process this request.",
 }
 _ERROR_EN = {
@@ -45,6 +51,8 @@ def stage_label(event: dict, language: str = "vi") -> dict | None:
         template = load_labels().get("progress", {}).get(step)
         if not template:
             return None
+    if stage == "answer_guard" and "VERIFY_RAN" not in (event.get("notes") or []):
+        return None
     if stage == "run_failed":
         if language == "en":
             return {"step": step, "text": friendly_error("PIPELINE_RUN_FAILED", language)["message"]}
@@ -53,6 +61,8 @@ def stage_label(event: dict, language: str = "vi") -> dict | None:
         tasks = event.get("tasks", [])
         goals = [str(task.get("goal", ""))[:60] for task in tasks]
         text = template.format(n=len(tasks), goals="; ".join(goals))
+    elif stage == "retrieval.multi":
+        text = template.format(n=len(event.get("ideas") or []))
     elif stage in {"task_retrieval", "task_completed"}:
         result = event.get("result", {})
         text = template.format(task_id=event.get("task_id") or result.get("task_id", ""))
