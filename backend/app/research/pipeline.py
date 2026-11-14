@@ -145,6 +145,7 @@ class ResearchPipeline:
         force_plan: bool = False,
         reply_language_hint: str | None = None,
         multi_retrieval: bool = False,
+        answer_checker=None,
     ) -> dict:
         condition = condition.upper()
         if condition not in CONDITIONS:
@@ -361,7 +362,7 @@ class ResearchPipeline:
                         "vi" if has_vi_marks or detect_language(query) != "en" else "en")
                 result = await answer_vanilla(
                     provider, query, selected, metrics, reply_language=reply_language,
-                    **({"guard": True} if product_mode else {}))
+                    **({"checker": answer_checker} if product_mode and answer_checker is not None else {}))
                 if result.guard_notes:
                     event("answer_guard", notes=list(result.guard_notes))
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)

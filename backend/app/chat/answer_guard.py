@@ -155,3 +155,19 @@ async def verify_sentences(provider, answer: str, evidence_texts: Iterable[str],
         return answer, [f"VERIFY_FLAGGED_KEPT:{len(bad)}"]
     kept = [s for i, s in enumerate(sentences, start=1) if i not in confirmed]
     return " ".join(kept), [f"VERIFY_DROPPED:{len(confirmed)}"]
+
+
+class AnswerChecker:
+    """Injected into the research pipeline so core code never imports review adapters."""
+
+    @staticmethod
+    def guard(answer, *, status, evidence_texts, source_label=""):
+        return guard_answer(answer, status=status, evidence_texts=evidence_texts, source_label=source_label)
+
+    @staticmethod
+    def needs_verification(query, answer):
+        return needs_verification(query, answer)
+
+    @staticmethod
+    async def verify(provider, answer, evidence_texts, metrics):
+        return await verify_sentences(provider, answer, evidence_texts, metrics)

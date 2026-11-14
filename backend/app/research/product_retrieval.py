@@ -16,13 +16,14 @@ from app.retrieval.text import retrieve
 _DEPENDENT = re.compile(
     r"(sau đó|rồi (?:thì )?(?:cho|nêu|tính|so sánh)|tiếp theo|dựa (?:trên|vào) (?:đó|kết quả)|nếu .+ thì|"
     r"\bthen\b|after that|based on (?:that|the result))", re.IGNORECASE)
+_SPLITTER = re.compile(  # same clause markers as the review auto-route (kept local: core must not import review code)
+    r"\s*(?:;|\bvà\b|\bđồng\s+thời\b|\bcũng\s+như\b|\band\b|\bas\s+well\s+as\b)\s*", re.IGNORECASE)
+_COMMA_BEFORE_VERB = re.compile(r",\s*(?=(?:phải|cần|được|must|shall|should)\b)", re.IGNORECASE)
 _MAX_IDEAS = 4
 
 
 def split_ideas(query: str) -> tuple[list[str], bool]:
     """Return (idea clauses, dependent). Fewer than 2 usable clauses -> ([], False)."""
-    from app.review_adapters.auto_route import _COMMA_BEFORE_VERB, _SPLITTER  # lazy: avoids an import cycle
-
     text = _COMMA_BEFORE_VERB.sub("; ", query)
     parts = [re.sub(r"^[\s,.;:]+|[\s?!.;,]+$", "", p) for p in _SPLITTER.split(text)]
     ideas = [p for p in parts if len(p.split()) >= 2][:_MAX_IDEAS]

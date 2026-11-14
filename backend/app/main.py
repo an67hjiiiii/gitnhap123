@@ -400,6 +400,7 @@ def _chat_condition(body, runtime_config):
 
 async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notify=None):
     """One chat turn: intent -> memory/rewrite -> path choice -> pipeline. notify(step, text) reports progress."""
+    from app.chat.answer_guard import AnswerChecker
     from app.chat.intent import classify_intent, classify_with_llm
     from app.chat.language import document_language, text_language, translate_query
     from app.chat.memory import build_memory, has_reference, render_context, rewrite_follow_up
@@ -512,6 +513,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             force_plan=force_plan,
             reply_language_hint=reply_hint,
             multi_retrieval=multi_retrieval,
+            answer_checker=AnswerChecker(),
         )
         conversations.add_message(
             conversation_id,
