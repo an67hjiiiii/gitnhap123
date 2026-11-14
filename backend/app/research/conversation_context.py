@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-
 DEFAULT_MAX_MESSAGES = 6
 DEFAULT_MAX_CHARS = 6_000
 

@@ -4,7 +4,6 @@ import re
 import unicodedata
 from collections.abc import Iterable
 
-
 _INTENT_RESPONSES = {
     "greeting": {
         "hi",

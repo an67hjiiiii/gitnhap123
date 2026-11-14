@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 import hashlib
+
 from app.core.types import SourceChunk
+
 
 class ContextController:
     def __init__(self, max_chars: int = 5000):

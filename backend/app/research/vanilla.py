@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import json
 import re
+
 from app.core.citations import validate_citations
 from app.core.types import RunMetrics, SourceChunk, TaskResult
 
@@ -23,7 +25,7 @@ REPLY_LANGUAGE_HINT = {
 }
 
 
-async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None) -> TaskResult:
+async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None, guard: bool = False) -> TaskResult:
     if not evidence:
         return TaskResult(
             task_id="T1",
@@ -83,6 +85,16 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         status = "PARTIAL"
         missing.append("answer has no valid citation")
 
+    guard_notes: list[str] = []
+    if guard and answer:
+        from app.chat.answer_guard import guard_answer
+
+        checked = guard_answer(
+            answer, status=status, evidence_texts=[c.text for c in evidence],
+            source_label=str(evidence[0].source_name or ""),
+        )
+        answer, guard_notes = checked.answer, checked.notes
+
     if valid:
         answer = answer.rstrip() + "\n\nNguồn: " + ", ".join(f"[{cid}]" for cid in valid)
 
@@ -95,4 +107,5 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         citations=valid,
         invalid_citations=invalid,
         missing_information=missing,
+        guard_notes=guard_notes,
     )

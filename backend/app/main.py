@@ -401,6 +401,7 @@ def _chat_condition(body, runtime_config):
 async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notify=None):
     """One chat turn: intent -> memory/rewrite -> path choice -> pipeline. notify(step, text) reports progress."""
     from app.chat.intent import classify_intent, classify_with_llm
+    from app.chat.language import document_language, text_language, translate_query
     from app.chat.memory import build_memory, has_reference, render_context, rewrite_follow_up
     from app.providers.factory import get_provider
     from app.review_adapters.auto_route import choose_path
@@ -458,6 +459,22 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             query = await rewrite_follow_up(provider, message, memory)
         context_text = render_context(memory)
 
+        # G3: question in another language than the documents -> one model call to translate it before retrieval;
+        # the answer still follows the asker's language.
+        asker_language = text_language(message)
+        reply_hint = None
+        try:
+            sample = owner_source_store(user).chunks(selected_source_ids)
+        except Exception:
+            sample = []
+        doc_language = document_language(c.text for c in sample)
+        if doc_language and doc_language != asker_language:
+            say("translating", "Đang chuyển câu hỏi sang ngôn ngữ của tài liệu…")
+            translated = await translate_query(provider, query, doc_language)
+            if translated != query:
+                query = translated
+                reply_hint = asker_language
+
         route = None
         if not condition_fixed:
             c_available = True
@@ -490,6 +507,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             product_mode=body.product_mode,
             on_event=on_event,
             force_plan=force_plan,
+            reply_language_hint=reply_hint,
         )
         conversations.add_message(
             conversation_id,
@@ -503,6 +521,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         return {
             **run, "events": events, "conversation_id": conversation_id, "intent": intent_info,
             "route": route, "rewritten_query": query if query != message else None,
+            "query_language": {"asker": asker_language, "documents": doc_language, "translated": bool(reply_hint)},
         }
     except LookupError as exc:
         raise HTTPException(404, "SOURCE_NOT_FOUND") from exc

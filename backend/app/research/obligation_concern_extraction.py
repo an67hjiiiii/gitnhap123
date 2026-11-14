@@ -6,18 +6,16 @@ import unicodedata
 from collections.abc import Mapping
 from typing import Any
 
-from app.research.registry import REGISTRY, validate_domain
-from app.research.decomposer import detect_domains
 from app.core.structured_output import decode_structured_json
-from app.retrieval.text import terms
-
 from app.core.types import (
     Concern,
     Obligation,
     ObligationConcernExtraction,
     RunMetrics,
 )
-
+from app.research.decomposer import detect_domains
+from app.research.registry import REGISTRY, validate_domain
+from app.retrieval.text import terms
 
 EXTRACTION_PROMPT_VERSION = "extract-v5-question-and-evidence-scope"
 EXTRACTION_SYSTEM_PROMPT = (

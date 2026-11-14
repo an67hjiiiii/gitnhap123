@@ -1,27 +1,27 @@
 from __future__ import annotations
-import unicodedata
+
+import logging
 import re
 import time
+import unicodedata
 import uuid
-import logging
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timezone
+
 from app.core.config import RuntimeConfig
 from app.core.graph import topological_order, validate_tasks
-from app.core.telemetry import process_rss_mb, gpu_memory_mb
-from app.core.types import SourceChunk, Task, TaskPlan, TaskResult, RunMetrics
+from app.core.telemetry import gpu_memory_mb, process_rss_mb
+from app.core.types import RunMetrics, SourceChunk, Task, TaskPlan, TaskResult
 from app.providers.factory import get_provider
 from app.research.context_controller import ContextController
-from app.research.provenance import build_provenance
-from app.research.token_context import POLICIES, TokenContextController, context_policy as env_context_policy, plan_task_budgets
 from app.research.conversation_context import ConversationContext
 from app.research.decomposer import (
-    canonicalize_task_plan,
     PLANNER_SEMANTICS_VERSION,
     TASK_PLAN_PROMPT_VERSION,
     _safe_warning,
     build_semantic_task_plan_repair_prompt,
+    canonicalize_task_plan,
     decompose_plan,
     generate_task_plan,
     parse_task_plan_output,
@@ -29,24 +29,27 @@ from app.research.decomposer import (
 )
 from app.research.normalizer import normalize_tasks
 from app.research.obligation_concern_extraction import extract_obligations_and_concerns
-from app.research.product_intents import (
-    is_simple_project_question,
-    product_help_response,
-)
 from app.research.plan_verification import (
     decide_repair,
     validate_repaired_plan,
     verify_task_plan,
 )
-from app.research.planning_retrieval import PlanningRetriever, PLANNING_SCORER_VERSION
-from app.research.worker import execute_task
+from app.research.planning_retrieval import PLANNING_SCORER_VERSION, PlanningRetriever
+from app.research.product_intents import (
+    is_simple_project_question,
+    product_help_response,
+)
+from app.research.provenance import build_provenance
 from app.research.synthesizer import synthesize
+from app.research.token_context import POLICIES, TokenContextController, plan_task_budgets
+from app.research.token_context import context_policy as env_context_policy
 from app.research.vanilla import answer_vanilla
-from app.retrieval.text import retrieve, apply_token_budget, estimate_tokens, terms
-from app.retrieval.multilingual import build_query_variants, detect_language
+from app.research.worker import execute_task
 from app.retrieval.index_identity import IndexingError
-from app.storage.source_store import SourceStore
+from app.retrieval.multilingual import build_query_variants, detect_language
+from app.retrieval.text import apply_token_budget, estimate_tokens, retrieve, terms
 from app.storage.run_store import RunStore
+from app.storage.source_store import SourceStore
 
 CONDITIONS = {"A", "B", "C", "C-P", "C-N", "C-O"}
 _LEXICAL_FALLBACK_FILLERS = frozenset(
@@ -139,6 +142,7 @@ class ResearchPipeline:
         context_policy: str | None = None,
         on_event: Callable[[dict], None] | None = None,
         force_plan: bool = False,
+        reply_language_hint: str | None = None,
     ) -> dict:
         condition = condition.upper()
         if condition not in CONDITIONS:
@@ -343,8 +347,13 @@ class ResearchPipeline:
                 if product_mode:
                     # Có dấu tiếng Việt thì trả lời tiếng Việt (detect_language bỏ sót chữ như "ệ", "ề").
                     has_vi_marks = any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", query)) or "đ" in query.lower()
-                    reply_language = "vi" if has_vi_marks or detect_language(query) != "en" else "en"
-                result = await answer_vanilla(provider, query, selected, metrics, reply_language=reply_language)
+                    reply_language = reply_language_hint or (
+                        "vi" if has_vi_marks or detect_language(query) != "en" else "en")
+                result = await answer_vanilla(
+                    provider, query, selected, metrics, reply_language=reply_language,
+                    **({"guard": True} if product_mode else {}))
+                if result.guard_notes:
+                    event("answer_guard", notes=list(result.guard_notes))
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                 tasks, task_results = [task], [result]
                 answer = result.answer

@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 import json
 import re
+
 from app.core.citations import validate_citations
-from app.core.types import Task, TaskResult, SourceChunk, RunMetrics
+from app.core.types import RunMetrics, SourceChunk, Task, TaskResult
 from app.research.registry import profile
 
 

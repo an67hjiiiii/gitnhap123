@@ -8,17 +8,16 @@ existing task-validator contract.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from app.core.graph import validate_tasks
 from app.core.types import TaskPlan
-from app.research.registry import validate_domain
 from app.research.decomposer import detect_domains
+from app.research.registry import validate_domain
 from app.retrieval.text import terms
-
 
 GENERAL_CONCERN_DOMAIN = "general"
 _GENERAL_CONCERN_PREFIX = "general concern about "

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from app.core.types import SourceChunk
 from app.retrieval.text import make_chunks, retrieve, terms
 

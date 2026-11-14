@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import json
 import re
-from copy import deepcopy
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Any
 

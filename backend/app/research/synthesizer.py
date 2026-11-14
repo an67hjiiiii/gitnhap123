@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 import re
-from app.core.types import TaskResult, RunMetrics
+
+from app.core.types import RunMetrics, TaskResult
+
 
 async def synthesize(provider, query: str, results: list[TaskResult], metrics: RunMetrics) -> str:
     compact = []
