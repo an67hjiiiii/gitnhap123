@@ -1,6 +1,6 @@
 """Deterministic value coverage over cited excerpts, not semantic entailment.
 
-Units use fixed conversions (30 days/month, 365 days/year, decimal byte sizes).
+Units use fixed conversions plus calendar-year and binary-byte aliases.
 Single title-case words at sentence starts are ambiguous and are ignored; internal
 capitalized words, multiword names, acronyms and identifiers are lexical entities.
 Quoted values are literals. Matching is case-insensitive, preserves accents for
@@ -54,6 +54,53 @@ _NUMBER = re.compile(
     + "|".join(re.escape(u) for u in sorted(_UNITS, key=len, reverse=True))
     + r")(?!\w)", re.I,
 )
+
+# Closed vocabulary, scoped to phrases immediately preceding a known unit.
+_WORDS = {}
+_EN_ONES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+_EN_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+_VI_ONES = "khong mot hai ba bon nam sau bay tam chin".split()
+for _n in range(101):
+    if _n < 20:
+        _WORDS[_EN_ONES[_n]] = str(_n)
+    elif _n < 100:
+        _tens = _EN_TENS[_n // 10 - 2]
+        _WORDS[_tens + (" " + _EN_ONES[_n % 10] if _n % 10 else "")] = str(_n)
+    else:
+        _WORDS["one hundred"] = "100"
+    if _n < 10:
+        _WORDS[_VI_ONES[_n]] = str(_n)
+    elif _n < 100:
+        _prefix = "muoi" if _n < 20 else _VI_ONES[_n // 10] + " muoi"
+        _tail = _VI_ONES[_n % 10]
+        _WORDS[_prefix + (" " + _tail if _n % 10 else "")] = str(_n)
+        if _n % 10 == 5:
+            _WORDS[_prefix + " lam"] = str(_n)
+        if _n > 20 and _n % 10 == 4:
+            _WORDS[_prefix + " tu"] = str(_n)
+    else:
+        _WORDS["mot tram"] = "100"
+_WORD_NUMBER = re.compile(
+    r"(?<![\w-])(?:" + "|".join(
+        re.escape(word).replace(r"\ ", r"[\s-]+")
+        for word in sorted(_WORDS, key=len, reverse=True)
+    ) + r")(?=\s*(?:" + "|".join(
+        re.escape(unit) for unit in sorted(_UNITS, key=len, reverse=True)
+    ) + r")(?!\w))"
+)
+
+
+def _replace_number_words(text: str) -> str:
+    text = unicodedata.normalize("NFC", text)
+    # Casefold may expand a character (e.g. sharp S); preserve original offsets.
+    folded = "".join(_fold(char) for char in text)
+    offsets = [index for index, char in enumerate(text) for _ in _fold(char)]
+    for match in reversed(list(_WORD_NUMBER.finditer(folded))):
+        word = re.sub(r"[\s-]+", " ", match[0])
+        start, end = offsets[match.start()], offsets[match.end() - 1] + 1
+        text = text[:start] + _WORDS[word] + text[end:]
+    return text
+
 _QUOTED = re.compile(r'"([^"\n]+)"|“([^”\n]+)”|‘([^’\n]+)’|`([^`\n]+)`|(?<!\w)\x27([^\x27\n]+)\x27')
 _PATH = re.compile(r"(?<![\w/])/(?:[\w{}.-]+/)*[\w{}.-]+/?")
 _TOKEN = re.compile(r"[^\W_][\w]*(?:[-.:][\w]+)*", re.UNICODE)
@@ -67,6 +114,7 @@ class Slot:
     kind: str
     value: str
     unit: str = ""
+    alternatives: tuple[str, ...] = ()
 
     def __str__(self) -> str:
         return f"{self.kind}:{self.value}{' ' + self.unit if self.unit else ''}"
@@ -82,7 +130,7 @@ def _decimal(value: str) -> Decimal:
 
 def _numbers(text: str) -> list[Slot]:
     slots = []
-    for match in _NUMBER.finditer(_fold(text)):
+    for match in _NUMBER.finditer(_fold(_replace_number_words(text))):
         value = match["value"]
         # Multiple decimal separators are not a number understood by this lexer.
         if value.count(".") > 1 or ("," in value and "." not in value
@@ -92,13 +140,28 @@ def _numbers(text: str) -> list[Slot]:
         if "," in value and "." in value and not re.fullmatch(r"\d{1,3}(?:,\d{3})+\.\d+", value):
             continue
         slots.append(Slot("number", format(_decimal(value).normalize(), "f"),
-                          _UNITS[match["unit"]][0]))
+                          _UNITS[match["unit"]][0],
+                          (value.replace(".", ""),) if re.fullmatch(r"\d+\.\d{3}", value) else ()))
     return slots
 
 
 def _quantity_key(slot: Slot) -> tuple[str, Decimal]:
     _, dimension, factor = _UNITS[slot.unit.casefold()]
     return dimension, Decimal(slot.value) * factor
+
+
+def _quantity_keys(slot: Slot) -> set[tuple[str, Decimal]]:
+    """Independent accepted readings; never chain ambiguous conversions."""
+    keys = {_quantity_key(slot)}
+    for value in (slot.value, *slot.alternatives):
+        quantity = Decimal(value)
+        _, dimension, factor = _UNITS[slot.unit.casefold()]
+        keys.add((dimension, quantity * factor))
+        if slot.unit in {"months", "years"}:
+            keys.add(("calendar_months", quantity * (12 if slot.unit == "years" else 1)))
+        if slot.unit in {"KB", "MB", "GB"}:
+            keys.add(("bytes", quantity * 1024 ** {"KB": 1, "MB": 2, "GB": 3}[slot.unit]))
+    return keys
 
 
 def extract_slots(text: str) -> tuple[Slot, ...]:
@@ -111,7 +174,8 @@ def extract_slots(text: str) -> tuple[Slot, ...]:
         if value.strip():
             slots.append(Slot("literal", _text(value)))
         masked[match.start():match.end()] = " " * len(match[0])
-    unquoted = "".join(masked)
+    unquoted = _replace_number_words("".join(masked))
+    masked = list(unquoted)
     slots.extend(_numbers(unquoted))
     # Unit words such as MB and Days are quantities, not additional entities.
     unit_words = {word for alias in _UNITS for word in alias.split()}
@@ -167,11 +231,11 @@ def check_slots(requirement: str, evidence_texts: Iterable[str]) -> SlotCoverage
     """Check each value against individual cited chunks, allowing union coverage."""
     slots = extract_slots(requirement)
     excerpts = tuple(evidence_texts)
-    quantities = {_quantity_key(slot) for text in excerpts for slot in _numbers(text)}
+    quantities = {key for text in excerpts for slot in _numbers(text) for key in _quantity_keys(slot)}
     missing = []
     for slot in slots:
         if slot.kind == "number":
-            covered = _quantity_key(slot) in quantities
+            covered = bool(_quantity_keys(slot) & quantities)
         else:
             # Word boundaries prevent ERR_40 matching ERR_401 or /v1 matching /v10.
             pattern = r"(?<![\w/.-])" + re.escape(slot.value) + r"(?![\w/-]|\.[\w])"

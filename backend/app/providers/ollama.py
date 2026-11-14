@@ -1,9 +1,10 @@
 from __future__ import annotations
 import os
+import json
 import uuid
 import httpx
 from app.core.types import ProviderResult, Usage
-from app.providers.base import Provider
+from app.providers.base import OutputTruncatedError, Provider
 
 class OllamaProvider(Provider):
     name = "ollama"
@@ -104,6 +105,17 @@ class OllamaProvider(Provider):
         text = (data.get("message") or {}).get("content", "")
         inp = int(data.get("prompt_eval_count") or 0)
         out = int(data.get("eval_count") or 0)
+        usage = Usage(inp, out)
+        # Only machine-readable (format=json/schema) calls: truncated prose is still usable text.
+        if "format" in payload and data.get("done_reason") == "length":
+            raise OutputTruncatedError(text, usage, output_limit, "length")
+        if "format" in payload and out >= output_limit:
+            try:
+                json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise OutputTruncatedError(
+                    text, usage, output_limit, data.get("done_reason")
+                ) from exc
         return ProviderResult(text=text, usage=Usage(inp, out), request_id="ollama_"+uuid.uuid4().hex[:10], model=self.model)
 
     async def health(self) -> dict:
