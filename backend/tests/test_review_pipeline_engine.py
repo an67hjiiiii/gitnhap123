@@ -81,8 +81,11 @@ def test_pipeline_status_mapping(setup_review, monkeypatch, status, cited, verdi
     assert finding.review == Decision.NONE
     assert reqs[0].confirmed is True
     assert calls == [(reqs[0].text, {"source_ids": case.source_ids, "condition": "A"})]
-    assert [event[0] for event in events] == ["task.started", "pipeline.trace", "finding.created"]
-    assert events[2][1] == finding.model_dump(mode="json")
+    expected_events = ["task.started", "pipeline.trace", "finding.created"]
+    if status == "FAILED":  # was: no task.failed; now a stable-coded failure event precedes the finding
+        expected_events = ["task.started", "pipeline.trace", "task.failed", "finding.created"]
+    assert [event[0] for event in events] == expected_events
+    assert events[-1][1] == finding.model_dump(mode="json")
 
 
 def test_only_cited_retrieved_scoped_chunks_become_evidence(setup_review, monkeypatch):
@@ -543,7 +546,8 @@ def test_answer_check_never_upgrades_or_overrides_evidence_conflict(
     events = []
     finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda *args: events.append(args))
     assert finding.verdict == expected
-    assert [e.evidence_id for e in finding.evidence] == ([chunk.chunk_id] if cited else [])
+    # A FAILED run has no usable answer: evidence is cleared and task.failed is emitted (was: kept).
+    assert [e.evidence_id for e in finding.evidence] == ([chunk.chunk_id] if cited and status != "FAILED" else [])
     assert any(name == "verdict.answer_inconsistent" for name, _ in events) == (
         status == "COMPLETE" and expected == Verdict.PARTIAL
     )

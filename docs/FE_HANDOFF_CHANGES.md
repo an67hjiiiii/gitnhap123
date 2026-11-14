@@ -52,3 +52,7 @@ Với SSE, hiển thị tiến trình bằng `events[eventName]`; unknown event 
 | `REVIEW_RATE_STATUS_PER_MIN` | Giới hạn riêng cho `GET /runs/{id}` và SSE (mặc định 600). |
 
 `task_budget`, `pipeline.trace`, giới hạn body và các trường trên được giữ theo hợp đồng hiện hành; FE nên đọc OpenAPI snapshot thay vì tự suy đoán thêm trường.
+
+## Lỗi một yêu cầu (task.failed)
+- Khi pipeline trả run FAILED, finding vẫn là UNDETERMINED (evidence rỗng; trước đây giữ evidence nếu có) và có thêm event pipeline.trace + 	ask.failed với error_type thuộc: PLAN_REJECTED, PROVIDER_LIMIT, CONDITION_NOT_AVAILABLE, PIPELINE_RUN_FAILED, UNKNOWN. error luôn là thông điệp cố định; chi tiết chỉ ở log máy chủ.
+- Nhãn tiếng Việt ở contracts/review/labels.vi.json mục 	ask_failed (what/todo).

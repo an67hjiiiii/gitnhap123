@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import os
 import re
 import time
@@ -14,6 +15,30 @@ from app.research.token_context import POLICIES
 from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
 from app.review_adapters.slot_check import check_slots
 from app.review_adapters.verdict_rules import assess, check_answer
+
+_log = logging.getLogger(__name__)
+
+
+class _RunFailed(Exception):
+    """Pipeline returned status FAILED; carries a stable code, never shown to users as text."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def _failure_code(result: dict) -> str:
+    events = result.get("events", [])
+    failed = next((e for e in reversed(events) if e.get("stage") == "run_failed"), {})
+    error_type = str(failed.get("error_type") or "")
+    error = str(failed.get("error") or "")
+    if any(e.get("stage") == "planning_rejected" for e in events):
+        return "PLAN_REJECTED"
+    if "is not available in profile" in error:
+        return "CONDITION_NOT_AVAILABLE"
+    if error_type in {"LimitExceeded", "TimeoutException", "ReadTimeout", "ConnectError", "HTTPStatusError"}:
+        return "PROVIDER_LIMIT"
+    return "PIPELINE_RUN_FAILED"
 
 
 class PipelineReviewEngine:
@@ -167,6 +192,22 @@ class PipelineReviewEngine:
                         **policy_kwargs,
                     )
                     stages = {event.get("stage"): event for event in result.get("events", [])}
+                    if result.get("status") == "FAILED":
+                        failed = stages.get("run_failed") or {}
+                        _log.warning(
+                            "Review pipeline run failed case_id=%s requirement_id=%s error_type=%s error=%s",
+                            case.id, requirement.id, failed.get("error_type"), failed.get("error"),
+                        )
+                        self._emit(emit, "pipeline.trace", {
+                            **payload, "condition": result.get("condition"),
+                            "config_hash": result.get("config_hash"),
+                            "planning_retrieval": stages.get("planning_retrieval") if self.condition != "A" else None,
+                            "normalization": stages.get("normalization") if self.condition != "A" else None,
+                            "context_policy": (result.get("effective_config", {}).get("context_policy")
+                                               if self.condition != "A" else None),
+                            "task_budget": None,
+                        })
+                        raise _RunFailed(_failure_code(result))
                     budget_plan = stages.get("adaptive_budget_plan")
                     self._emit(emit, "pipeline.trace", {
                         **payload,
@@ -229,13 +270,22 @@ class PipelineReviewEngine:
                                 **payload, "code": "SLOTS_MISSING",
                                 "params": {"missing_slots": list(coverage.missing_slots)},
                             })
-                except Exception:
+                except _RunFailed as failure:
                     verdict = Verdict.UNDETERMINED
+                    evidence = []
+                    self._emit(emit, "task.failed", {
+                        **payload, "error_type": failure.code,
+                        "error": "Requirement execution failed",
+                    })
+                except Exception as exc:
+                    verdict = Verdict.UNDETERMINED
+                    code = ("CONDITION_NOT_AVAILABLE" if "is not available in profile" in str(exc)
+                            else "UNKNOWN")
                     evidence = []
                     import logging
                     logging.getLogger(__name__).exception("Review requirement execution failed")
                     self._emit(emit, "task.failed", {
-                        **payload, "error_type": "UNKNOWN",
+                        **payload, "error_type": code,
                         "error": "Requirement execution failed",
                     })
             finding = Finding(
