@@ -18,6 +18,8 @@ class CaseRepository(Protocol):
         self, owner_user_id: str, case_id: str, values: list[Finding]
     ) -> None: ...
 
+    def save_finding(self, owner_user_id: str, case_id: str, value: Finding) -> None: ...
+
     def get_findings(self, owner_user_id: str, case_id: str) -> list[Finding]: ...
 
     def save_job(self, owner_user_id: str, job: RunJob) -> None: ...
@@ -70,6 +72,11 @@ class InMemoryCaseRepository:
         if self.get_case(owner_user_id, case_id) is None:
             return []
         return [value.model_copy(deep=True) for value in self._findings.get(case_id, [])]
+
+    def save_finding(self, owner_user_id: str, case_id: str, value: Finding) -> None:
+        findings = self.get_findings(owner_user_id, case_id)
+        findings = [item for item in findings if item.requirement_id != value.requirement_id]
+        self.save_findings(owner_user_id, case_id, [*findings, value])
 
     def save_job(self, owner_user_id: str, job: RunJob) -> None:
         if self.get_case(owner_user_id, job.case_id) is None:

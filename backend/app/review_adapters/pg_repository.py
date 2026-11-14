@@ -15,7 +15,7 @@ from weakref import WeakKeyDictionary
 
 from sqlalchemy import delete, func, select
 
-from app.review.schemas import Finding, JobState, Requirement, ReviewCase, RunJob
+from app.review.schemas import CaseStatus, Finding, JobState, Requirement, ReviewCase, RunJob
 from app.storage.postgres.review_models import (
     ReviewCaseRecord as Case,
     ReviewFindingRecord as FindingRow,
@@ -182,6 +182,27 @@ class PostgresCaseRepository:
                         FindingRow.owner_user_id == owner, FindingRow.case_id == case_id,
                     ).order_by(FindingRow.created_at, FindingRow.id))]
 
+    @staticmethod
+    def _put_finding(db, owner, case_id, value):
+        if value.case_id != case_id:
+            raise ValueError("case mismatch")
+        row = db.scalar(select(FindingRow).where(
+            FindingRow.owner_user_id == owner, FindingRow.case_id == case_id,
+            FindingRow.requirement_id == value.requirement_id,
+        ).with_for_update())
+        if row is None:
+            db.add(FindingRow(**value.model_dump(mode="json"), owner_user_id=owner,
+                              created_at=datetime.now(timezone.utc)))
+        else:
+            for key, item in value.model_dump(mode="json").items():
+                setattr(row, key, item)
+
+    def save_finding(self, owner_user_id, case_id, value):
+        owner = self._owner(owner_user_id)
+        with self._transaction() as db:
+            self._require_case(db, owner, case_id)
+            self._put_finding(db, owner, case_id, value)
+
     def save_job(self, owner_user_id: str, job: RunJob) -> None:
         owner = self._owner(owner_user_id)
         with self._transaction() as db:
@@ -220,12 +241,14 @@ class PostgresCaseRepository:
             raise ValueError("now must be timezone-aware")
         return _utc(now) + timedelta(seconds=lease_seconds)
 
-    def claim_next_job(self, lease_owner, lease_seconds, now, *, owner_user_id=None):
+    def claim_next_job(self, lease_owner, lease_seconds, now, *, owner_user_id=None,
+                       all_owners=False, prepare_case=False):
         """Claim the oldest queued job for this owner; expiry requires explicit release."""
-        owner = self._owner(owner_user_id)
+        owner = None if all_owners and self.owner_user_id is None else self._owner(owner_user_id)
         expires = self._lease_end(lease_owner, lease_seconds, now)
         with self._transaction() as db:
-            query = self._job_query(owner).where(Job.state == JobState.QUEUED).order_by(
+            query = (select(Job) if owner is None else self._job_query(owner))
+            query = query.where(Job.state == JobState.QUEUED).order_by(
                 Job.created_at, Job.seq, Job.id,
             ).limit(1)
             if db.get_bind().dialect.name == "postgresql":
@@ -239,6 +262,13 @@ class PostgresCaseRepository:
             row.heartbeat_at = _utc(now)
             row.started_at = row.started_at or _utc(now)
             row.finished_at = row.error = None
+            if prepare_case:
+                case = self._require_case(db, row.owner_user_id, row.case_id)
+                case.status, case.updated_at = CaseStatus.RUNNING.value, _utc(now)
+                if row.attempt == 1:
+                    db.execute(delete(FindingRow).where(
+                        FindingRow.owner_user_id == row.owner_user_id, FindingRow.case_id == row.case_id,
+                    ))
             return self._snapshot(row)
 
     @classmethod
@@ -275,7 +305,8 @@ class PostgresCaseRepository:
             row.heartbeat_at = _utc(now)
             return True
 
-    def finish_job(self, job_id, lease_owner, state, now, error=None, *, owner_user_id=None):
+    def finish_job(self, job_id, lease_owner, state, now, error=None, *, owner_user_id=None,
+                   event_type=None, update_case=False):
         owner = self._owner(owner_user_id)
         state = JobState(state)
         if state not in _TERMINAL:
@@ -286,6 +317,14 @@ class PostgresCaseRepository:
                 return False
             row.state, row.finished_at, row.error = state.value, _utc(now), error
             row.lease_owner = row.lease_expires_at = None
+            if event_type:
+                self._append_event(db, row, event_type, {"message": error} if error else {}, now)
+            if update_case:
+                case = self._require_case(db, owner, row.case_id)
+                case.status = (CaseStatus.COMPLETE.value if state == JobState.SUCCEEDED else
+                               CaseStatus.FAILED.value if state == JobState.FAILED else
+                               CaseStatus.PARTIAL.value)
+                case.updated_at = _utc(now)
             return True
 
     def list_expired_running_jobs(self, now, *, owner_user_id=None):
@@ -295,19 +334,25 @@ class PostgresCaseRepository:
                 Job.state == JobState.RUNNING, Job.lease_expires_at <= _utc(now),
             ).order_by(Job.lease_expires_at, Job.id))]
 
-    def append_event(self, job_id, type, data, ts, *, owner_user_id=None):
+    def append_event(self, job_id, type, data, ts, *, owner_user_id=None, lease_owner=None):
         """Lock the parent job, allocate max+1, and insert in one transaction."""
         owner = self._owner(owner_user_id)
         with self._transaction() as db:
-            if db.scalar(self._job_query(owner, job_id).with_for_update()) is None:
+            job = (self._leased_job(db, owner, job_id, lease_owner, ts) if lease_owner is not None
+                   else db.scalar(self._job_query(owner, job_id).with_for_update()))
+            if job is None:
+                if lease_owner is not None:
+                    return None
                 raise KeyError(job_id)
-            last = db.scalar(select(func.max(Event.seq)).join(Job, Event.job_id == Job.id).where(
-                Job.owner_user_id == owner, Event.job_id == job_id,
-            ))
-            row = Event(job_id=job_id, seq=(last or 0) + 1, ts=_utc(ts), type=type, data=deepcopy(data))
-            db.add(row)
-            db.flush()
-            return self._snapshot(row)
+            return self._append_event(db, job, type, data, ts)
+
+    @classmethod
+    def _append_event(cls, db, job, type, data, ts):
+        last = db.scalar(select(func.max(Event.seq)).where(Event.job_id == job.id))
+        row = Event(job_id=job.id, seq=(last or 0) + 1, ts=_utc(ts), type=type, data=deepcopy(data))
+        db.add(row)
+        db.flush()
+        return cls._snapshot(row)
 
     def read_events(self, job_id, after_seq=0, *, owner_user_id=None):
         owner = self._owner(owner_user_id)
@@ -316,3 +361,72 @@ class PostgresCaseRepository:
                 Job, Event.job_id == Job.id,
             ).where(Job.owner_user_id == owner, Event.job_id == job_id, Event.seq > after_seq)
                 .order_by(Event.seq))]
+
+    def job_record(self, job_id):
+        """Internal worker lookup; HTTP callers must authorize with get_job first."""
+        with self._transaction() as db:
+            query = select(Job).where(Job.id == job_id)
+            if self.owner_user_id is not None:
+                query = query.where(Job.owner_user_id == self.owner_user_id)
+            row = db.scalar(query)
+            if row is None:
+                raise KeyError(job_id)
+            return self._snapshot(row)
+
+    def enqueue_job(self, owner, case_id, job_id, budget):
+        owner = self._owner(owner)
+        with self._transaction() as db:
+            self._require_case(db, owner, case_id)
+            jobs = self._job_query(owner).where(Job.case_id == case_id)
+            if db.scalar(jobs.where(Job.state.in_(["QUEUED", "RUNNING"]))) is not None:
+                raise ValueError("case has an active run")
+            last = db.scalar(select(func.max(Job.seq)).where(
+                Job.owner_user_id == owner, Job.case_id == case_id,
+            ))
+            db.add(Job(id=job_id, case_id=case_id, owner_user_id=owner,
+                       state="QUEUED", seq=(last or 0) + 1, budget=deepcopy(budget)))
+
+    def checkpoint_finding(self, job_id, lease_owner, now, finding, *, owner_user_id=None):
+        owner = self._owner(owner_user_id)
+        with self._transaction() as db:
+            row = self._leased_job(db, owner, job_id, lease_owner, now)
+            if row is None:
+                return False
+            self._put_finding(db, owner, row.case_id, finding)
+            self._append_event(db, row, "finding.created", finding.model_dump(mode="json"), now)
+            return True
+
+    def cancel_job(self, job_id, now, *, owner_user_id=None):
+        owner = self._owner(owner_user_id)
+        with self._transaction() as db:
+            row = db.scalar(self._job_query(owner, job_id).with_for_update())
+            if row is None:
+                raise KeyError(job_id)
+            if JobState(row.state) in _TERMINAL:
+                return
+            row.state, row.finished_at = JobState.CANCELLED.value, _utc(now)
+            row.lease_owner = row.lease_expires_at = None
+            self._append_event(db, row, "job.cancelled", {}, now)
+            case = self._require_case(db, owner, row.case_id)
+            case.status, case.updated_at = CaseStatus.PARTIAL.value, _utc(now)
+
+    def recover_jobs(self, now, max_attempts=3):
+        """Lock expired leases atomically; repeated/multi-process recovery is safe."""
+        with self._transaction() as db:
+            query = select(Job).where(Job.state == "RUNNING", Job.lease_expires_at <= _utc(now))
+            if self.owner_user_id is not None:
+                query = query.where(Job.owner_user_id == self.owner_user_id)
+            query = query.with_for_update(skip_locked=True)
+            recovered = []
+            for row in db.scalars(query):
+                row.lease_owner = row.lease_expires_at = None
+                if row.attempt >= max_attempts:
+                    row.state, row.finished_at = "FAILED", _utc(now)
+                    row.error = "Lease expired after maximum attempts"
+                    self._append_event(db, row, "job.failed", {"message": row.error}, now)
+                    case = self._require_case(db, row.owner_user_id, row.case_id)
+                    case.status, case.updated_at = "FAILED", _utc(now)
+                else:
+                    row.state = "QUEUED"
+                recovered.append(row.id)
+            return recovered
