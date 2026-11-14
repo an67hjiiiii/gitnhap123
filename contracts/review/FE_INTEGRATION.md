@@ -9,6 +9,7 @@ The review API is owner scoped; an unavailable or another user's resource is ret
 1. `POST /cases` with `title`, `request_text`, and optional `source_ids`; retain response `id`.
 2. `POST /cases/{case_id}/requirements:propose` to get proposed requirements.
 3. `PUT /cases/{case_id}/requirements` with `{ "requirements": [...] }`. Send each requirement's `id`, `text`, and `confirmed: true` after user confirmation.
+   `GET /cases/{case_id}/requirements/{requirement_id}/suggestions` may return prior-decision suggestions for a requirement; display them as context and do not treat them as confirmation or a decision.
 4. `POST /cases/{case_id}/runs` (optional `{ "budget": {...} }`); retain response `id` as the job ID.
 5. `GET /runs/{job_id}/events` to consume the event stream.
 6. Read results from `GET /cases/{case_id}` or `/cases/{case_id}/inspector`.

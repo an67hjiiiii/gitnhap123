@@ -145,6 +145,11 @@ def _build_examples(auth_api):
     response = client.put(path, json=requirements_body, headers={"Authorization": f"Bearer {token}"})
     record("PUT", "/api/review/cases/{case_id}/requirements", response, body=requirements_body)
 
+    requirement_id = requirements_body["requirements"][0]["id"]
+    path = f"/api/review/cases/{case_id}/requirements/{requirement_id}/suggestions"
+    response = client.get(path, headers={"Authorization": f"Bearer {token}"})
+    record("GET", "/api/review/cases/{case_id}/requirements/{requirement_id}/suggestions", response)
+
     path = f"/api/review/cases/{case_id}/runs"
     run_body = {}
     response = client.post(path, json=run_body, headers={"Authorization": f"Bearer {token}"})

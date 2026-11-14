@@ -187,6 +187,56 @@
         },
         "title": "RunInput",
         "type": "object"
+      },
+      "SuggestionOutput": {
+        "properties": {
+          "edited_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited Text"
+          },
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "prior_decision": {
+            "enum": [
+              "ACCEPT",
+              "REJECT",
+              "EDIT"
+            ],
+            "title": "Prior Decision",
+            "type": "string"
+          },
+          "prior_verdict": {
+            "title": "Prior Verdict",
+            "type": "string"
+          },
+          "similarity": {
+            "title": "Similarity",
+            "type": "number"
+          }
+        },
+        "required": [
+          "entry_id",
+          "similarity",
+          "prior_verdict",
+          "prior_decision",
+          "edited_text",
+          "note"
+        ],
+        "title": "SuggestionOutput",
+        "type": "object"
       }
     }
   },
@@ -514,6 +564,71 @@
           }
         },
         "summary": "Replace Requirements",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/review/cases/{case_id}/requirements/{requirement_id}/suggestions": {
+      "get": {
+        "operationId": "suggestions_api_review_cases__case_id__requirements__requirement_id__suggestions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requirement_id",
+            "required": true,
+            "schema": {
+              "title": "Requirement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SuggestionOutput"
+                  },
+                  "title": "Response Suggestions Api Review Cases  Case Id  Requirements  Requirement Id  Suggestions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          }
+        },
+        "summary": "Suggestions",
         "tags": [
           "review"
         ]

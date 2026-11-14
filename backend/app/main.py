@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from app.api.auth import router as auth_router
 from app.api.auth import get_session_token
 from app.api.review import ReviewRuntime, build_router as _build_review_router
+from app.review.memory import InMemoryMemoryStore
 from app.auth.store import AuthStore, InvalidSessionError
 from app.core.config import RuntimeConfig
 from app.ingestion.documents import (
@@ -79,6 +80,7 @@ review_runtime = ReviewRuntime(
     source_store_factory=lambda owner: owner_source_store({"user_id": owner}),
     storage_backend=STORAGE_BACKEND,
     session_factory=app.state.session_factory,
+    memory_store=InMemoryMemoryStore(),
 )
 app.include_router(_build_review_router(current_user=current_user, runtime=review_runtime))
 

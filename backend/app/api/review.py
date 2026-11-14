@@ -24,6 +24,7 @@ from app.review.service import (
     CaseNotFound, InvalidDecision, RequirementsUnconfirmed, ReviewCaseService, RunCancelled,
     review_route_decision,
 )
+from app.review.memory import MemoryStore, recall
 from app.retrieval.index_identity import IndexingError
 
 
@@ -129,6 +130,15 @@ class DecisionInput(Input):
     edited_text: str | None = None
 
 
+class SuggestionOutput(BaseModel):
+    entry_id: str
+    similarity: float
+    prior_verdict: str
+    prior_decision: Literal["ACCEPT", "REJECT", "EDIT"]
+    edited_text: str | None
+    note: str
+
+
 class _RunEngine:
     """Give engine-local finding IDs a unique HTTP identity for each run."""
 
@@ -167,9 +177,10 @@ class ReviewRuntime:
     """One repository and one single-worker runner per application instance."""
 
     def __init__(self, *, pipeline_factory=None, source_store_factory=None,
-                 session_factory=None, storage_backend=None):
+                 session_factory=None, storage_backend=None, memory_store: MemoryStore | None = None):
         self.pipeline_factory = pipeline_factory
         self.source_store_factory = source_store_factory
+        self.memory_store = memory_store
         backend = (storage_backend or os.getenv("APP_STORAGE_BACKEND", "file")).strip().lower()
         self.durable = backend == "postgres" and session_factory is not None
         self.repository = (PostgresCaseRepository(session_factory, route_decider=review_route_decision) if self.durable
@@ -194,7 +205,8 @@ class ReviewRuntime:
         return datetime.now(timezone.utc)
 
     def service(self, engine, evidence=()):
-        return ReviewCaseService(self.repository, engine, evidence=evidence)
+        return ReviewCaseService(self.repository, engine, evidence=evidence,
+                                 memory_store=self.memory_store)
 
     def selected_sources(self, owner, source_ids):
         if self.source_store_factory is None:
@@ -367,6 +379,19 @@ def build_router(*, current_user, runtime: ReviewRuntime):
         case = runtime.service(None)._case(case_id, user)
         return {**case.model_dump(), "requirements": repo.get_requirements(user, case_id),
                 "findings": repo.get_findings(user, case_id)}
+
+    @router.get("/cases/{case_id}/requirements/{requirement_id}/suggestions",
+                response_model=list[SuggestionOutput], responses=error_responses(404, 422))
+    def suggestions(case_id: str, requirement_id: str, user=Depends(owner)):
+        case = runtime.service(None)._case(case_id, user)
+        requirement = next((item for item in repo.get_requirements(user, case_id)
+                            if item.id == requirement_id), None)
+        if requirement is None:
+            raise CaseNotFound(requirement_id)
+        if runtime.memory_store is None:
+            return []
+        project_key = case.source_ids[0] if case.source_ids else "default"
+        return recall(runtime.memory_store, user, project_key, requirement.text)
 
     @router.get("/cases/{case_id}/inspector", responses=error_responses(404, 422))
     def inspector(case_id: str, run: str | None = Query(default=None), user=Depends(owner)):

@@ -60,12 +60,14 @@ class ReviewCaseService:
         clock=lambda: datetime.now(timezone.utc),
         id_factory=lambda: str(uuid4()),
         evidence=(),
+        memory_store=None,
     ) -> None:
         self.repository = repository
         self.engine = engine
         self.clock = clock
         self.id_factory = id_factory
         self.evidence = list(evidence)
+        self.memory_store = memory_store
 
     def _case(self, case_id: str, owner: str) -> ReviewCase:
         case = self.repository.get_case(owner, case_id)
@@ -321,6 +323,16 @@ class ReviewCaseService:
                 finding.review = normalized
                 finding.edited_text = edited_text if normalized == Decision.EDIT else None
                 self.repository.save_findings(owner_user_id, case_id, findings)
+                if self.memory_store is not None:
+                    case = self._case(case_id, owner_user_id)
+                    requirement = next((item for item in self.repository.get_requirements(
+                        owner_user_id, case_id
+                    ) if item.id == finding.requirement_id), None)
+                    if requirement is not None:
+                        project_key = case.source_ids[0] if case.source_ids else "default"
+                        self.memory_store.record_from_finding(
+                            owner_user_id, project_key, requirement, finding,
+                        )
                 return finding
         raise FindingNotFound(finding_id)
 

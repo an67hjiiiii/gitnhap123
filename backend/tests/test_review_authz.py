@@ -24,6 +24,7 @@ ROUTES = {
     ("GET", "/api/review/cases/{case_id}/export"),
     ("GET", "/api/review/cases/{case_id}/inspector"),
     ("PUT", "/api/review/cases/{case_id}/requirements"),
+    ("GET", "/api/review/cases/{case_id}/requirements/{requirement_id}/suggestions"),
     ("POST", "/api/review/cases/{case_id}/requirements:propose"),
     ("POST", "/api/review/cases/{case_id}/runs"),
     ("PUT", "/api/review/findings/{finding_id}/decision"),
@@ -128,10 +129,13 @@ def test_auth_matrix_covers_every_openapi_route():
 def test_foreign_owner_cannot_access_case_requirements_run_finding_export_or_inspector(auth_api):
     client, runtime, _, tokens, sources = auth_api
     case_id, job_id, finding = _ready(client, runtime, tokens["alice"], sources["alice"])
+    requirements = client.get(f"/api/review/cases/{case_id}", headers=_headers(tokens["alice"])).json()["requirements"]
+    requirement_id = requirements[0]["id"]
     route_cases = [
         ("GET", f"/cases/{case_id}", None),
         ("GET", f"/cases/{case_id}/inspector", None),
         ("PUT", f"/cases/{case_id}/requirements", {"requirements": []}),
+        ("GET", f"/cases/{case_id}/requirements/{requirement_id}/suggestions", None),
         ("POST", f"/cases/{case_id}/requirements:propose", None),
         ("POST", f"/cases/{case_id}/runs", {}),
         ("GET", f"/cases/{case_id}/export", None),
@@ -178,6 +182,8 @@ def test_finding_guess_and_foreign_case_context_are_hidden(auth_api):
 def test_all_review_routes_require_valid_bearer_sessions(auth_api):
     client, runtime, store, tokens, sources = auth_api
     case_id, job_id, finding = _ready(client, runtime, tokens["alice"], sources["alice"])
+    requirements = client.get(f"/api/review/cases/{case_id}", headers=_headers(tokens["alice"])).json()["requirements"]
+    requirement_id = requirements[0]["id"]
     requests = [
         ("GET", "/api/review/cases", "/cases", None),
         ("POST", "/api/review/cases", "/cases", {"title": "x", "request_text": "x"}),
@@ -185,6 +191,8 @@ def test_all_review_routes_require_valid_bearer_sessions(auth_api):
         ("GET", "/api/review/cases/{case_id}/export", f"/cases/{case_id}/export", None),
         ("GET", "/api/review/cases/{case_id}/inspector", f"/cases/{case_id}/inspector", None),
         ("PUT", "/api/review/cases/{case_id}/requirements", f"/cases/{case_id}/requirements", {"requirements": []}),
+        ("GET", "/api/review/cases/{case_id}/requirements/{requirement_id}/suggestions",
+         f"/cases/{case_id}/requirements/{requirement_id}/suggestions", None),
         ("POST", "/api/review/cases/{case_id}/requirements:propose", f"/cases/{case_id}/requirements:propose", None),
         ("POST", "/api/review/cases/{case_id}/runs", f"/cases/{case_id}/runs", {}),
         ("PUT", "/api/review/findings/{finding_id}/decision", f"/findings/{finding['id']}/decision", {"review": "ACCEPT"}),
