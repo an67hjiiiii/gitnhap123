@@ -1,0 +1,142 @@
+[
+  {
+    "id": "present_retention", "kind": "present",
+    "query": "How long are authentication logs retained?",
+    "relevant_ids": ["retention_policy"],
+    "chunks": [
+      {"id": "retention_policy", "source_id": "security", "text": "Authentication logs are retained for 180 days."},
+      {"id": "retention_ui", "source_id": "interface", "text": "The dashboard uses a blue navigation bar."}
+    ]
+  },
+  {
+    "id": "present_timeout", "kind": "present",
+    "query": "Sessions expire within how many minutes?",
+    "relevant_ids": ["session_limit"],
+    "chunks": [
+      {"id": "session_limit", "source_id": "sessions", "text": "Sessions expire within 30 minutes of inactivity."},
+      {"id": "session_color", "source_id": "interface", "text": "The profile avatar has a green border."}
+    ]
+  },
+  {
+    "id": "present_notifications", "kind": "present",
+    "query": "Which channels deliver incident notifications?",
+    "relevant_ids": ["notify_email", "notify_sms"],
+    "chunks": [
+      {"id": "notify_email", "source_id": "email", "text": "Incident notifications are delivered through email."},
+      {"id": "notify_sms", "source_id": "sms", "text": "Incident notifications are also delivered through SMS."},
+      {"id": "notify_theme", "source_id": "interface", "text": "The settings page supports dark mode."}
+    ]
+  },
+  {
+    "id": "present_backup_vi", "kind": "present",
+    "query": "Bản sao lưu được tạo lúc mấy giờ?",
+    "relevant_ids": ["backup_schedule"],
+    "chunks": [
+      {"id": "backup_schedule", "source_id": "operations", "text": "Bản sao lưu được tạo lúc 02:00 mỗi ngày."},
+      {"id": "backup_menu", "source_id": "interface", "text": "Giao diện có nút đổi màu nền."}
+    ]
+  },
+  {
+    "id": "present_crypto", "kind": "present",
+    "query": "Which algorithm encrypts stored invoices?",
+    "relevant_ids": ["invoice_cipher"],
+    "chunks": [
+      {"id": "invoice_cipher", "source_id": "billing", "text": "Stored invoices are encrypted using the AES256 algorithm."},
+      {"id": "invoice_logo", "source_id": "interface", "text": "The company logo is an orange circle."}
+    ]
+  },
+  {
+    "id": "absent_retention_duration", "kind": "absent",
+    "query": "Authentication logs must be retained for 180 days.",
+    "relevant_ids": [],
+    "chunks": [
+      {"id": "logs_format", "source_id": "security", "text": "Authentication logs use structured JSON records."},
+      {"id": "logs_screen", "source_id": "interface", "text": "Authentication logs appear on the administrator dashboard."},
+      {"id": "logs_transport", "source_id": "transport", "text": "Requests use HTTPS transport."}
+    ]
+  },
+  {
+    "id": "absent_backup_region", "kind": "absent",
+    "query": "Which geographic region stores encrypted backups?",
+    "relevant_ids": [],
+    "chunks": [
+      {"id": "backup_cipher", "source_id": "operations", "text": "Encrypted backups use the AES256 algorithm."},
+      {"id": "backup_restore", "source_id": "recovery", "text": "Backups support manual restore operations."}
+    ]
+  },
+  {
+    "id": "absent_session_vi", "kind": "absent",
+    "query": "Phiên đăng nhập hết hạn sau bao nhiêu phút?",
+    "relevant_ids": [],
+    "chunks": [
+      {"id": "session_audit_vi", "source_id": "sessions", "text": "Phiên đăng nhập có mã định danh để ghi nhật ký."},
+      {"id": "session_label_vi", "source_id": "interface", "text": "Trang cá nhân hiển thị tên người dùng."}
+    ]
+  },
+  {
+    "id": "absent_unrelated", "kind": "absent",
+    "query": "Xylophone warranty expiration?",
+    "relevant_ids": [],
+    "chunks": [
+      {"id": "unrelated_ui", "source_id": "interface", "text": "Dashboard navigation sidebar."},
+      {"id": "unrelated_meal", "source_id": "cafeteria", "text": "Cafeteria serves rice."}
+    ]
+  },
+  {
+    "id": "conflicting_retention", "kind": "near_miss_conflicting",
+    "query": "Authentication logs must be retained for 180 days.",
+    "relevant_ids": [],
+    "chunks": [
+      {"id": "retention_90", "source_id": "security", "text": "Authentication logs must be retained for 90 days."},
+      {"id": "invoice_180", "source_id": "billing", "text": "Invoice records must be retained for 180 days."}
+    ]
+  },
+  {
+    "id": "conflicting_notifications", "kind": "near_miss_conflicting",
+    "query": "Incident notifications must be sent by SMS.",
+    "relevant_ids": [],
+    "chunks": [
+      {"id": "email_only", "source_id": "alerts", "text": "Incident notifications must be sent by email only. SMS is disabled."},
+      {"id": "marketing_sms", "source_id": "marketing", "text": "Marketing promotions may be sent by SMS."}
+    ]
+  },
+  {
+    "id": "conflicting_timeout_vi", "kind": "near_miss_conflicting",
+    "query": "Phiên đăng nhập phải hết hạn sau 30 phút.",
+    "relevant_ids": [],
+    "chunks": [
+      {"id": "session_60_vi", "source_id": "sessions", "text": "Phiên đăng nhập phải hết hạn sau 60 phút."},
+      {"id": "backup_30_vi", "source_id": "operations", "text": "Bản sao lưu hoàn tất sau 30 phút."}
+    ]
+  },
+  {
+    "id": "distractors_retention", "kind": "distractor_heavy",
+    "query": "How long are authentication logs retained?",
+    "relevant_ids": ["heavy_auth_policy"],
+    "chunks": [
+      {"id": "heavy_billing", "source_id": "billing", "text": "Billing logs are retained for 30 days."},
+      {"id": "heavy_display", "source_id": "interface", "text": "Authentication logs are displayed in a table."},
+      {"id": "heavy_transport", "source_id": "network", "text": "Transport logs are retained for 14 days."},
+      {"id": "heavy_auth_policy", "source_id": "security", "text": "Authentication logs are retained for 180 days."},
+      {"id": "heavy_login", "source_id": "access", "text": "Authentication requires a valid token."},
+      {"id": "heavy_archive", "source_id": "archive", "text": "Invoice archives are retained for seven years."},
+      {"id": "heavy_debug", "source_id": "debug", "text": "Debug logs are retained for two days."},
+      {"id": "heavy_theme", "source_id": "interface", "text": "The navigation menu supports dark mode."}
+    ]
+  },
+  {
+    "id": "distractors_backup_vi", "kind": "distractor_heavy",
+    "query": "Bản sao lưu được tạo lúc mấy giờ?",
+    "relevant_ids": ["heavy_backup_02"],
+    "chunks": [
+      {"id": "heavy_backup_button", "source_id": "interface", "text": "Nút bản sao lưu có màu xanh."},
+      {"id": "heavy_report_09", "source_id": "reports", "text": "Báo cáo được tạo lúc 09:00 mỗi ngày."},
+      {"id": "heavy_backup_02", "source_id": "operations", "text": "Bản sao lưu được tạo lúc 02:00 mỗi ngày."},
+      {"id": "heavy_backup_cipher", "source_id": "security", "text": "Bản sao lưu được mã hóa bằng AES256."},
+      {"id": "heavy_backup_restore", "source_id": "recovery", "text": "Bản sao lưu hỗ trợ khôi phục thủ công."},
+      {"id": "heavy_session_30", "source_id": "sessions", "text": "Phiên đăng nhập hết hạn sau 30 phút."},
+      {"id": "heavy_backup_owner", "source_id": "access", "text": "Bản sao lưu chỉ dành cho quản trị viên."},
+      {"id": "heavy_menu", "source_id": "interface", "text": "Trang chủ hiển thị thông báo mới."}
+    ]
+  }
+]
