@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -214,3 +215,223 @@ def test_proposals_are_deterministic_deduplicated_and_capped(setup_review):
     case.request_text = " \n- \n"
     assert engine.propose_requirements(case) == []
     assert calls == []
+
+
+def add_cited_excerpts(pipeline, case, texts):
+    chunks = []
+    for index, text in enumerate(texts):
+        source = pipeline.source_store.import_text(f"verdict-{index}.txt", text)
+        case.source_ids.append(source["source_id"])
+        pipeline.candidate_index.index_source(source["source_id"])
+        chunks.extend(pipeline.source_store.chunks([source["source_id"]]))
+    return chunks
+
+
+@pytest.mark.parametrize("status,text,expected", [
+    ("COMPLETE", "Authentication logs retained for 180 days", Verdict.SATISFIED),
+    ("COMPLETE", "Authentication logs retained for 90 days", Verdict.DEVIATES),
+    ("PARTIAL", "Authentication logs retained for 180 days", Verdict.PARTIAL),
+    ("PARTIAL", "Authentication logs retained for 90 days", Verdict.DEVIATES),
+    ("NO_EVIDENCE", "Authentication logs retained for 90 days", Verdict.NOT_FOUND),
+    ("FAILED", "Authentication logs retained for 90 days", Verdict.UNDETERMINED),
+    ("COMPLETE", "Authentication backups retained for 90 days", Verdict.SATISFIED),
+    ("PARTIAL", "Authentication backups retained for 90 days", Verdict.PARTIAL),
+])
+def test_evidence_backed_status_mapping(setup_review, monkeypatch, status, text, expected):
+    pipeline, case, _, _, _ = setup_review
+    chunks = add_cited_excerpts(pipeline, case, [text])
+    control_result(monkeypatch, status, [c.chunk_id for c in chunks])
+    reqs = requirements(case)
+    reqs[0].text = "retain logs for 180 days"
+    events = []
+    finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda *args: events.append(args))
+    assert finding.verdict == expected
+    assert finding.confidence == Confidence.L1
+    conflicts = [payload for name, payload in events if name == "verdict.conflict"]
+    assert bool(conflicts) == (expected == Verdict.DEVIATES)
+    if expected == Verdict.DEVIATES:
+        assert finding.evidence and finding.evidence[0].excerpt == text
+        assert conflicts[0]["conflicting_evidence_ids"] == [chunks[0].chunk_id]
+        assert "180 days" in conflicts[0]["detail"]
+        assert "90 days" in conflicts[0]["detail"]
+    assert events[-1] == ("finding.created", finding.model_dump(mode="json"))
+
+
+def test_mixed_evidence_lists_conflict_first_and_keeps_support(setup_review, monkeypatch):
+    pipeline, case, _, _, _ = setup_review
+    chunks = add_cited_excerpts(pipeline, case, [
+        "Authentication logs retained for 180 days",
+        "Authentication logs retained for 90 days",
+    ])
+    control_result(monkeypatch, "COMPLETE", [c.chunk_id for c in chunks])
+    reqs = requirements(case)
+    reqs[0].text = "retain logs for 180 days"
+    delivered = []
+    engine = PipelineReviewEngine(pipeline)
+    finding, = engine.run(case, reqs, None, delivered.append)
+    assert finding.verdict == Verdict.DEVIATES
+    assert [e.evidence_id for e in finding.evidence] == [chunks[1].chunk_id, chunks[0].chunk_id]
+    assert delivered == [finding]
+    repeated, = engine.run(case, reqs, None, lambda _: None)
+    assert repeated == finding
+
+
+@pytest.mark.parametrize("text,evidence_text", [
+    ("Mật khẩu tối thiểu 12 ký tự", "Mật khẩu có ít nhất 8 ký tự"),
+    ("Services must not store plaintext passwords", "Services must store plaintext passwords"),
+])
+def test_bilingual_and_polarity_conflicts_in_engine(setup_review, monkeypatch, text, evidence_text):
+    pipeline, case, _, _, _ = setup_review
+    chunks = add_cited_excerpts(pipeline, case, [evidence_text])
+    control_result(monkeypatch, "PARTIAL", [c.chunk_id for c in chunks])
+    reqs = requirements(case)
+    reqs[0].text = text
+    finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda _: None)
+    assert finding.verdict == Verdict.DEVIATES
+    assert [e.excerpt for e in finding.evidence] == [evidence_text]
+
+
+@pytest.mark.parametrize("status,expected", [
+    ("COMPLETE", Verdict.UNDETERMINED), ("PARTIAL", Verdict.PARTIAL),
+    ("NO_EVIDENCE", Verdict.NOT_FOUND),
+])
+def test_uncited_conflicts_cannot_produce_deviates(setup_review, monkeypatch, status, expected):
+    pipeline, case, _, _, _ = setup_review
+    add_cited_excerpts(pipeline, case, ["Authentication logs retained for 90 days"])
+    control_result(monkeypatch, status, [])
+    reqs = requirements(case)
+    reqs[0].text = "retain logs for 180 days"
+    finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda _: None)
+    assert finding.verdict == expected
+    assert finding.evidence == []
+
+
+def test_missing_excerpt_falls_back_to_legacy_mapping(setup_review, monkeypatch):
+    pipeline, case, _, _, _ = setup_review
+    chunk, = add_cited_excerpts(pipeline, case, ["Logs retained for 180 days"])
+    control_result(monkeypatch, "COMPLETE", [chunk.chunk_id])
+    engine = PipelineReviewEngine(pipeline)
+    original = engine._evidence
+
+    def without_excerpt(*args):
+        return [item.model_copy(update={"excerpt": ""}) for item in original(*args)]
+
+    monkeypatch.setattr(engine, "_evidence", without_excerpt)
+    reqs = requirements(case)
+    reqs[0].text = "retain logs for 180 days"
+    finding, = engine.run(case, reqs, None, lambda _: None)
+    assert finding.verdict == Verdict.SATISFIED
+    assert finding.evidence[0].evidence_id == chunk.chunk_id
+    assert finding.evidence[0].excerpt == ""
+
+
+@pytest.mark.parametrize("failure_stage", ["pipeline", "evidence", "assessment"])
+def test_unexpected_exception_emits_diagnostics_and_continues(
+    sf1_fake_provider_env, monkeypatch, failure_stage,
+):
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    case = ReviewCase(
+        id="error-case", owner_user_id="owner-1", title="Retention",
+        request_text="Retention", source_ids=["source-1"],
+        created_at=now, updated_at=now,
+    )
+    chunk = SimpleNamespace(
+        chunk_id="chunk-1", source_id="source-1", text="Logs retained for 180 days",
+        provenance={},
+    )
+    calls = []
+
+    def fail(*args):
+        raise RuntimeError("Controlled adapter failure")
+
+    async def run(query, *, source_ids):
+        calls.append(query)
+        if len(calls) == 2:
+            return {"status": "NO_EVIDENCE", "task_results": []}
+        if failure_stage == "pipeline":
+            fail()
+        return {"status": "COMPLETE", "task_results": [{
+            "citations": [chunk.chunk_id], "evidence_ids": [chunk.chunk_id],
+        }]}
+
+    def chunks(source_ids):
+        if failure_stage == "evidence" and len(calls) == 1:
+            fail()
+        return [chunk]
+
+    if failure_stage == "assessment":
+        monkeypatch.setattr(adapter_module, "assess", fail)
+    pipeline = SimpleNamespace(run=run, source_store=SimpleNamespace(chunks=chunks))
+    reqs = requirements(case, 2)
+    reqs[0].text = "retain logs for 180 days"
+    events = []
+    findings = PipelineReviewEngine(pipeline).run(
+        case, reqs, None, lambda *args: events.append(args),
+    )
+    assert calls == [req.text for req in reqs]
+    assert [finding.verdict for finding in findings] == [Verdict.UNDETERMINED, Verdict.NOT_FOUND]
+    assert findings[0].evidence == []
+    assert [name for name, _ in events] == [
+        "task.started", "task.failed", "finding.created", "task.started", "finding.created",
+    ]
+    assert events[1][1] == {
+        "case_id": case.id, "requirement_id": reqs[0].id,
+        "error_type": "RuntimeError", "error": "Controlled adapter failure",
+    }
+    assert events[2][1] == findings[0].model_dump(mode="json")
+
+
+@pytest.mark.parametrize("status,texts,expected", [
+    ("COMPLETE", ["Logs retained for 180 days"], Verdict.SATISFIED),
+    ("PARTIAL", ["Logs retained for 180 days"], Verdict.PARTIAL),
+    ("NO_EVIDENCE", ["Logs retained for 90 days"], Verdict.NOT_FOUND),
+    ("FAILED", ["Logs retained for 90 days"], Verdict.UNDETERMINED),
+    ("COMPLETE", ["Logs retained for 90 days"], Verdict.DEVIATES),
+    ("PARTIAL", ["Logs retained for 90 days"], Verdict.DEVIATES),
+    ("COMPLETE", ["Logs retained for 180 days", "Logs retained for 90 days"], Verdict.DEVIATES),
+    ("COMPLETE", ["Backups retained for 90 days"], Verdict.SATISFIED),
+    ("COMPLETE", ["Logs retained for 4320 hours"], Verdict.SATISFIED),
+    ("COMPLETE", ["Logs retained for 180 days. Logs retained for 90 days."], Verdict.DEVIATES),
+    ("COMPLETE", [""], Verdict.SATISFIED),
+    ("COMPLETE", [], Verdict.UNDETERMINED),
+    ("PARTIAL", [], Verdict.PARTIAL),
+    ("NO_EVIDENCE", [], Verdict.NOT_FOUND),
+])
+def test_in_memory_pipeline_verdict_contract(sf1_fake_provider_env, status, texts, expected):
+    """Exercise resolved citations without disk I/O or a provider call."""
+    from app.review_adapters.verdict_rules import assess
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    case = ReviewCase(
+        id="memory-case", owner_user_id="owner-1", title="Retention", request_text="Retention",
+        source_ids=["source-1"], created_at=now, updated_at=now,
+    )
+    chunks = [SimpleNamespace(chunk_id=f"chunk-{i}", source_id="source-1", text=text, provenance={})
+              for i, text in enumerate(texts)]
+
+    async def run(query, *, source_ids):
+        assert source_ids == case.source_ids
+        assert query == "retain logs for 180 days"
+        ids = [c.chunk_id for c in chunks]
+        return {"status": status, "task_results": [{"citations": ids, "evidence_ids": ids}]}
+
+    pipeline = SimpleNamespace(run=run, source_store=SimpleNamespace(chunks=lambda ids: chunks))
+    reqs = requirements(case)
+    reqs[0].text = "retain logs for 180 days"
+    events = []
+    finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda *args: events.append(args))
+    assert finding.verdict == expected
+    assert finding.confidence == Confidence.L1
+    conflict_events = [payload for name, payload in events if name == "verdict.conflict"]
+    if expected == Verdict.DEVIATES:
+        assessment = assess(reqs[0].text, finding.evidence)
+        assert assessment.conflicting
+        assert finding.evidence[:len(assessment.conflicting)] == assessment.conflicting
+        assert len({e.evidence_id for e in finding.evidence}) == len(finding.evidence)
+        assert conflict_events[0]["conflicting_evidence_ids"] == [
+            e.evidence_id for e in assessment.conflicting
+        ]
+        assert "180 days" in conflict_events[0]["detail"]
+        assert "90 days" in conflict_events[0]["detail"]
+    else:
+        assert conflict_events == []
