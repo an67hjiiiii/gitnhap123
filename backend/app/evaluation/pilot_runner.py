@@ -94,7 +94,7 @@ def citation_stats(pipeline, raw: dict, source_ids: list[str]) -> tuple[int, int
 
 def _legacy(raw: dict, evidence) -> str:
     return {"COMPLETE": "SATISFIED" if evidence else "UNDETERMINED", "PARTIAL": "PARTIAL",
-            "NO_EVIDENCE": "NOT_FOUND"}.get(raw.get("status"), "UNDETERMINED")
+            "NO_EVIDENCE": "NOT_FOUND"}.get(str(raw.get("status")), "UNDETERMINED")
 
 
 async def run_pilot(*, cases_path, out_dir, conditions=("A",), max_calls=30, max_minutes=10,
