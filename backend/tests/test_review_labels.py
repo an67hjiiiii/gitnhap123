@@ -46,3 +46,16 @@ def test_labels_are_clean_vietnamese_utf8():
     assert set(labels["errors"]) == {item.value for item in ErrorCode}
     for code, entry in labels["errors"].items():
         assert entry.get("what") and entry.get("todo"), code
+
+def test_progress_and_friendly_error_labels_are_complete():
+    labels = load_labels()
+    assert set(labels["progress"]) == {
+        "understanding", "planning", "plan_ready", "searching", "step_done", "writing", "failed"
+    }
+    assert set(labels["friendly_errors"]) == {
+        "PLAN_REJECTED", "PROVIDER_LIMIT", "CONDITION_NOT_AVAILABLE", "PIPELINE_RUN_FAILED",
+        "UNKNOWN", "RATE_LIMITED", "SOURCE_NOT_FOUND", "CONVERSATION_NOT_FOUND",
+        "MESSAGE_REQUIRED", "PRODUCT_PROVIDER_NOT_CONFIGURED", "DERIVED_INDEX_UNAVAILABLE",
+    }
+    for entry in labels["friendly_errors"].values():
+        assert entry["message"] and entry["hint"]

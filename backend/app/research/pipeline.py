@@ -3,6 +3,8 @@ import unicodedata
 import re
 import time
 import uuid
+import logging
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timezone
 from app.core.config import RuntimeConfig
@@ -135,6 +137,7 @@ class ResearchPipeline:
         conversation_id: str | None = None,
         product_mode: bool = False,
         context_policy: str | None = None,
+        on_event: Callable[[dict], None] | None = None,
     ) -> dict:
         condition = condition.upper()
         if condition not in CONDITIONS:
@@ -197,7 +200,13 @@ class ResearchPipeline:
                     "index_state", "index_embedding_version",
                     "retrieval_backend_used", "fallback_reason",
                 )})
-            events.append({"stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **data})
+            item = {"stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **data}
+            events.append(item)
+            if on_event is not None:
+                try:
+                    on_event(item.copy())
+                except Exception:
+                    logging.getLogger(__name__).exception("Research pipeline event callback failed")
 
         def make_run(status: str | None, answer: str, tasks: list[Task], task_results: list[TaskResult]) -> dict:
             return {

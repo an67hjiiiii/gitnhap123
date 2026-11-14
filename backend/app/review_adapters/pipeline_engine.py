@@ -192,9 +192,9 @@ class PipelineReviewEngine:
                     policy_kwargs = (
                         {"context_policy": self.context_policy} if self.context_policy is not None else {}
                     )
+                    run_kwargs = {"source_ids": source_ids, "condition": self.condition, **policy_kwargs}
                     result = await pipeline.run(
-                        requirement.text, source_ids=source_ids, condition=self.condition,
-                        **policy_kwargs,
+                        requirement.text, **run_kwargs,
                     )
                     stages = {event.get("stage"): event for event in result.get("events", [])}
                     if result.get("status") == "FAILED":
@@ -229,6 +229,18 @@ class PipelineReviewEngine:
                             if self.condition != "A" and budget_plan is not None else None
                         ),
                     })
+                    decomposition = stages.get("decomposition")
+                    decomposed_tasks = (decomposition or {}).get("tasks", [])
+                    if len(decomposed_tasks) >= 2:
+                        self._emit(emit, "plan.ready", {
+                            **payload,
+                            "steps": [{
+                                "task_id": task.get("task_id"),
+                                "goal": task.get("goal", ""),
+                                "domain": task.get("domain"),
+                                "depends_on": task.get("depends_on", []),
+                            } for task in decomposed_tasks],
+                        })
                     evidence = self._evidence(pipeline, result, source_ids)
                     status = result.get("status")
                     if status == "COMPLETE" and evidence:
