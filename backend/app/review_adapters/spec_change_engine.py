@@ -21,6 +21,23 @@ class SpecChangeEngine:
     def _changes(self, case: ReviewCase) -> list[Change]:
         return diff(self.old_doc_loader(case), self.new_doc_loader(case)).changes
 
+    @staticmethod
+    def _evidence(case: ReviewCase, change: Change, index: int) -> Evidence:
+        return Evidence(
+            evidence_id=f"chg:{index + 1}",
+            source_id=(case.old_source_id or "old") if change.severity == "BREAKING" else (case.new_source_id or "new"),
+            locator=" ".join(x for x in (change.method.upper(), change.path,
+                                         f"[#{change.location}]" if change.location else "") if x),
+            excerpt=change.detail,
+        )
+
+    def evidence(self, case: ReviewCase) -> list[Evidence]:
+        """Allowlist deterministic citations derived from the owner-scoped loaders."""
+        try:
+            return [self._evidence(case, change, index) for index, change in enumerate(self._changes(case))]
+        except Exception:
+            return []
+
     def propose_requirements(self, case: ReviewCase) -> list[Requirement]:
         try:
             changes = self._changes(case)
@@ -120,11 +137,7 @@ class SpecChangeEngine:
                         cited = [c for c in related if c.severity == "NON_BREAKING"]
                     else:
                         verdict, cited = Verdict.NOT_FOUND, []
-                    evidence = [Evidence(evidence_id=f"chg:{changes.index(change) + 1}",
-                                         source_id="old" if change.severity == "BREAKING" else "new",
-                                         locator=" ".join(x for x in (change.method.upper(), change.path,
-                                                                       f"[#{change.location}]" if change.location else "") if x),
-                                         excerpt=change.detail)
+                    evidence = [self._evidence(case, change, changes.index(change))
                                 for change in cited]
                 finding = Finding(id=f"{case.id}:finding:{requirement.id}", case_id=case.id,
                                   requirement_id=requirement.id, verdict=verdict, evidence=evidence,

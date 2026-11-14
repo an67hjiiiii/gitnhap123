@@ -4,6 +4,37 @@
       "CaseInput": {
         "additionalProperties": false,
         "properties": {
+          "kind": {
+            "default": "requirement_review",
+            "enum": [
+              "requirement_review",
+              "spec_change"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Source Id"
+          },
+          "old_source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Source Id"
+          },
           "request_text": {
             "minLength": 1,
             "title": "Request Text",

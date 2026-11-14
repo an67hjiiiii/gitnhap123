@@ -38,9 +38,10 @@ def _utc(value):
 
 
 class PostgresCaseRepository:
-    def __init__(self, session_factory, owner_user_id: str | None = None):
+    def __init__(self, session_factory, owner_user_id: str | None = None, *, route_decider=None):
         self.session_factory = session_factory
         self.owner_user_id = owner_user_id
+        self.route_decider = route_decider
 
     def _owner(self, owner):
         if self.owner_user_id is not None and owner is not None and owner != self.owner_user_id:
@@ -83,7 +84,9 @@ class PostgresCaseRepository:
     def _case_entity(row):
         return ReviewCase(
             **{key: deepcopy(getattr(row, key)) for key in
-               ("id", "owner_user_id", "title", "status", "request_text", "source_ids")},
+               ("id", "owner_user_id", "title", "status", "request_text", "source_ids", "kind")},
+            old_source_id=(row.meta or {}).get("old_source_id"),
+            new_source_id=(row.meta or {}).get("new_source_id"),
             created_at=_utc(row.created_at), updated_at=_utc(row.updated_at),
         )
 
@@ -110,6 +113,8 @@ class PostgresCaseRepository:
         with self._transaction() as db:
             row = db.scalar(self._case_query(owner, case.id).with_for_update())
             values = case.model_dump(mode="python")
+            source_pair = {key: values.pop(key) for key in ("old_source_id", "new_source_id")}
+            values["meta"] = source_pair if case.kind == "spec_change" else None
             values.update(created_at=_utc(case.created_at), updated_at=_utc(case.updated_at))
             if row is None:
                 # A foreign owner's colliding primary key fails without overwriting it.
@@ -376,15 +381,23 @@ class PostgresCaseRepository:
     def enqueue_job(self, owner, case_id, job_id, budget):
         owner = self._owner(owner)
         with self._transaction() as db:
-            self._require_case(db, owner, case_id)
+            case = self._require_case(db, owner, case_id)
             jobs = self._job_query(owner).where(Job.case_id == case_id)
             if db.scalar(jobs.where(Job.state.in_(["QUEUED", "RUNNING"]))) is not None:
                 raise ValueError("case has an active run")
             last = db.scalar(select(func.max(Job.seq)).where(
                 Job.owner_user_id == owner, Job.case_id == case_id,
             ))
-            db.add(Job(id=job_id, case_id=case_id, owner_user_id=owner,
-                       state="QUEUED", seq=(last or 0) + 1, budget=deepcopy(budget)))
+            job = Job(id=job_id, case_id=case_id, owner_user_id=owner,
+                      state="QUEUED", seq=(last or 0) + 1, budget=deepcopy(budget))
+            db.add(job)
+            if self.route_decider is not None:
+                db.flush()
+                count = db.scalar(select(func.count()).select_from(RequirementRow).where(
+                    RequirementRow.case_id == case_id, RequirementRow.owner_user_id == owner,
+                ))
+                self._append_event(db, job, "route.decided",
+                                   self.route_decider(self._case_entity(case), count), _utc(job.created_at))
 
     def checkpoint_finding(self, job_id, lease_owner, now, finding, *, owner_user_id=None):
         owner = self._owner(owner_user_id)

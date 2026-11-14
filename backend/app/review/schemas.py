@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -66,6 +66,9 @@ class ReviewCase(DomainModel):
     title: str
     status: CaseStatus = CaseStatus.DRAFT
     source_ids: list[str] = Field(default_factory=list)
+    kind: Literal["requirement_review", "spec_change"] = "requirement_review"
+    old_source_id: str | None = None
+    new_source_id: str | None = None
     request_text: str
     created_at: datetime
     updated_at: datetime

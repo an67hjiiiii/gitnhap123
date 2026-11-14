@@ -15,7 +15,7 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, delete, event, func, inspect, select
+from sqlalchemy import create_engine, delete, event, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -123,6 +123,19 @@ def storage(request):
 
 
 class RepositoryBehavior:
+    def test_kind_and_source_pair_round_trip(self, storage):
+        repo, _ = storage
+        case = make_case()
+        assert case.kind == "requirement_review"
+        case.kind, case.old_source_id, case.new_source_id = "spec_change", "old", "new"
+        repo.save_case("alice", case)
+        assert repo.get_case("alice", case.id) == case
+        assert repo.list_cases("alice") == [case]
+        assert repo.get_case("bob", case.id) is None
+        detached = repo.get_case("alice", case.id)
+        detached.new_source_id = "other"
+        assert repo.get_case("alice", case.id) == case
+
     def test_case_round_trip_upsert_and_detachment(self, storage):
         repo, _ = storage
         case = make_case()
@@ -405,8 +418,8 @@ def test_memory_save_job_should_update_existing_job():
     assert repo.get_jobs("alice", "case-1") == [value]
 
 
-def load_migration():
-    path = BACKEND / "migrations" / "versions" / "20261114_05_review_cases.py"
+def load_migration(filename="20261114_05_review_cases.py"):
+    path = BACKEND / "migrations" / "versions" / filename
     spec = importlib.util.spec_from_file_location("review_cases_migration", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -415,18 +428,22 @@ def load_migration():
 
 def test_migration_has_exactly_one_head_and_expected_predecessor():
     scripts = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
-    assert scripts.get_heads() == ["20261114_05"]
+    assert scripts.get_heads() == ["20261114_06"]
     assert scripts.get_revision("20261114_05").down_revision == "20261111_04"
+    assert scripts.get_revision("20261114_06").down_revision == "20261114_05"
 
 
 def test_migration_upgrade_matches_models_and_downgrade_is_review_only(monkeypatch):
     migration = load_migration()
+    kind_migration = load_migration("20261114_06_review_case_kind.py")
     engine = sqlite_engine()
     try:
         with engine.begin() as connection:
             operations = Operations(MigrationContext.configure(connection))
             monkeypatch.setattr(migration, "op", operations)
+            monkeypatch.setattr(kind_migration, "op", operations)
             migration.upgrade()
+            kind_migration.upgrade()
             assert set(inspect(connection).get_table_names()) == {table.name for table in TABLES}
             differences = compare_metadata(MigrationContext.configure(connection, opts={
                 "include_object": lambda obj, name, type_, reflected, compare_to:
@@ -435,6 +452,7 @@ def test_migration_upgrade_matches_models_and_downgrade_is_review_only(monkeypat
                 "compare_server_default": True,
             }), Base.metadata)
             assert differences == []
+            kind_migration.downgrade()
             migration.downgrade()
             assert inspect(connection).get_table_names() == []
     finally:
@@ -456,3 +474,41 @@ def test_migration_compiles_postgresql_ddl_without_connection(monkeypatch):
     assert "JSONB" in sql and "TIMESTAMP WITH TIME ZONE" in sql
     assert "ON DELETE CASCADE" in sql
     assert "ix_review_run_jobs_state_lease" in sql
+
+
+def test_kind_migration_preserves_existing_rows_and_is_pure_ddl(monkeypatch):
+    base = load_migration()
+    migration = load_migration("20261114_06_review_case_kind.py")
+    engine = sqlite_engine()
+    try:
+        with engine.begin() as connection:
+            operations = Operations(MigrationContext.configure(connection))
+            monkeypatch.setattr(base, "op", operations)
+            monkeypatch.setattr(migration, "op", operations)
+            base.upgrade()
+            connection.execute(text(
+                "INSERT INTO review_cases (id, owner_user_id, title, status, request_text, source_ids) "
+                "VALUES ('legacy', 'alice', 'Audit', 'DRAFT', 'Check policy', '[]')"
+            ))
+            migration.upgrade()
+            assert connection.execute(text("SELECT kind, meta FROM review_cases")).one() == (
+                "requirement_review", None,
+            )
+            migration.downgrade()
+            assert {column["name"] for column in inspect(connection).get_columns("review_cases")} == {
+                "id", "owner_user_id", "title", "status", "request_text", "source_ids", "created_at", "updated_at",
+            }
+            assert connection.scalar(text("SELECT title FROM review_cases")) == "Audit"
+    finally:
+        engine.dispose()
+    output = StringIO()
+    context = MigrationContext.configure(dialect_name="postgresql", opts={
+        "as_sql": True, "output_buffer": output,
+    })
+    monkeypatch.setattr(migration, "op", Operations(context))
+    migration.upgrade()
+    migration.downgrade()
+    sql = output.getvalue()
+    assert sql.count("ALTER TABLE review_cases") == 4
+    assert "JSONB" in sql and "DEFAULT 'requirement_review' NOT NULL" in sql
+    assert not any(statement in sql for statement in ("UPDATE ", "INSERT ", "DELETE "))
