@@ -227,8 +227,7 @@ def test_export_markdown_matches_golden_string_deterministically():
         "1. Check policy (đã xác nhận)\n"
         "   - Verdict: Đã đáp ứng\n"
         "   - Decision: Đã chỉnh sửa\n"
-        "   - Edited: Updated wording
-"
+        "   - Edited: Updated wording\n"
         "   - Evidence: e1 (s1, p1): text\n"
     )
     assert service.export_markdown(case.id, "owner") == expected
