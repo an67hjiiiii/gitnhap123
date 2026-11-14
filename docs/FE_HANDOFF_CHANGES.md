@@ -75,3 +75,21 @@ Khi quyết định là EDIT và có edited_text, export thêm dòng `   - Edite
 **Review SSE** (events mới): `route.chosen {case_id, requirement_id, path, reason, params}` khi engine chạy ở `condition=AUTO` (một ý → B, nhiều ý → C, không có C ở hồ sơ hiện tại → B với `C_NOT_AVAILABLE`); `plan.ready {case_id, requirement_id, steps:[{task_id, goal, domain, depends_on}]}` khi run C có ≥2 bước (để FE hiển thị kế hoạch).
 **labels.vi.json**: thêm các mục `progress`, `friendly_errors`, `route_reason` (tiếng Việt, UTF-8).
 **ResearchPipeline.run**: tham số mới `on_event` (callback đồng bộ) và `force_plan` (nội bộ).
+
+## Kiểm tra hợp đồng FE ↔ BE qua proxy Vite (RUN_WEB.ps1 -Fake, kho PostgreSQL tạm)
+
+Đã gọi qua `http://127.0.0.1:5173/api/*`. Không có 4xx/5xx do lệch hợp đồng ở các đường chính.
+
+| Chức năng | FE gọi | BE trả | FE cần sửa |
+|---|---|---|---|
+| Đăng nhập/phiên | POST /auth/login, GET /auth/session | 200 | Không |
+| Tải tài liệu | POST /sources/file | 200 `source_id` | Không |
+| Chat (nghiên cứu, condition=A) | POST /chat | 200, có `run_id` | Không |
+| Chat (sản phẩm) chào hỏi | POST /chat product_mode | 200, `run_id: null` | Chịu được `run_id` null (FE_PROPOSALS #2) |
+| Chat (sản phẩm) hỏi tài liệu, nối tiếp | POST /chat + conversation_id | 200 | Không |
+| Chat stream | POST /chat/stream | 200, SSE kết thúc bằng `done` | FE chưa dùng (đề xuất #3) |
+| Lịch sử | GET /runs, /runs/{id}, /conversations(/{id}) | 200 | Không |
+| Review: tạo/đề xuất/xác nhận yêu cầu | POST /review/cases, :propose, PUT requirements | 201/200/200 | Không |
+| Review: chạy + SSE tiến độ | POST /review/cases/{id}/runs, GET /review/runs/{id}/events | 202, sự kiện route.decided→job.done | Không |
+| Review: quyết định, xuất | PUT findings/{id}/decision, GET export | 200 | Không |
+| Studio workspaces/admin | GET /studio/workspaces, /studio/admin/* | 503 nếu kho file; 200 với PostgreSQL | Hiện thông báo cần PostgreSQL (đề xuất #5) |
