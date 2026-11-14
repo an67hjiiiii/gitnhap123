@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 from app.core.citations import validate_citations
 from app.core.types import RunMetrics, SourceChunk, Task, TaskResult
@@ -16,7 +17,13 @@ def _extract_json(text: str) -> dict:
         return json.loads(m.group(0)) if m else {"status":"PARTIAL","answer":text,"citations":[],"missing_information":[]}
 
 async def execute_task(provider, task: Task, evidence: list[SourceChunk], metrics: RunMetrics) -> TaskResult:
+    started = time.perf_counter()
+    task_metrics = {
+        "input_tokens": 0, "output_tokens": 0, "latency_ms": 0,
+        "valid_citations": 0, "invalid_citations": 0, "retrieved_chunks": len(evidence),
+    }
     if not evidence:
+        task_metrics["latency_ms"] = int((time.perf_counter() - started) * 1000)
         return TaskResult(
             task_id=task.task_id,
             domain=task.domain,
@@ -25,6 +32,7 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
             evidence_ids=[],
             citations=[],
             missing_information=["relevant evidence"],
+            metrics=task_metrics,
         )
     p = profile(task.domain)
     evidence_text = "\n\n".join(f"[{c.chunk_id}] Tài liệu: {c.source_name or c.source_id or c.chunk_id}\n{c.text}" for c in evidence)
@@ -68,6 +76,12 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
     if status == "COMPLETE" and not valid:
         status = "PARTIAL"
         missing.append("worker answer has no valid citation")
+    task_metrics.update(
+        input_tokens=result.usage.input_tokens,
+        output_tokens=result.usage.output_tokens,
+        latency_ms=int((time.perf_counter() - started) * 1000),
+        valid_citations=len(valid), invalid_citations=len(invalid),
+    )
     return TaskResult(
         task_id=task.task_id,
         domain=task.domain,
@@ -77,4 +91,5 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
         citations=valid,
         invalid_citations=invalid,
         missing_information=missing,
+        metrics=task_metrics,
     )
