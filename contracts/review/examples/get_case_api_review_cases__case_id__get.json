@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/review/cases/{case_id}",
+    "headers": {
+      "Authorization": "Bearer <access_token>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "<case_id>",
+      "owner_user_id": "<user_id>",
+      "title": "Policy review",
+      "status": "DRAFT",
+      "source_ids": [],
+      "kind": "requirement_review",
+      "old_source_id": null,
+      "new_source_id": null,
+      "request_text": "Review the policy.",
+      "created_at": "<timestamp>",
+      "updated_at": "<timestamp>",
+      "requirements": [],
+      "findings": []
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/api/review/findings/{finding_id}/decision",
+    "headers": {
+      "Authorization": "Bearer <access_token>"
+    },
+    "body": {
+      "review": "ACCEPT"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "<finding_id>",
+      "case_id": "<case_id>",
+      "requirement_id": "<requirement_0>",
+      "verdict": "SATISFIED",
+      "evidence": [],
+      "review": "ACCEPT",
+      "edited_text": null,
+      "confidence": "L0"
+    }
+  }
+}
