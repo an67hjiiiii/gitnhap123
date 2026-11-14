@@ -239,11 +239,18 @@ async def _one(condition, case, req, counter, pipeline, engine, review_case, sou
            "output_truncated": truncated, "truncated": cut, "output_cap_reached": capped, "task_failed": bool(failed),
            "failed_code": failed[0].get("error_type") if failed else None, "status": status}
     detail = {**row, "meta": meta, "answer": answer, "events": events,
+              "pipeline_events": _stage_events(raw_holder),
               "calls": [{k: c.get(k) for k in ("method", "latency_seconds", "prompt_tokens",
                                                 "completion_tokens", "done_reason", "error")} for c in calls]}
     (out / f"{condition}_{req['id']}.json").write_text(json.dumps(detail, ensure_ascii=False, indent=2),
                                                          encoding="utf-8")
     return row
+
+
+def _stage_events(raw_holder) -> list:
+    """Raw pipeline stage events (plan verification errors etc.), without timestamps."""
+    raw = (raw_holder or {}).get("raw") or {}
+    return [{k: v for k, v in e.items() if k != "ts"} for e in raw.get("events", [])]
 
 
 def main(argv=None) -> int:
