@@ -10,3 +10,4 @@
 | 6 | Trạng thái tải | Không có skeleton/loading khi gọi review run dài. | Dùng SSE `/api/review/runs/{id}/events` để hiện tiến độ. | Trung bình |
 | 7 | Thuật ngữ | "Corpus", "chunk", "run" lẫn với "tài liệu", "đoạn trích", "lần chạy". | Chốt: tài liệu / đoạn trích / lần chạy ở mọi màn. | Thấp |
 | 8 | Chuỗi dùng làm khoá | `StatusBadge`/`statusDescriptions` dùng mã trạng thái BE (COMPLETE, NO_EVIDENCE…) làm khoá; đã chỉ đổi giá trị hiển thị. | Giữ khoá; dùng `labels.vi.json` của BE làm nguồn duy nhất. | Thấp |
+| 9 | Panel "Theo tác tử" | `Workspace.tsx` (~dòng 277) chỉ hiện nội dung từng tác tử. | Hiện thêm chip số đo lấy từ `task_results[i].metrics`: `input_tokens/output_tokens · latency_ms · valid_citations`. Chỉ đọc trường mới, không đổi logic. |

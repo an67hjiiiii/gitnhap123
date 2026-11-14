@@ -110,3 +110,11 @@ Chỉ thêm, không đổi hợp đồng cũ.
 - Thứ tự một lượt chat: `routing` → (`rewriting`) → (`translating`) → `route` → `retrieval.multi` → `retrieval.retry` → `answer_guard`. Mọi bước đều tuỳ chọn trừ `routing` và `route`.
 - Biến môi trường (chỉ đọc trong BE): `RETRIEVAL_FUSION=bm25|off` (mặc định `bm25`: BM25 gộp với truy hồi hiện có bằng RRF), `RETRIEVAL_RETRY=0` tắt thử lại, `EMBEDDING_DIMENSION` (cho bge-m3 = 1024).
 - FE không cần sửa để chạy; để hiện vết điều phối, đọc `events[].stage` ở trên hoặc dòng `status` của stream.
+
+## Đợt 2 — chế độ Phân tích và đường trả thẳng (chỉ thêm, không đổi khoá cũ)
+- `task_results[i].metrics` (mới, mọi khoá là số nguyên >= 0): `input_tokens, output_tokens, latency_ms, valid_citations, invalid_citations, retrieved_chunks`. Không có `agent_results` ở BE; FE dựng từ `task_results`.
+- Event `planning_degraded` `{reason, errors, fallback:"C_MULTI"}`: kế hoạch hỏng sau 1 lần sửa thì trả lời trực tiếp, run `PARTIAL` thay vì lỗi.
+- Câu trả lời tổng hợp: phần thân do mã ghép theo miền (giữ nguyên trích dẫn), model chỉ viết mục "Tóm tắt" ngắn; lỗi model thì bỏ mục này.
+- Chat trả thẳng (không truy xuất, `run_id=null`): event `intent_routed` có `path` = `DIRECT` | `HISTORY` | `EMPTY_STORE`, `grounded:false`; câu kiến thức chung kèm ghi chú "Không dựa trên tài liệu của bạn". Intent mới: `general_knowledge`, `history_answer`; `intent.reason` có thể là `DEFINITION`, `SELF_CONTAINED`, `HISTORY_CUE`, `GATE_DOCUMENT_MATCH`, `HISTORY_MISS`.
+- Event `timings` `{intent_ms, memory_ms, language_ms, answer_ms, gate_ms, history_ms, total_ms}` (khoá nào có tuỳ đường đi); event `no_evidence` `{reason: MODEL_REFUSED|NO_CHUNKS, retrieved, selected}`.
+- Câu trả lời không còn thẻ `<source name>…</source name>`.
