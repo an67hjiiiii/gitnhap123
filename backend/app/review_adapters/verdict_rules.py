@@ -27,6 +27,7 @@ class Claim:
     value: Decimal | None
     unit: str
     span: str
+    upper_value: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,7 @@ _UNITS = {
 _COMPARATORS = {
     "at least": ">=", "minimum": ">=", "it nhat": ">=", "toi thieu": ">=",
     "at most": "<=", "maximum": "<=", "khong qua": "<=", "toi da": "<=",
+    "up to": "<=",
     "exactly": "==", "dung": "==", "within": "<=", "trong vong": "<=",
 }
 _NUMBER_UNIT = re.compile(
@@ -65,43 +67,73 @@ _NUMBER_UNIT = re.compile(
     + r")(?!\w)"
 )
 _COMPARATOR = re.compile(r"\b(" + "|".join(_COMPARATORS) + r")\s*$")
+_UNIT_PATTERN = "|".join(re.escape(u) for u in sorted(_UNITS, key=len, reverse=True))
+_RANGE = re.compile(
+    r"(?<![\w.,-])(?:between\s+|tu\s+)?(?P<lower>\d+(?:\.\d+)?)\s*"
+    r"(?P<lower_unit>" + _UNIT_PATTERN + r")?(?!\w)\s*"
+    r"(?:and|den|[-–])\s*(?P<upper>\d+(?:\.\d+)?)\s*"
+    r"(?P<upper_unit>" + _UNIT_PATTERN + r")(?!\w)"
+)
+_CONTEXT = re.compile(
+    r"\b(?:unless|except|if|provided|example|examples|e\.g|vi du|tru khi|ngoai tru|neu)\b"
+)
+_QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|(?<!\w)\x27[^\x27\n]*\x27')
 _NEGATIVE = re.compile(r"\b(?:must not|never|khong duoc)\b")
 _POSITIVE = re.compile(r"\b(?:must|always|phai)\b")
 _STOPWORDS = set("""
     a an the is are was were be been being to of for in on at by with from as
     and or but if then than this that it its their our your can could should
     shall may will have has had do does after before during per only least most
-    minimum maximum exactly within not no must never always
+    minimum maximum exactly within not no must never always up
+    between den tu
     la co cac nhung mot cua cho trong voi va hoac thi duoc phai khong it nhat
     toi thieu da qua dung vong
     retain retained retaining require requires required keep kept allow allowed
     use used provide provides support supports
 """.split())
-_UNIT_WORDS = set(" ".join(_UNITS).split())
+_SUBJECT_COMPARATOR = re.compile(r"\b(?:" + "|".join(_COMPARATORS) + r")\b")
+# These syllables also occur in Vietnamese subjects (notably "nhat ky").
+_STOPWORDS -= {"nhat", "toi", "thieu", "da", "qua", "dung", "tu", "den"}
 
 
 def _subject(text: str) -> str:
     # Remove quantities and grammatical/comparator words, retaining stable lexical
     # hints. Singularize English plurals only; do not stem Vietnamese syllables.
-    words = re.findall(r"[a-z]+", _NUMBER_UNIT.sub(" ", text))
+    words = re.findall(r"[a-z]+", _SUBJECT_COMPARATOR.sub(
+        " ", _NUMBER_UNIT.sub(" ", _RANGE.sub(" ", text))
+    ))
     words = [w[:-1] if w.endswith("s") and len(w) > 3 else w
-             for w in words if w not in _STOPWORDS and w not in _UNIT_WORDS]
+             for w in words if w not in _STOPWORDS]
     return " ".join(sorted(set(words)))
 
 
-def extract_claims(text: str) -> list[Claim]:
+def extract_claims(text: str | None) -> list[Claim]:
     """Extract digit/unit claims and explicit modal polarity, clause by clause.
 
     span preserves the original clause, including its accents. Bare numeric
     claims use their unit noun as a subject hint (e.g. "12 characters").
     """
+    if not isinstance(text, str):
+        return []
     claims = []
+    # Quoted assertions are mentions, not commitments. Keep offsets and original
+    # spans intact while hiding their content from the lexical rules.
+    unquoted = _QUOTED.sub(lambda match: " " * len(match[0]), text)
     # A decimal point is not a sentence boundary. Conjunctions isolate subjects.
-    for clause in re.split(r"[;!?\n]+|\.(?!\d)|\b(?:and|but|va|nhung)\b", text, flags=re.I):
-        clause = clause.strip()
+    start = 0
+    for boundary in re.finditer(
+        r"[;!?\n]+|\.(?!\d)|\b(?:and(?!\s+\d)|but|va|nhung)\b|$",
+        unquoted, flags=re.I,
+    ):
+        clause = text[start:boundary.start()].strip()
+        folded = _fold(unquoted[start:boundary.start()].strip())
+        start = boundary.end()
         if not clause:
             continue
-        folded = _fold(clause)
+        # Conditional scope and examples require semantics this lexer cannot
+        # establish. Abstain for the clause on either side of the comparison.
+        if _CONTEXT.search(folded):
+            continue
         subject = _subject(folded)
         negative = bool(_NEGATIVE.search(folded))
         positive = bool(_POSITIVE.search(_NEGATIVE.sub(" ", folded)))
@@ -111,7 +143,18 @@ def extract_claims(text: str) -> list[Claim]:
         # Negated quantities need semantic interpretation; leave them unknown.
         if negative or re.search(r"\b(?:not|no)\b", folded):
             continue
+        ranges = list(_RANGE.finditer(folded))
+        for match in ranges:
+            unit, factor = _UNITS[match["upper_unit"]]
+            lower_unit, lower_factor = _UNITS[match["lower_unit"] or match["upper_unit"]]
+            lower = Decimal(match["lower"]) * lower_factor
+            upper = Decimal(match["upper"]) * factor
+            if lower_unit == unit and lower <= upper:
+                claims.append(Claim("quantitative", subject or unit.casefold(), "range",
+                                    lower, unit, clause, upper))
         for match in _NUMBER_UNIT.finditer(folded):
+            if any(r.start() <= match.start() < r.end() for r in ranges):
+                continue
             prefix = folded[:match.start()]
             comparator = _COMPARATOR.search(prefix)
             op = _COMPARATORS[comparator[1]] if comparator else "=="
@@ -125,17 +168,39 @@ def compare(requirement_claim: Claim, evidence_claim: Claim) -> str:
     """Compare explicit assertions; weaker same-direction limits conflict.
 
     Crossing, overlapping bounds are unknown. A matching unit alone is insufficient
-    when either assertion names a subject. Polarity requires two shared hints.
+    when either assertion names a subject. Subject hints must contain one another;
+    polarity additionally requires two shared hints.
     """
     req, ev = requirement_claim, evidence_claim
     if req.kind != ev.kind:
         return UNRELATED
-    shared = set(req.subject_hint.split()) & set(ev.subject_hint.split())
+    req_subject, ev_subject = set(req.subject_hint.split()), set(ev.subject_hint.split())
+    shared = req_subject & ev_subject
+    # An added qualifier ("audit logs") can refine a subject ("logs").
+    # Shared generic words alone cannot align different subjects or actions.
+    aligned = bool(shared) and (req_subject <= ev_subject or ev_subject <= req_subject)
     if req.kind == "polarity":
-        if len(shared) < 2:
+        if len(shared) < 2 or not aligned:
             return UNRELATED
         return SATISFIES if req.op == ev.op else CONFLICTS
-    if req.unit != ev.unit or (not shared and (req.subject_hint or ev.subject_hint)):
+    if req.unit != ev.unit or not aligned:
+        return UNRELATED
+    if req.op == "range" or ev.op == "range":
+        def interval(claim):
+            if claim.op == "range":
+                return claim.value, claim.upper_value
+            if claim.op == ">=":
+                return claim.value, Decimal("Infinity")
+            if claim.op == "<=":
+                return Decimal("-Infinity"), claim.value
+            return claim.value, claim.value
+
+        req_lower, req_upper = interval(req)
+        ev_lower, ev_upper = interval(ev)
+        if ev_upper < req_lower or ev_lower > req_upper:
+            return CONFLICTS
+        if req_lower <= ev_lower and ev_upper <= req_upper:
+            return SATISFIES
         return UNRELATED
     if req.op == ev.op:
         satisfies = {"==": ev.value == req.value,
@@ -151,7 +216,7 @@ def compare(requirement_claim: Claim, evidence_claim: Claim) -> str:
     return CONFLICTS if excluded else UNRELATED
 
 
-def assess(requirement_text: str, evidence_items: Iterable[Any]) -> Assessment:
+def assess(requirement_text: str | None, evidence_items: Iterable[Any] | None) -> Assessment:
     """Classify excerpts, preserving input order and original item identity.
 
     Items may be excerpt strings, mappings, or objects exposing .excerpt. An item
@@ -159,7 +224,7 @@ def assess(requirement_text: str, evidence_items: Iterable[Any]) -> Assessment:
     """
     requirements = extract_claims(requirement_text)
     supporting, conflicting, notes = [], [], []
-    for item in evidence_items:
+    for item in evidence_items if evidence_items is not None else ():
         excerpt = item if isinstance(item, str) else (
             item.get("excerpt", "") if isinstance(item, dict) else getattr(item, "excerpt", "")
         )
