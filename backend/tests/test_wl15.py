@@ -155,3 +155,17 @@ def test_history_answer_is_direct_and_records_path(chat_http):  # noqa: F811
         "product_mode": True}).json()
     assert body["events"][0]["path"] in {"HISTORY", "DIRECT"} or body["intent"]["intent"] == "follow_up"
     assert body["intent"]["intent"] in {"history_answer", "follow_up"}
+
+
+def test_gate_requires_the_defined_term_in_a_chunk():
+    from app.chat.intent import definition_terms, mentions_terms
+
+    assert definition_terms("REST là gì?") == ["rest"]
+    assert not mentions_terms(["rest"], ["Hồ sơ cần xác nhận khi tải lên.", "interest rate"])
+    assert mentions_terms(["rest"], ["API REST trả JSON."])
+
+
+def test_chunk_id_angle_tags_are_removed():
+    from app.core.text_clean import strip_placeholder_tags
+
+    assert strip_placeholder_tags("theo tài liệu a.txt <src_ab12_c0003>. Hết.") == "theo tài liệu a.txt. Hết."

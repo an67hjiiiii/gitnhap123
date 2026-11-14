@@ -125,6 +125,26 @@ def _reply(intent: str, language: str) -> str:
     return 'I focus on technical documents. You could ask "How does this API authenticate?" or "What are the security requirements?"'
 
 
+_DEFINITION_STOP = {"la", "gi", "cai", "what", "is", "are", "s", "a", "an", "the", "define", "explain", "giai", "thich",
+                    "cho", "biet", "nghia", "co"}
+
+
+def definition_terms(message: str) -> list[str]:
+    """Key words of a definition-like question ("REST là gì?" -> ["rest"])."""
+    return [w for w in _normalize_intent_text(message).split() if w not in _DEFINITION_STOP]
+
+
+def mentions_terms(terms: list[str], texts) -> bool:
+    """True when every key term occurs as a whole word in at least one of the texts."""
+    if not terms:
+        return False
+    for text in texts:
+        words = set(_normalize_intent_text(text).split())
+        if all(t in words for t in terms):
+            return True
+    return False
+
+
 def classify_intent(message: str, *, has_history: bool = False, has_sources: bool = True) -> IntentDecision:
     normalized = _normalize_intent_text(message)
     language = _language(message, normalized)

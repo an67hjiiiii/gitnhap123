@@ -425,7 +425,9 @@ def _chat_condition(body, runtime_config):
 async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notify=None):
     """One chat turn: intent -> memory/rewrite -> path choice -> pipeline. notify(step, text) reports progress."""
     from app.chat.answer_guard import AnswerChecker
-    from app.chat.intent import IntentDecision, classify_intent, classify_with_llm
+    from app.chat.intent import (
+        IntentDecision, classify_intent, classify_with_llm, definition_terms, mentions_terms,
+    )
     from app.chat.language import document_language, text_language, translate_query
     from app.chat.memory import build_memory, has_reference, render_context, rewrite_follow_up
     from app.providers.factory import get_provider
@@ -508,9 +510,12 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             matched = []
             if has_docs:
                 g0 = time.perf_counter()
-                matched = await asyncio.to_thread(
-                    owner_pipeline(user, None)._retrieve_candidates, message, None, top_k=1,
+                candidates = await asyncio.to_thread(
+                    owner_pipeline(user, None)._retrieve_candidates, message, None, top_k=3,
                     min_score=runtime_config.retrieval_min_score, source_ids=selected_source_ids)
+                # vector search always returns a nearest chunk, so a score alone cannot say "the documents cover
+                # this": the defined term must literally occur in a retrieved chunk.
+                matched = candidates if mentions_terms(definition_terms(message), [c.text for c in candidates]) else []
                 timings["gate_ms"] = int((time.perf_counter() - g0) * 1000)
             if matched:
                 decision = IntentDecision("document_question", None, False, "GATE_DOCUMENT_MATCH", decision.language)
