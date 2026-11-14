@@ -235,5 +235,27 @@
                     "SCHEMA_PROPERTY_REQUIRED_CHANGED":  "Đã thay đổi yêu cầu bắt buộc của trường.",
                     "SCHEMA_PROPERTY_TYPE_CHANGED":  "Đã thay đổi kiểu của trường.",
                     "SECURITY_CHANGED":  "Đã thay đổi cấu hình bảo mật."
-                }
+                },
+    "task_failed":  {
+                        "PLAN_REJECTED":  {
+                                              "todo":  "Thử diễn đạt yêu cầu ngắn hơn hoặc chạy lại.",
+                                              "what":  "Không lập được kế hoạch kiểm tra hợp lệ cho yêu cầu này."
+                                          },
+                        "PROVIDER_LIMIT":  {
+                                               "todo":  "Chạy lại sau ít phút hoặc giảm số yêu cầu.",
+                                               "what":  "Mô hình hết giới hạn hoặc không phản hồi kịp."
+                                           },
+                        "CONDITION_NOT_AVAILABLE":  {
+                                                        "todo":  "Liên hệ quản trị để bật hồ sơ thử nghiệm.",
+                                                        "what":  "Điều kiện chạy này chưa được bật trong cấu hình hiện tại."
+                                                    },
+                        "PIPELINE_RUN_FAILED":  {
+                                                    "todo":  "Chạy lại; nếu lỗi lặp lại hãy báo mã lỗi cho quản trị.",
+                                                    "what":  "Lượt xử lý yêu cầu này gặp lỗi."
+                                                },
+                        "UNKNOWN":  {
+                                        "todo":  "Chạy lại; nếu lỗi lặp lại hãy báo cho quản trị.",
+                                        "what":  "Yêu cầu này gặp lỗi không xác định."
+                                    }
+                    }
 }
