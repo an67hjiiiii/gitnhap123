@@ -47,6 +47,19 @@ def database_url_from_env(
     return url
 
 
+def engine_options(url: URL, environ: Mapping[str, str] | None = None) -> dict[str, object]:
+    """Build bounded pool and driver options for an already selected URL."""
+    values = os.environ if environ is None else environ
+    options = {"pool_pre_ping": True, "pool_timeout": float(values.get("DB_POOL_TIMEOUT", "10"))}
+    if "DB_POOL_SIZE" in values:
+        options["pool_size"] = int(values["DB_POOL_SIZE"])
+    if "DB_MAX_OVERFLOW" in values:
+        options["max_overflow"] = int(values["DB_MAX_OVERFLOW"])
+    if url.drivername.startswith("postgresql"):
+        options["connect_args"] = {"connect_timeout": int(values.get("DB_CONNECT_TIMEOUT", "5"))}
+    return options
+
+
 def create_postgres_engine(database_url: URL | None = None) -> Engine:
     """Create a lazy PostgreSQL engine; never choose a fallback backend."""
 
@@ -55,7 +68,8 @@ def create_postgres_engine(database_url: URL | None = None) -> Engine:
         raise PostgresConfigurationError(
             f"PostgreSQL requires a {POSTGRES_DRIVER} URL with a database name"
         )
-    return create_engine(url, pool_pre_ping=True)
+    options = engine_options(url)
+    return create_engine(url, **options)
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:
