@@ -1,0 +1,17 @@
+{
+  "id": "synthetic-policy-v1",
+  "provenance": "Hand-labelled synthetic test policy; no production documents.",
+  "source": {
+    "name": "test-policy.txt",
+    "locator": "test-policy.txt#policy",
+    "text": "Passwords must contain at least 12 characters. Authentication logs must be retained for 90 days. Services must not store plaintext passwords. Incident tickets must be retained for 30 days. Incident notifications must be sent by email. Sessions must expire within 30 minutes. Backup files must be retained for 7 days."
+  },
+  "requirements": [
+    {"id": "password-length", "text": "Passwords must contain at least 12 characters.", "expected": "SATISFIED", "expected_locators": ["test-policy.txt#policy"]},
+    {"id": "incident-notification", "text": "Incident tickets must be retained for 30 days and incident notifications must be sent by email and SMS.", "expected": "PARTIAL", "expected_locators": ["test-policy.txt#policy"]},
+    {"id": "log-retention", "text": "Authentication logs must be retained for 180 days.", "expected": "DEVIATES", "expected_locators": ["test-policy.txt#policy"]},
+    {"id": "plaintext-passwords", "text": "Services must store plaintext passwords.", "expected": "DEVIATES", "expected_locators": ["test-policy.txt#policy"]},
+    {"id": "quantum-certificates", "text": "Quantum certificates require lunar attestation.", "expected": "NOT_FOUND", "expected_locators": []},
+    {"id": "session-expiry", "text": "Sessions must expire within 30 minutes.", "expected": "SATISFIED", "expected_locators": ["test-policy.txt#policy"]}
+  ]
+}
