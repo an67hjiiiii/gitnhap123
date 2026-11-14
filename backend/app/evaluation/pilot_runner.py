@@ -25,6 +25,7 @@ from app.evaluation.real_runner import BASELINE_SYSTEM, CountingProvider, parse_
 
 ORDER = ("A", "B", "C")
 TOKEN_CAP = 700
+HARD_CAP_CALLS, HARD_CAP_MINUTES = 100, 20  # Owner-approved pilot quota
 CSV_FIELDS = ["condition", "case_id", "requirement_id", "verdict", "b0_verdict", "evidence_ids",
               "citation_valid", "citations_total", "model_calls", "seconds", "output_truncated",
               "output_cap_reached", "task_failed", "failed_code", "status"]
@@ -123,7 +124,10 @@ async def run_pilot(*, cases_path, out_dir, conditions=("A",), max_calls=30, max
     cases = load_cases(cases_path)
     if limit:
         cases = cases[:limit]
-    counter = CountingProvider(provider, max_calls, max_minutes * 60)
+    if not (0 < max_calls <= HARD_CAP_CALLS and 0 < max_minutes <= HARD_CAP_MINUTES):
+        raise ValueError(f"Pilot limits: 1..{HARD_CAP_CALLS} calls, 1..{HARD_CAP_MINUTES} minutes")
+    counter = CountingProvider(provider, 1, 60)  # real_runner's old 24-call cap does not apply to the pilot
+    counter.max_invocations, counter.max_seconds = max_calls, max_minutes * 60
     meta = {"model": getattr(provider, "model", None), "provider": provider.name,
             "model_digest": _model_digest(provider), "token_cap": TOKEN_CAP if cap else None,
             "prompt_rule_version": prompt_rule_version(),
