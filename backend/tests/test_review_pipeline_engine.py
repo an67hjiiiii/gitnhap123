@@ -567,3 +567,47 @@ def test_each_task_answer_is_checked_against_only_resolved_evidence(answer_revie
     finding, = PipelineReviewEngine(pipeline).run(case, reqs, None, lambda _: None)
     assert finding.verdict == Verdict.PARTIAL
     assert [e.evidence_id for e in finding.evidence] == [chunk.chunk_id]
+
+
+@pytest.mark.parametrize(
+    "condition,text,expected_condition,expected_path,expected_reason",
+    [
+        ("AUTO", "Check one short requirement.", "A", "B", "SHORT_REQUEST"),
+        ("AUTO", "Logs must be retained for 30 days and alerts must be sent by email.",
+         "C", "C", "MULTI_IDEA"),
+        ("A", "Check one short requirement.", "A", None, None),
+    ],
+)
+def test_auto_route_events_precede_trace_and_explicit_a_is_unchanged(
+    sf1_fake_provider_env, condition, text, expected_condition, expected_path, expected_reason,
+):
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    case = ReviewCase(
+        id="auto-case", owner_user_id="owner-1", title="Review", request_text="Review",
+        source_ids=[], created_at=now, updated_at=now,
+    )
+    requirement = Requirement(
+        id="auto-req", case_id=case.id, text=text,
+        origin="USER", confirmed=True, order=0,
+    )
+    calls = []
+
+    async def run(query, *, source_ids, condition, **kwargs):
+        calls.append(condition)
+        return {"status": "NO_EVIDENCE", "condition": condition, "task_results": [], "events": []}
+
+    pipeline = SimpleNamespace(run=run, source_store=SimpleNamespace(chunks=lambda _: []))
+    events = []
+    PipelineReviewEngine(pipeline, condition=condition).run(
+        case, [requirement], None, lambda name, payload: events.append((name, payload)),
+    )
+    assert calls == [expected_condition]
+    names = [name for name, _ in events]
+    if condition == "AUTO":
+        assert names.index("route.chosen") < names.index("pipeline.trace")
+        route = next(payload for name, payload in events if name == "route.chosen")
+        assert route["path"] == expected_path
+        assert route["reason"] == expected_reason
+        assert next(payload for name, payload in events if name == "pipeline.trace")["condition"] == expected_condition
+    else:
+        assert "route.chosen" not in names
