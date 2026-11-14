@@ -1,0 +1,12 @@
+{
+  "changes": [
+    {
+      "detail": "Endpoint added",
+      "kind": "ENDPOINT_ADDED",
+      "location": "",
+      "method": "",
+      "path": "/widgets/search",
+      "severity": "NON_BREAKING"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "changes": [
+    {
+      "detail": "Required changed from True to False",
+      "kind": "PARAM_REQUIRED_CHANGED",
+      "location": "parameter:path:widgetId",
+      "method": "get",
+      "path": "/widgets/{widgetId}",
+      "severity": "NON_BREAKING"
+    }
+  ]
+}

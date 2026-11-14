@@ -1,0 +1,52 @@
+{
+  "changes": [
+    {
+      "detail": "Schema property removed",
+      "kind": "SCHEMA_PROPERTY_REMOVED",
+      "location": "schema:Widget.id",
+      "method": "",
+      "path": "",
+      "severity": "BREAKING"
+    },
+    {
+      "detail": "Schema property removed",
+      "kind": "SCHEMA_PROPERTY_REMOVED",
+      "location": "schema:Widget.label",
+      "method": "",
+      "path": "",
+      "severity": "BREAKING"
+    },
+    {
+      "detail": "Schema property removed",
+      "kind": "SCHEMA_PROPERTY_REMOVED",
+      "location": "schema:Widget.state",
+      "method": "",
+      "path": "",
+      "severity": "BREAKING"
+    },
+    {
+      "detail": "Parameter removed",
+      "kind": "PARAM_REMOVED",
+      "location": "parameter:query:page",
+      "method": "get",
+      "path": "/widgets",
+      "severity": "NON_BREAKING"
+    },
+    {
+      "detail": "Schema changed from array[object] to array[string]",
+      "kind": "RESPONSE_SCHEMA_CHANGED",
+      "location": "response:200",
+      "method": "get",
+      "path": "/widgets",
+      "severity": "BREAKING"
+    },
+    {
+      "detail": "Endpoint removed",
+      "kind": "ENDPOINT_REMOVED",
+      "location": "",
+      "method": "",
+      "path": "/widgets/{widgetId}",
+      "severity": "BREAKING"
+    }
+  ]
+}

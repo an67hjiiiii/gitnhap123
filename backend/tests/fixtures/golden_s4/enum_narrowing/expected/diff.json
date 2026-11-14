@@ -1,0 +1,20 @@
+{
+  "changes": [
+    {
+      "detail": "Enum value removed: paused",
+      "kind": "ENUM_VALUE_REMOVED",
+      "location": "schema:Widget.state",
+      "method": "",
+      "path": "",
+      "severity": "BREAKING"
+    },
+    {
+      "detail": "Enum value removed: retired",
+      "kind": "ENUM_VALUE_REMOVED",
+      "location": "schema:Widget.state",
+      "method": "",
+      "path": "",
+      "severity": "BREAKING"
+    }
+  ]
+}

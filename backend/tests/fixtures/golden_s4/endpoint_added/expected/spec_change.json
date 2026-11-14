@@ -1,0 +1,19 @@
+{
+  "findings": [
+    {
+      "evidence_ids": [
+        "chg:1"
+      ],
+      "requirement_text": "Verify consumers of POST /widgets/search after its change",
+      "verdict": "SATISFIED"
+    },
+    {
+      "evidence_ids": [],
+      "requirement_text": "Verify an unrelated billing concern",
+      "verdict": "NOT_FOUND"
+    }
+  ],
+  "proposed_requirements": [
+    "Verify consumers of POST /widgets/search after its change"
+  ]
+}

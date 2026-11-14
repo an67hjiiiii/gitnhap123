@@ -1,0 +1,10 @@
+{
+  "findings": [
+    {
+      "evidence_ids": [],
+      "requirement_text": "GET /widgets",
+      "verdict": "UNDETERMINED"
+    }
+  ],
+  "proposed_requirements": []
+}

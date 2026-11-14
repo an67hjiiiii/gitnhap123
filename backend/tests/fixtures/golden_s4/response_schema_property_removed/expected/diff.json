@@ -1,0 +1,12 @@
+{
+  "changes": [
+    {
+      "detail": "Schema property removed",
+      "kind": "SCHEMA_PROPERTY_REMOVED",
+      "location": "schema:Widget.label",
+      "method": "",
+      "path": "",
+      "severity": "BREAKING"
+    }
+  ]
+}

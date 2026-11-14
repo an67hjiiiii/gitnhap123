@@ -1,0 +1,25 @@
+{
+  "findings": [
+    {
+      "evidence_ids": [
+        "chg:1"
+      ],
+      "requirement_text": "Verify consumers of GET /widgets/{id} after its change",
+      "verdict": "SATISFIED"
+    },
+    {
+      "evidence_ids": [],
+      "requirement_text": "Verify consumers of GET /widgets/{widgetId} after its change",
+      "verdict": "NOT_FOUND"
+    },
+    {
+      "evidence_ids": [],
+      "requirement_text": "Verify an unrelated billing concern",
+      "verdict": "NOT_FOUND"
+    }
+  ],
+  "proposed_requirements": [
+    "Verify consumers of GET /widgets/{id} after its change",
+    "Verify consumers of GET /widgets/{widgetId} after its change"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "changes": [
+    {
+      "detail": "Endpoint added",
+      "kind": "ENDPOINT_ADDED",
+      "location": "",
+      "method": "",
+      "path": "/widgets/{id}",
+      "severity": "NON_BREAKING"
+    },
+    {
+      "detail": "Endpoint removed",
+      "kind": "ENDPOINT_REMOVED",
+      "location": "",
+      "method": "",
+      "path": "/widgets/{widgetId}",
+      "severity": "BREAKING"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "in": "header",
+        "name": "key",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "Widgets",
+    "version": "2"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/widgets": {
+      "get": {
+        "operationId": "listWidgets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "ok"
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          }
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.example.test/v1"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+[
+  {
+    "name": "all_operations_have_security",
+    "params": {
+      "allow_public_paths": []
+    },
+    "passed": true,
+    "violations": []
+  },
+  {
+    "name": "error_responses_documented",
+    "params": {
+      "methods": [
+        "get",
+        "post"
+      ],
+      "required_status_codes": [
+        "400",
+        "401"
+      ]
+    },
+    "passed": false,
+    "violations": [
+      {
+        "location": "responses:401",
+        "message": "Required error response 401 is undocumented",
+        "method": "get",
+        "path": "/widgets"
+      },
+      {
+        "location": "responses:400",
+        "message": "Required error response 400 is undocumented",
+        "method": "post",
+        "path": "/widgets/search"
+      },
+      {
+        "location": "responses:401",
+        "message": "Required error response 401 is undocumented",
+        "method": "post",
+        "path": "/widgets/search"
+      },
+      {
+        "location": "responses:400",
+        "message": "Required error response 400 is undocumented",
+        "method": "get",
+        "path": "/widgets/{widgetId}"
+      },
+      {
+        "location": "responses:401",
+        "message": "Required error response 401 is undocumented",
+        "method": "get",
+        "path": "/widgets/{widgetId}"
+      }
+    ]
+  },
+  {
+    "name": "path_naming_convention",
+    "params": {
+      "ignore": [],
+      "style": "kebab"
+    },
+    "passed": true,
+    "violations": []
+  },
+  {
+    "name": "operation_ids_unique_and_present",
+    "params": {},
+    "passed": true,
+    "violations": []
+  }
+]
