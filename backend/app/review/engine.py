@@ -1,3 +1,6 @@
+import math
+import os
+from time import sleep
 from typing import Callable, Protocol
 
 from .schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
@@ -21,10 +24,21 @@ class FakeReviewEngine:
         skip_budget: bool = False,
         foreign_evidence_id: str | None = None,
         evidence: list[Evidence] | None = None,
+        delay_ms: float | None = None,
     ) -> None:
         self.skip_budget = skip_budget
         self.foreign_evidence_id = foreign_evidence_id
         self.evidence = evidence or []
+        if delay_ms is None:
+            try:
+                delay_ms = float(os.getenv("REVIEW_FAKE_DELAY_MS", "0"))
+            except ValueError:
+                delay_ms = 0
+            if not math.isfinite(delay_ms) or delay_ms < 0:
+                delay_ms = 0
+        if not math.isfinite(delay_ms) or delay_ms < 0:
+            raise ValueError("delay_ms must be finite and nonnegative")
+        self.delay_ms = delay_ms
 
     def propose_requirements(self, case: ReviewCase) -> list[Requirement]:
         lines = [
@@ -54,6 +68,8 @@ class FakeReviewEngine:
     ) -> list[Finding]:
         findings = []
         for index, requirement in enumerate(requirements):
+            if self.delay_ms:
+                sleep(self.delay_ms / 1000)
             cited = list(self.evidence[:1])
             if self.foreign_evidence_id:
                 cited.append(
