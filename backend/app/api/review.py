@@ -1,6 +1,7 @@
 """Owner-scoped review HTTP API with selectable durable persistence."""
 
 import os
+import logging
 import math
 from datetime import datetime, timezone
 from threading import RLock
@@ -21,11 +22,13 @@ from app.review_adapters import PipelineReviewEngine, SpecChangeEngine
 from app.review_adapters.durable_jobs import DurableJobRunner
 from app.review_adapters.pg_repository import PostgresCaseRepository
 from app.review.service import (
-    CaseNotFound, InvalidDecision, RequirementsUnconfirmed, ReviewCaseService, RunCancelled,
+    CaseNotFound, FindingNotFound, InvalidDecision, RequirementsUnconfirmed, ReviewCaseService, RunCancelled,
     review_route_decision,
 )
 from app.review.memory import MemoryStore, recall
 from app.retrieval.index_identity import IndexingError
+
+logger = logging.getLogger(__name__)
 
 
 class ErrorBody(BaseModel):
@@ -62,20 +65,31 @@ class ReviewRoute(APIRoute):
                 return JSONResponse(status_code=404, content={
                     "code": "CASE_NOT_FOUND", "message": "Case not found",
                 })
+            except FindingNotFound:
+                return JSONResponse(status_code=404, content={
+                    "code": "FINDING_NOT_FOUND", "message": "Finding not found",
+                })
             except RequirementsUnconfirmed:
                 return JSONResponse(status_code=409, content={
                     "code": "REQUIREMENTS_UNCONFIRMED", "message": "Confirm all requirements first",
                 })
             except InvalidDecision as exc:
+                message = ("Edited text is required for this decision" if str(exc) == "edited_text required"
+                           else "Invalid decision")
                 return JSONResponse(status_code=422, content={
-                    "code": "VALIDATION_ERROR", "message": str(exc),
+                    "code": "VALIDATION_ERROR", "message": message,
                 })
             except HTTPException as exc:
                 content = exc.detail if isinstance(exc.detail, dict) else {
                     "code": "AUTHENTICATION_REQUIRED" if exc.status_code == 401 else "VALIDATION_ERROR",
-                    "message": str(exc.detail),
+                    "message": "Authentication required" if exc.status_code == 401 else "Invalid request",
                 }
                 return JSONResponse(status_code=exc.status_code, content=content, headers=exc.headers)
+            except Exception:
+                logger.exception("Unhandled review API exception")
+                return JSONResponse(status_code=500, content={
+                    "code": "INTERNAL_ERROR", "message": "Internal error",
+                })
 
         return wrapped
 
@@ -300,7 +314,12 @@ class ReviewRuntime:
                 )
             except IndexingError as exc:
                 code = getattr(exc, "code", None) or "DERIVED_INDEX_UNAVAILABLE"
-                emit("error", {"code": code, "message": str(exc)})
+                messages = {
+                    "INDEX_INCOMPATIBLE": "The search index is incompatible",
+                    "INDEX_LEGACY_UNVERIFIED": "The search index could not be verified",
+                    "DERIVED_INDEX_UNAVAILABLE": "The search index is unavailable",
+                }
+                emit("error", {"code": code, "message": messages.get(code, "The search index is unavailable")})
                 raise
             check()
             complete = service.is_complete(self.repository.get_requirements(owner, case_id),
@@ -562,7 +581,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                     return runtime.service(None).decide_finding(
                         case.id, user, finding_id, Decision(body.review), body.edited_text,
                     )
-            raise CaseNotFound(finding_id)
+            raise FindingNotFound(finding_id)
 
     @router.get("/cases/{case_id}/export", responses=error_responses(404, 422))
     def export(case_id: str, format: Literal["md"] = Query(default="md"), user=Depends(owner)):

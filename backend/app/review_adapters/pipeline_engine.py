@@ -213,11 +213,14 @@ class PipelineReviewEngine:
                                 **payload, "detail": " ".join(notes),
                                 "evidence_ids": [e.evidence_id for e in evidence],
                             })
-                except Exception as exc:
+                except Exception:
                     verdict = Verdict.UNDETERMINED
                     evidence = []
+                    import logging
+                    logging.getLogger(__name__).exception("Review requirement execution failed")
                     self._emit(emit, "task.failed", {
-                        **payload, "error_type": type(exc).__name__, "error": str(exc),
+                        **payload, "error_type": "UNKNOWN",
+                        "error": "Requirement execution failed",
                     })
             finding = Finding(
                 id=f"{case.id}:finding:{requirement.id}", case_id=case.id,

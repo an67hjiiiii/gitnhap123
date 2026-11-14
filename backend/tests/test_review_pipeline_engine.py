@@ -327,7 +327,7 @@ def test_missing_excerpt_falls_back_to_legacy_mapping(setup_review, monkeypatch)
 
 @pytest.mark.parametrize("failure_stage", ["pipeline", "evidence", "assessment"])
 def test_unexpected_exception_emits_diagnostics_and_continues(
-    sf1_fake_provider_env, monkeypatch, failure_stage,
+    sf1_fake_provider_env, monkeypatch, caplog, failure_stage,
 ):
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     case = ReviewCase(
@@ -378,8 +378,10 @@ def test_unexpected_exception_emits_diagnostics_and_continues(
     ]
     assert events[1 + len(first_trace)][1] == {
         "case_id": case.id, "requirement_id": reqs[0].id,
-        "error_type": "RuntimeError", "error": "Controlled adapter failure",
+        "error_type": "UNKNOWN", "error": "Requirement execution failed",
     }
+    assert "Controlled adapter failure" in caplog.text
+    assert "RuntimeError" not in str(events[1 + len(first_trace)][1])
     assert events[2 + len(first_trace)][1] == findings[0].model_dump(mode="json")
 
 
