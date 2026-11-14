@@ -94,7 +94,7 @@ def test_upload_case_run_sse_decisions_and_markdown_export(review_http):
     assert isinstance(module.review_runtime.runs[job_id]["engine"], PipelineReviewEngine)
 
     decisions = ("ACCEPT", "REJECT", "EDIT")
-    for finding, decision in zip(findings, decisions):
+    for finding, decision in zip(findings, decisions, strict=False):
         response = client.put(f"/api/review/findings/{finding['id']}/decision", json={
             "review": decision,
             **({"edited_text": "Reviewed access policy"} if decision == "EDIT" else {}),

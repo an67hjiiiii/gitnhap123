@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.core.types import Usage
 from app.research.conversation_context import build_conversation_context
 from app.research.pipeline import ResearchPipeline
@@ -61,7 +63,6 @@ def test_reply_language_detection_for_english_and_vietnamese(sf1_fake_provider_e
 
 
 
-import pytest
 
 
 @pytest.mark.xfail(strict=True, reason="LIMITATION: bare deictic 'that?'/'what about it' without a listed noun is matched only for it/they/this one; 'What about that?' is not resolved to the last user request")

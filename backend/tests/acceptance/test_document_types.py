@@ -7,7 +7,6 @@ from app.retrieval.embeddings import make_embedder
 from app.storage.source_store import SourceStore
 from app.storage.vector_store import InMemoryVectorStore
 
-
 DOCS = Path(__file__).resolve().parents[1] / "fixtures" / "acceptance_docs"
 CASES = [
     ("readme.md", "14 days"),
