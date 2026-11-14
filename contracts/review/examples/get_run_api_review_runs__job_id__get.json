@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/review/runs/{job_id}",
+    "headers": {
+      "Authorization": "Bearer <access_token>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "<job_id>",
+      "case_id": "<case_id>",
+      "state": "SUCCEEDED",
+      "seq": 6,
+      "budget": null,
+      "started_at": "<timestamp>",
+      "finished_at": "<timestamp>"
+    }
+  }
+}

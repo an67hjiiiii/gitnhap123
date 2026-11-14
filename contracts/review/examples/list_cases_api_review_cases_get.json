@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/review/cases",
+    "headers": {
+      "Authorization": "Bearer <access_token>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": []
+  }
+}

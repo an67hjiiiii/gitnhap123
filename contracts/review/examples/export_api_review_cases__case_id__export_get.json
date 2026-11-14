@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/review/cases/{case_id}/export?format=md",
+    "headers": {
+      "Authorization": "Bearer <access_token>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": "# Policy review\n\nStatus: COMPLETE\n\n## Requirements\n1. Review the policy (confirmed: true)\n   - Verdict: SATISFIED\n   - Decision: ACCEPT\n"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/api/review/cases/{case_id}/requirements",
+    "headers": {
+      "Authorization": "Bearer <access_token>"
+    },
+    "body": {
+      "requirements": [
+        {
+          "id": "<requirement_0>",
+          "text": "Review the policy",
+          "confirmed": true
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "id": "<requirement_0>",
+        "case_id": "<case_id>",
+        "text": "Review the policy",
+        "origin": "AI_PROPOSED",
+        "confirmed": true,
+        "order": 0
+      }
+    ]
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/review/cases/{case_id}/inspector",
+    "headers": {
+      "Authorization": "Bearer <access_token>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "case": {
+        "id": "<case_id>",
+        "title": "Policy review",
+        "status": "COMPLETE",
+        "kind": "requirement_review",
+        "old_source_id": null,
+        "new_source_id": null,
+        "source_ids": [],
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "requirements": [
+        {
+          "id": "<requirement_0>",
+          "text": "Review the policy",
+          "confirmed": true,
+          "origin": "AI_PROPOSED",
+          "finding": {
+            "verdict": "SATISFIED",
+            "confidence": "L0",
+            "review": "NONE",
+            "edited_text": null
+          },
+          "evidence": []
+        }
+      ],
+      "run": {
+        "id": "<job_id>",
+        "state": "SUCCEEDED",
+        "seq": {
+          "last": 6,
+          "count": 6
+        },
+        "started_at": "<timestamp>",
+        "finished_at": "<timestamp>",
+        "route_decision": {
+          "route": "MULTI_AGENT",
+          "reasons": [
+            "Selected mode: case",
+            "Case mode requests planned analysis"
+          ],
+          "budget_hint": {
+            "tokens": 6,
+            "model_calls": 3
+          }
+        }
+      },
+      "events": [
+        {
+          "seq": 1,
+          "type": "route.decided",
+          "ts": "<timestamp>",
+          "data": {
+            "route": "MULTI_AGENT",
+            "reasons": [
+              "Selected mode: case",
+              "Case mode requests planned analysis"
+            ],
+            "budget_hint": {
+              "tokens": 6,
+              "model_calls": 3
+            }
+          }
+        },
+        {
+          "seq": 2,
+          "type": "job.started",
+          "ts": "<timestamp>",
+          "data": {}
+        },
+        {
+          "seq": 3,
+          "type": "task.started",
+          "ts": "<timestamp>",
+          "data": {
+            "case_id": "<case_id>"
+          }
+        },
+        {
+          "seq": 4,
+          "type": "finding.created",
+          "ts": "<timestamp>",
+          "data": {
+            "id": "<finding_id>",
+            "case_id": "<case_id>",
+            "requirement_id": "<requirement_0>",
+            "verdict": "SATISFIED",
+            "evidence": [],
+            "review": "NONE",
+            "edited_text": null,
+            "confidence": "L0"
+          }
+        },
+        {
+          "seq": 5,
+          "type": "task.done",
+          "ts": "<timestamp>",
+          "data": {
+            "requirement_id": "<requirement_0>"
+          }
+        },
+        {
+          "seq": 6,
+          "type": "job.done",
+          "ts": "<timestamp>",
+          "data": {}
+        }
+      ],
+      "budget": {
+        "given": null,
+        "skipped_requirement_ids": []
+      }
+    }
+  }
+}
