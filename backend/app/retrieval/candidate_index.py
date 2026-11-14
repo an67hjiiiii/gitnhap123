@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+from collections import OrderedDict
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable
@@ -19,6 +21,7 @@ from app.retrieval.index_identity import (
     read_manifest,
     write_manifest,
 )
+from app.retrieval.text import content_hash, contextual_text
 from app.storage.vector_store import VectorMatch, VectorRecord, VectorStore
 
 
@@ -36,6 +39,7 @@ class CandidateIndex:
         owner_user_id: str,
         embedder: TextEmbedder | None = None,
         manifest_path: str | Path | None = None,
+        default_workspace_id: str | None = None,
     ) -> None:
         if not isinstance(owner_user_id, str) or not owner_user_id.strip():
             raise ValueError("owner_user_id must be non-empty")
@@ -47,6 +51,8 @@ class CandidateIndex:
             manifest_path = collection_manifest_path(vector_store.path, vector_store.collection)
         self.manifest_path = None if manifest_path is None else Path(manifest_path)
         self.last_search_info: dict[str, Any] = {}
+        self.default_workspace_id = default_workspace_id
+        self._query_embeddings = OrderedDict()
 
     @property
     def identity(self) -> IndexIdentity:
@@ -76,7 +82,7 @@ class CandidateIndex:
                 self.vector_store._index_legacy_warned = True
         return state
 
-    def index_source(self, source_id: str) -> dict[str, Any]:
+    def index_source(self, source_id: str, *, workspace_id: str | None = None) -> dict[str, Any]:
         source = self.source_store.source(source_id)
         if source is None:
             raise LookupError("source not found")
@@ -91,26 +97,56 @@ class CandidateIndex:
         self._check_identity(manifest)
         try:
             chunks = self.source_store.chunks([source_id])
-            records = [
-                VectorRecord(
-                    id=f"{self.owner_user_id}:{chunk.chunk_id}",
-                    vector=self.embedder.embed(chunk.text),
-                    payload={
-                        "owner_user_id": self.owner_user_id,
-                        "source_id": chunk.source_id,
-                        "chunk_id": chunk.chunk_id,
-                        "source_name": chunk.source_name,
-                        "embedding_version": self.embedder.version,
-                        **dict(chunk.provenance),
-                    },
-                )
-                for chunk in chunks
-            ]
+            workspace_id = workspace_id if workspace_id is not None else self.default_workspace_id
+            doc_id = chunks[0].provenance.get("doc_id") if chunks else None
+            lookup = getattr(self.vector_store, "records_for_source", None)
+            previous = lookup(self.owner_user_id, source_id, workspace_id=workspace_id, doc_id=doc_id) if callable(lookup) else []
+            previous_by_id = {record.payload.get("chunk_id"): record for record in previous}
+            current_ids = {chunk.chunk_id for chunk in chunks}
+            deleted = [record.id for record in previous if record.payload.get("chunk_id") not in current_ids]
+            changed = []
+            unchanged = []
+            for chunk in chunks:
+                old = previous_by_id.get(chunk.chunk_id)
+                if (old is not None and old.payload.get("content_hash") == content_hash(chunk.text)
+                        and old.payload.get("context_header") == chunk.provenance.get("context_header")
+                        and old.payload.get("embedding_version") == self.identity.embedding_version):
+                    unchanged.append((chunk, old))
+                else:
+                    changed.append(chunk)
+            texts = [contextual_text(chunk) for chunk in changed]
+            batch = getattr(self.embedder, "embed_many", None)
+            vectors = batch(texts) if callable(batch) and texts else [self.embedder.embed(text) for text in texts]
+            if len(vectors) != len(changed):
+                raise ValueError("embed_many returned an unexpected embedding count")
+
+            def record_id(chunk):
+                prefix = f"{self.owner_user_id}:" if workspace_id is None else f"{self.owner_user_id}:{workspace_id}:"
+                return prefix + chunk.chunk_id
+
+            def payload(chunk):
+                return {**dict(chunk.provenance), "owner_user_id": self.owner_user_id,
+                        "source_id": chunk.source_id, "chunk_id": chunk.chunk_id,
+                        "source_name": chunk.source_name, "content_hash": content_hash(chunk.text),
+                        "embedding_version": self.identity.embedding_version, "workspace_id": workspace_id}
+
+            records = [VectorRecord(record_id(chunk), vector, payload(chunk))
+                       for chunk, vector in zip(changed, vectors)]
+            # A new source version can reuse vectors but must update source filters.
+            for chunk, old in unchanged:
+                if old.payload.get("source_id") != chunk.source_id:
+                    if old.vector:
+                        records.append(VectorRecord(old.id, old.vector, payload(chunk)))
+                    else:
+                        self.vector_store.update_payload(old.id, payload(chunk))
             if manifest is not None:
                 # Persist the identity before writing any vectors, including on partial failure.
-                manifest = replace(manifest, empty=manifest.empty and not records)
+                manifest = replace(manifest, empty=manifest.empty and not chunks,
+                                   payload_complete=manifest.payload_complete or manifest.empty and bool(chunks) and all(
+                                       "context_header" in c.provenance for c in chunks))
                 self._write_manifest(manifest)
             self.vector_store.upsert(records)
+            self.vector_store.delete(deleted)
         except Exception as exc:
             marker = getattr(self.source_store, "mark_failed", None)
             if callable(marker):
@@ -118,8 +154,10 @@ class CandidateIndex:
             raise IndexingError("derived index write failed") from exc
         return {
             "source_id": source_id,
-            "chunks_indexed": len(records),
-            "embedding_version": self.embedder.version,
+            "chunks_indexed": len(changed),
+            "chunks_skipped": len(unchanged),
+            "chunks_deleted": len(deleted),
+            "embedding_version": self.identity.embedding_version,
         }
 
     def candidates(
@@ -128,6 +166,7 @@ class CandidateIndex:
         *,
         limit: int = 10,
         source_ids: Iterable[str] | None = None,
+        workspace_id: str | None = None,
     ) -> list[VectorMatch]:
         self.last_search_info = {
             "index_state": IndexState.INCOMPATIBLE.value,
@@ -146,11 +185,24 @@ class CandidateIndex:
         self.last_search_info["retrieval_backend_used"] = (
             "qdrant" if hasattr(self.vector_store, "collection") else "memory"
         )
+        key = (self.identity.embedding_version, hashlib.sha256(query.encode("utf-8")).hexdigest())
+        if key not in self._query_embeddings:
+            self._query_embeddings[key] = self.embedder.embed(query)
+            if len(self._query_embeddings) > 256:
+                self._query_embeddings.popitem(last=False)
+        self._query_embeddings.move_to_end(key)
+        filters = {}
+        workspace_id = workspace_id if workspace_id is not None else self.default_workspace_id
+        if workspace_id is not None:
+            filters["workspace_id"] = workspace_id
+        if manifest is not None and manifest.payload_complete:
+            filters["embedding_version"] = self.identity.embedding_version
         return self.vector_store.search(
-            self.embedder.embed(query),
+            self._query_embeddings[key],
             limit=limit,
             owner_user_id=self.owner_user_id,
             source_ids=selected,
+            **filters,
         )
 
 

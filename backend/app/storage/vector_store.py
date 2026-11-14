@@ -30,6 +30,8 @@ class VectorStore(Protocol):
         *,
         owner_user_id: str | None = None,
         source_ids: Iterable[str] | None = None,
+        workspace_id: str | None = None,
+        embedding_version: str | None = None,
     ) -> list[VectorMatch]: ...
 
     def delete(self, ids: Iterable[str]) -> None: ...
@@ -57,6 +59,8 @@ class InMemoryVectorStore:
         *,
         owner_user_id: str | None = None,
         source_ids: Iterable[str] | None = None,
+        workspace_id: str | None = None,
+        embedding_version: str | None = None,
     ) -> list[VectorMatch]:
         query = tuple(float(value) for value in vector)
         self._validate("query", query)
@@ -67,6 +71,8 @@ class InMemoryVectorStore:
             record
             for record in self._records.values()
             if (owner_user_id is None or record.payload.get("owner_user_id") == owner_user_id)
+            and (workspace_id is None or record.payload.get("workspace_id") == workspace_id)
+            and (embedding_version is None or record.payload.get("embedding_version") == embedding_version)
             and (
                 selected_sources is None
                 or record.payload.get("source_id") in selected_sources
@@ -85,6 +91,13 @@ class InMemoryVectorStore:
     def delete(self, ids: Iterable[str]) -> None:
         for record_id in ids:
             self._records.pop(record_id, None)
+
+    def records_for_source(self, owner_user_id, source_id, *, workspace_id=None, doc_id=None):
+        return [record for record in self._records.values()
+                if record.payload.get("owner_user_id") == owner_user_id
+                and record.payload.get("workspace_id") == workspace_id
+                and (record.payload.get("doc_id") == doc_id if doc_id else
+                     record.payload.get("source_id") == source_id)]
 
     def count(self) -> int:
         return len(self._records)
@@ -149,6 +162,12 @@ class QdrantVectorStore:
         else:
             self.client = client
         self._ensure_collection()
+        if hasattr(self.client, "get_collection"):
+            info = self.client.get_collection(collection_name=self.collection)
+            vectors = info.config.params.vectors
+            actual_size = getattr(vectors, "size", None)
+            if actual_size is not None and actual_size != self.vector_size:
+                raise ValueError(f"Embedding dimension {self.vector_size} differs from collection dimension {actual_size}")
 
     def _qdrant_models(self) -> Any:
         if self._models is not None:
@@ -194,6 +213,7 @@ class QdrantVectorStore:
             self._validate_vector(values)
             payload = dict(record.payload)
             payload.setdefault("chunk_id", record.id)
+            payload["_record_id"] = record.id
             points.append(
                 models.PointStruct(
                     id=self.point_id(record.id),
@@ -211,12 +231,18 @@ class QdrantVectorStore:
         *,
         owner_user_id: str | None = None,
         source_ids: Iterable[str] | None = None,
+        workspace_id: str | None = None,
+        embedding_version: str | None = None,
     ) -> list[VectorMatch]:
         query = tuple(float(value) for value in vector)
         self._validate_vector(query)
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be positive")
-        query_filter = self._owner_filter(owner_user_id, source_ids)
+        if source_ids is not None:
+            source_ids = list(source_ids)
+            if not source_ids:
+                return []
+        query_filter = self._owner_filter(owner_user_id, source_ids, workspace_id, embedding_version)
         kwargs = {
             "collection_name": self.collection,
             "limit": limit,
@@ -244,6 +270,31 @@ class QdrantVectorStore:
             wait=True,
         )
 
+    def update_payload(self, record_id, payload):
+        self.client.set_payload(collection_name=self.collection, payload=payload,
+                                points=[self.point_id(record_id)], wait=True)
+
+    def records_for_source(self, owner_user_id, source_id, *, workspace_id=None, doc_id=None):
+        models = self._qdrant_models()
+        predicate = self._owner_filter(owner_user_id, None, workspace_id)
+        predicate.must.append(models.FieldCondition(
+            key="doc_id" if doc_id else "source_id",
+            match=models.MatchValue(value=doc_id or source_id)))
+        records = []
+        offset = None
+        while True:
+            points, offset = self.client.scroll(
+                collection_name=self.collection, scroll_filter=predicate,
+                offset=offset, limit=256, with_payload=True, with_vectors=False)
+            for point in points:
+                payload = dict(point.payload or {})
+                if payload.get("workspace_id") != workspace_id:
+                    continue
+                identifier = payload.get("_record_id") or f"{owner_user_id}:{payload['chunk_id']}"
+                records.append(VectorRecord(identifier, (), payload))
+            if offset is None:
+                return records
+
     def count(self) -> int:
         result = self.client.count(collection_name=self.collection, exact=True)
         return int(result.count)
@@ -252,6 +303,8 @@ class QdrantVectorStore:
         self,
         owner_user_id: str | None,
         source_ids: Iterable[str] | None,
+        workspace_id: str | None = None,
+        embedding_version: str | None = None,
     ) -> Any:
         """Build a server-side owner/source predicate for candidate requests."""
 
@@ -279,6 +332,9 @@ class QdrantVectorStore:
                         match=models.MatchAny(any=selected),
                     )
                 )
+        for key, value in (("workspace_id", workspace_id), ("embedding_version", embedding_version)):
+            if value is not None:
+                must.append(models.FieldCondition(key=key, match=models.MatchValue(value=value)))
         return models.Filter(must=must) if must else None
 
     def _validate_vector(self, values: tuple[float, ...]) -> None:

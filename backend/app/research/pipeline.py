@@ -83,6 +83,8 @@ class ResearchPipeline:
     ) -> list[SourceChunk]:
         variants = build_query_variants(query)
         if self.candidate_index is None:
+            if chunks is None:
+                chunks = self.source_store.chunks(source_ids)
             merged: dict[str, SourceChunk] = {}
             for variant in variants:
                 for chunk in retrieve(variant.text, chunks, top_k=top_k, min_score=min_score):
@@ -93,7 +95,6 @@ class ResearchPipeline:
 
         # CandidateIndex applies owner/source filters in the vector query before top-k.
         # Hydrate only canonical chunks already scoped by the owner source store.
-        chunks_by_id = {chunk.chunk_id: chunk for chunk in chunks}
         matches_by_id = {}
         for variant in variants:
             for match in self.candidate_index.candidates(variant.text, limit=top_k, source_ids=source_ids):
@@ -101,6 +102,15 @@ class ResearchPipeline:
                 if existing is None or match.score > existing.score:
                     matches_by_id[str(match.payload.get("chunk_id") or "")] = match
         matches = sorted(matches_by_id.values(), key=lambda match: match.score, reverse=True)[:top_k]
+        hydrate = getattr(self.source_store, "chunks_by_ids", None)
+        if callable(hydrate):
+            matched_chunks = hydrate([str(m.payload.get("chunk_id") or "") for m in matches], source_ids=source_ids)
+        elif chunks is not None:
+            matched_chunks = chunks
+        else:
+            raise TypeError("source store must implement chunks_by_ids for lazy hydration")
+        chunks_by_id = {chunk.chunk_id: chunk for chunk in matched_chunks
+                        if source_ids is None or chunk.source_id in source_ids}
         candidates: list[SourceChunk] = []
         for match in matches:
             chunk_id = str(match.payload.get("chunk_id") or "")
@@ -114,6 +124,8 @@ class ResearchPipeline:
         # The index is derived and can miss paraphrases. Fall back only over the
         # already owner-scoped canonical chunks supplied by the source store.
         # Keep the same top-k and score gate; normalize only generic query fillers.
+        if chunks is None:
+            chunks = self.source_store.chunks(source_ids)
         fallback_map: dict[str, SourceChunk] = {}
         for variant in variants:
             lexical_query = " ".join(sorted(terms(variant.text) - _LEXICAL_FALLBACK_FILLERS)) or variant.text

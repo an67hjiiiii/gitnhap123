@@ -62,7 +62,7 @@ class IndexIdentity:
             model_name=getattr(embedder, "model_name", getattr(embedder, "model", model)),
             digest=getattr(embedder, "digest", None),
             dimension=embedder.dimension,
-            embedding_version=embedder.version,
+            embedding_version=embedder.version if embedder.version.endswith("+hdr1") else embedder.version + "+hdr1",
             normalization_version=getattr(embedder, "normalization_version", normalization),
         )
 

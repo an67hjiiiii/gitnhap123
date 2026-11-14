@@ -28,25 +28,23 @@ def tokens(text: str) -> list[str]:
 def bm25_rank(query: str, chunks: Sequence[SourceChunk], top_k: int = 10,
               *, k1: float = 1.5, b: float = 0.75, rel_min: float = 0.4) -> list[SourceChunk]:
     """BM25 over the supplied (already owner-scoped) chunks. Chunks with score 0 are dropped."""
-    docs = [(chunk, tokens(chunk.text)) for chunk in chunks]
-    if not docs:
+    from app.retrieval.bm25_index import get_index
+
+    index = get_index(chunks)
+    if not index.size:
         return []
-    n = len(docs)
-    avg = sum(len(t) for _, t in docs) / n or 1.0
-    df: Counter[str] = Counter()
-    for _, toks in docs:
-        df.update(set(toks))
+    n = index.size
+    avg = index.avg_length
     q_terms = set(tokens(query))
     scored: list[SourceChunk] = []
-    for chunk, toks in docs:
-        tf = Counter(toks)
+    for chunk in chunks:
         score = 0.0
         for term in q_terms:
-            if term not in tf:
+            freq = index.postings.get(term, {}).get(chunk.chunk_id, 0)
+            if not freq:
                 continue
-            idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
-            freq = tf[term]
-            score += idf * freq * (k1 + 1) / (freq + k1 * (1 - b + b * len(toks) / avg))
+            idf = math.log(1 + (n - index.df[term] + 0.5) / (index.df[term] + 0.5))
+            score += idf * freq * (k1 + 1) / (freq + k1 * (1 - b + b * index.lengths[chunk.chunk_id] / avg))
         if score > 0:
             scored.append(SourceChunk(**{**chunk.__dict__, "score": round(score, 6)}))
     scored.sort(key=lambda c: (-(c.score or 0.0), c.chunk_id))
