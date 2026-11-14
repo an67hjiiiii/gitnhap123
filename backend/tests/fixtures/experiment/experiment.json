@@ -1,0 +1,24 @@
+{
+  "definition": {
+    "provenance": "Handoff section 1 requires A/B0/B/C, C-P/C-N/C-O and three repeats; section 3.1 adds B0 as a baseline. Component mappings below are experiment assumptions, not verified handoff definitions.",
+    "retrieval_policy": "Use supplied fixed corpus evidence when on; no evidence when off. Real registry implementations must declare their retrieval policy.",
+    "verdict_rules": "Apply deterministic lexical conflict rules when on; legacy supplied-status mapping when off.",
+    "router_budget": "Enable mode-based routing and per-requirement budget policy in registered implementations. Dry-run records this switch only; the external ResourceGuard always applies.",
+    "project_memory_suggestions": "Enable read-only suggestions from prior human decisions in registered implementations. Dry-run has no prior decisions and records this switch only.",
+    "ablations": "Assume P=project memory suggestions, N=verdict rules, O=router/budget. Each removes exactly that switch from C.",
+    "inference_unit": "One guarded engine.run per corpus case; engines must not hide multiple provider calls. Fake engine calls count toward the same limit.",
+    "limitations": "Synthetic fixed-evidence dry-run; router and memory switches are configuration only. No real inference, retrieval-quality, latency or production-accuracy claims. Repeats are not independent samples."
+  },
+  "repeats": 3,
+  "seeds": [11, 23, 37],
+  "corpus_refs": ["../eval/bilingual.json", "../eval/spec_change.json"],
+  "conditions": [
+    {"name": "A", "engine_id": "fake", "definition": "Ungrounded single-engine baseline.", "components": {"retrieval_policy": false, "verdict_rules": false, "router_budget": false, "project_memory_suggestions": false}},
+    {"name": "B0", "engine_id": "fake", "definition": "Fixed-evidence single-engine baseline.", "components": {"retrieval_policy": true, "verdict_rules": false, "router_budget": false, "project_memory_suggestions": false}},
+    {"name": "B", "engine_id": "fake", "definition": "Fixed evidence plus deterministic verdict rules.", "components": {"retrieval_policy": true, "verdict_rules": true, "router_budget": false, "project_memory_suggestions": false}},
+    {"name": "C", "engine_id": "fake", "definition": "Full configured system.", "components": {"retrieval_policy": true, "verdict_rules": true, "router_budget": true, "project_memory_suggestions": true}},
+    {"name": "C-P", "engine_id": "fake", "definition": "C without project memory suggestions.", "components": {"retrieval_policy": true, "verdict_rules": true, "router_budget": true, "project_memory_suggestions": false}},
+    {"name": "C-N", "engine_id": "fake", "definition": "C without verdict rules.", "components": {"retrieval_policy": true, "verdict_rules": false, "router_budget": true, "project_memory_suggestions": true}},
+    {"name": "C-O", "engine_id": "fake", "definition": "C without router/budget policy.", "components": {"retrieval_policy": true, "verdict_rules": true, "router_budget": false, "project_memory_suggestions": true}}
+  ]
+}
