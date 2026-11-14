@@ -67,7 +67,7 @@ def test_flow_propose_confirm_run_decision_export(api, partial):
     status = client.get(f"/api/review/runs/{job_id}").json()
     assert status["state"] == ("PARTIAL" if partial else "SUCCEEDED")
     assert status["case_id"] == case_id and status["seq"] > 0
-    assert status["budget"] == {"tasks": 2}
+    assert status["budget"] == {"tasks": 2, "max_requirements": 100, "max_seconds": 3600}
     assert status["started_at"] and status["finished_at"]
     case = client.get(f"/api/review/cases/{case_id}").json()
     assert case["status"] == ("PARTIAL" if partial else "COMPLETE")

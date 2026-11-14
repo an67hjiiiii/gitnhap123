@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.jobs import EventLog, JobRunner, format_sse
 from app.review.engine import FakeReviewEngine
@@ -27,6 +27,7 @@ from app.review.service import (
 )
 from app.review.memory import MemoryStore, recall
 from app.retrieval.index_identity import IndexingError
+from app.api.ratelimit import configured_limit, review_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +102,17 @@ class Input(BaseModel):
 class CaseInput(Input):
     title: str = Field(min_length=1, max_length=500)
     source_ids: list[str] = Field(default_factory=list)
-    request_text: str = Field(min_length=1)
+    request_text: str = Field(min_length=1, max_length=20000)
     kind: Literal["requirement_review", "spec_change"] = "requirement_review"
     old_source_id: str | None = None
     new_source_id: str | None = None
+
+    @field_validator("request_text")
+    @classmethod
+    def request_text_limit(cls, value):
+        if len(value) > _positive_env("REVIEW_MAX_REQUEST_CHARS", 20000):
+            raise ValueError("request_text exceeds configured maximum length")
+        return value
 
     @model_validator(mode="after")
     def source_pair_required(self):
@@ -115,8 +123,15 @@ class CaseInput(Input):
 
 class RequirementInput(Input):
     id: str | None = None
-    text: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=2000)
     confirmed: bool = False
+
+    @field_validator("text")
+    @classmethod
+    def requirement_text_limit(cls, value):
+        if len(value) > _positive_env("REVIEW_MAX_REQUIREMENT_CHARS", 2000):
+            raise ValueError("text exceeds configured maximum length")
+        return value
 
 
 class RequirementsInput(Input):
@@ -141,7 +156,14 @@ class RunInput(Input):
 
 class DecisionInput(Input):
     review: Literal["ACCEPT", "REJECT", "EDIT"]
-    edited_text: str | None = None
+    edited_text: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("edited_text")
+    @classmethod
+    def edited_text_limit(cls, value):
+        if value is not None and len(value) > _positive_env("REVIEW_MAX_REQUIREMENT_CHARS", 2000):
+            raise ValueError("edited_text exceeds configured maximum length")
+        return value
 
 
 class SuggestionOutput(BaseModel):
@@ -372,13 +394,23 @@ def build_router(*, current_user, runtime: ReviewRuntime):
     repo = runtime.repository
 
     def owner(request: Request):
-        return str(current_user(request)["user_id"])
+        user_id = str(current_user(request)["user_id"])
+        is_run = request.method == "POST" and request.url.path.endswith("/runs")
+        limit = configured_limit("REVIEW_RATE_RUNS_PER_MIN" if is_run else "REVIEW_RATE_READS_PER_MIN",
+                                 2 if is_run else 60)
+        allowed, retry = review_rate_limiter.allow(user_id, "runs" if is_run else "reads", limit)
+        if not allowed:
+            raise HTTPException(429, {"code": "RATE_LIMITED", "message": "Too many requests"},
+                                headers={"Retry-After": str(retry)})
+        return user_id
+
+    rate_errors = error_responses(429)
 
     def engine(case_id: str, user=Depends(owner), selected=Depends(get_review_engine)):
         case = runtime.service(None)._case(case_id, user)
         return runtime.case_engine(case, selected)
 
-    @router.post("/cases", status_code=201, responses=error_responses(404, 422))
+    @router.post("/cases", status_code=201, responses={**error_responses(404, 422), **rate_errors})
     def create_case(body: CaseInput, user=Depends(owner)):
         if len(runtime.selected_sources(user, body.source_ids)) != len(body.source_ids):
             raise HTTPException(404, {"code": "SOURCE_NOT_FOUND", "message": "Source not found"})
@@ -390,18 +422,18 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             old_source_id=body.old_source_id, new_source_id=body.new_source_id,
         )
 
-    @router.get("/cases", responses=error_responses(422))
+    @router.get("/cases", responses={**error_responses(422), **rate_errors})
     def list_cases(user=Depends(owner)):
         return repo.list_cases(user)
 
-    @router.get("/cases/{case_id}", responses=error_responses(404, 422))
+    @router.get("/cases/{case_id}", responses={**error_responses(404, 422), **rate_errors})
     def get_case(case_id: str, user=Depends(owner)):
         case = runtime.service(None)._case(case_id, user)
         return {**case.model_dump(), "requirements": repo.get_requirements(user, case_id),
                 "findings": repo.get_findings(user, case_id)}
 
     @router.get("/cases/{case_id}/requirements/{requirement_id}/suggestions",
-                response_model=list[SuggestionOutput], responses=error_responses(404, 422))
+                response_model=list[SuggestionOutput], responses={**error_responses(404, 422), **rate_errors})
     def suggestions(case_id: str, requirement_id: str, user=Depends(owner)):
         case = runtime.service(None)._case(case_id, user)
         requirement = next((item for item in repo.get_requirements(user, case_id)
@@ -413,7 +445,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
         project_key = case.source_ids[0] if case.source_ids else "default"
         return recall(runtime.memory_store, user, project_key, requirement.text)
 
-    @router.get("/cases/{case_id}/inspector", responses=error_responses(404, 422))
+    @router.get("/cases/{case_id}/inspector", responses={**error_responses(404, 422), **rate_errors})
     def inspector(case_id: str, run: str | None = Query(default=None), user=Depends(owner)):
         case = runtime.service(None)._case(case_id, user)
         selected = run
@@ -493,14 +525,19 @@ def build_router(*, current_user, runtime: ReviewRuntime):
         }
 
     @router.post("/cases/{case_id}/requirements:propose",
-                 responses=error_responses(404, 409, 422, 503))
+                 responses={**error_responses(404, 409, 422, 503), **rate_errors})
     def propose(case_id: str, user=Depends(owner), engine=Depends(engine)):
         with runtime.lock:
             runtime.mutable(user, case_id)
             return runtime.service(engine).propose_requirements(case_id, user)
 
-    @router.put("/cases/{case_id}/requirements", responses=error_responses(404, 409, 422))
+    @router.put("/cases/{case_id}/requirements", responses={**error_responses(404, 409, 422), **rate_errors})
     def replace_requirements(case_id: str, body: RequirementsInput, user=Depends(owner)):
+        maximum = _positive_env("REVIEW_MAX_REQUIREMENTS_PER_CASE", 100)
+        if len(body.requirements) > maximum:
+            raise HTTPException(422, {"code": "VALIDATION_ERROR", "message": "Invalid request",
+                                      "details": [{"loc": ["body", "requirements"],
+                                                   "msg": f"must contain at most {maximum} requirements"}]})
         with runtime.lock:
             runtime.mutable(user, case_id)
             existing = {item.id: item for item in repo.get_requirements(user, case_id)}
@@ -523,7 +560,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             return values
 
     @router.post("/cases/{case_id}/runs", status_code=202,
-                 responses=error_responses(404, 409, 422, 503))
+                 responses={**error_responses(404, 409, 422, 503), **rate_errors})
     def start_run(case_id: str, body: RunInput = RunInput(), user=Depends(owner),
                   engine=Depends(engine)):
         with runtime.lock:
@@ -531,7 +568,15 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             requirements = repo.get_requirements(user, case_id)
             if not requirements or not all(item.confirmed for item in requirements):
                 raise RequirementsUnconfirmed(case_id)
-            budget = body.budget or {}
+            budget = dict(body.budget or {})
+            for key, env_name, default in (("max_requirements", "REVIEW_MAX_REQUIREMENTS", 100),
+                                           ("max_seconds", "REVIEW_MAX_SECONDS", 3600),
+                                           ("max_tokens", "REVIEW_MAX_TOKENS", None),
+                                           ("max_model_calls", "REVIEW_MAX_MODEL_CALLS", None)):
+                ceiling = _optional_positive_env(env_name, default)
+                if ceiling is not None:
+                    supplied = budget.get(key)
+                    budget[key] = min(supplied, ceiling) if supplied is not None else ceiling
             if any(isinstance(budget.get(key), (int, float)) and budget[key] <= 0
                    for key in ("max_requirements", "max_seconds")):
                 raise HTTPException(409, {
@@ -539,7 +584,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                     "message": "Run budget cannot cover one requirement",
                 })
             case = runtime.service(None)._case(case_id, user)
-            run = {"owner": user, "case_id": case_id, "budget": body.budget, "engine": engine,
+            run = {"owner": user, "case_id": case_id, "budget": budget, "engine": engine,
                    "route_decision": review_route_decision(case, len(requirements))}
             try:
                 job_id = runtime.runner.submit(run)
@@ -551,11 +596,11 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                 runtime.runs[job_id] = run
             return runtime.status(user, job_id)
 
-    @router.get("/runs/{job_id}", responses=error_responses(404, 422))
+    @router.get("/runs/{job_id}", responses={**error_responses(404, 422), **rate_errors})
     def get_run(job_id: str, user=Depends(owner)):
         return runtime.status(user, job_id)
 
-    @router.get("/runs/{job_id}/events", responses=error_responses(404, 422))
+    @router.get("/runs/{job_id}/events", responses={**error_responses(404, 422), **rate_errors})
     def events(job_id: str, user=Depends(owner),
                last_event_id: int = Header(default=0, ge=0)):
         runtime.owned_run(user, job_id)
@@ -566,13 +611,13 @@ def build_router(*, current_user, runtime: ReviewRuntime):
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
-    @router.post("/runs/{job_id}:cancel", responses=error_responses(404, 422))
+    @router.post("/runs/{job_id}:cancel", responses={**error_responses(404, 422), **rate_errors})
     def cancel(job_id: str, user=Depends(owner)):
         runtime.owned_run(user, job_id)
         runtime.runner.cancel(job_id)
         return runtime.status(user, job_id)
 
-    @router.put("/findings/{finding_id}/decision", responses=error_responses(404, 409, 422))
+    @router.put("/findings/{finding_id}/decision", responses={**error_responses(404, 409, 422), **rate_errors})
     def decide(finding_id: str, body: DecisionInput, user=Depends(owner)):
         with runtime.lock:
             for case in repo.list_cases(user):
@@ -583,8 +628,24 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                     )
             raise FindingNotFound(finding_id)
 
-    @router.get("/cases/{case_id}/export", responses=error_responses(404, 422))
+    @router.get("/cases/{case_id}/export", responses={**error_responses(404, 422), **rate_errors})
     def export(case_id: str, format: Literal["md"] = Query(default="md"), user=Depends(owner)):
         return Response(runtime.service(None).export_markdown(case_id, user), media_type="text/markdown")
 
     return router
+
+
+def _positive_env(name, default):
+    value = _optional_positive_env(name, default)
+    return value if value is not None else default
+
+
+def _optional_positive_env(name, default):
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default

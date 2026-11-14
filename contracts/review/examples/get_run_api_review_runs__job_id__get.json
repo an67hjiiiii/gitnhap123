@@ -14,7 +14,10 @@
       "case_id": "<case_id>",
       "state": "SUCCEEDED",
       "seq": 6,
-      "budget": null,
+      "budget": {
+        "max_requirements": 100,
+        "max_seconds": 3600
+      },
       "started_at": "<timestamp>",
       "finished_at": "<timestamp>"
     }

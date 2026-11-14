@@ -8,6 +8,12 @@ from app.storage.source_store import SourceStore
 from app.storage.vector_store import InMemoryVectorStore
 
 
+@pytest.fixture(autouse=True)
+def _disable_review_rate_limiter_for_existing_tests(monkeypatch):
+    monkeypatch.setenv("REVIEW_RATE_RUNS_PER_MIN", "0")
+    monkeypatch.setenv("REVIEW_RATE_READS_PER_MIN", "0")
+
+
 @pytest.fixture
 def sf1_data_dir(tmp_path):
     """A per-test root for file-backed source and run stores."""

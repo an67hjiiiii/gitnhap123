@@ -282,9 +282,25 @@ def import_text(body: SourceTextRequest, request: Request):
 @app.post("/api/sources/file")
 async def import_file(request: Request, file: UploadFile = File(...)):
     user = current_user(request)
-    data = await file.read()
-    if len(data) > 2_000_000:
+    maximum_size = 2_000_000
+    content_length = request.headers.get("content-length")
+    # Multipart Content-Length includes its framing and file headers, so it can
+    # exceed the file limit even when the uploaded file itself is exactly at it.
+    if (content_length is not None and content_length.isdigit()
+            and int(content_length) > maximum_size
+            and not request.headers.get("content-type", "").lower().startswith("multipart/form-data")):
         raise HTTPException(413, "Files must be no larger than 2 MB")
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > maximum_size:
+            raise HTTPException(413, "Files must be no larger than 2 MB")
+        chunks.append(chunk)
+    data = b"".join(chunks)
 
     source_name = file.filename or "upload.txt"
     try:

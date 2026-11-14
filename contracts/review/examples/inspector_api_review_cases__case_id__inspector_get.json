@@ -119,7 +119,10 @@
         }
       ],
       "budget": {
-        "given": null,
+        "given": {
+          "max_requirements": 100,
+          "max_seconds": 3600
+        },
         "skipped_requirement_ids": []
       }
     }
