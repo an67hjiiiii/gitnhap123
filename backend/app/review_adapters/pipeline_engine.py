@@ -129,6 +129,8 @@ class PipelineReviewEngine:
 
     @staticmethod
     def _evidence(pipeline, result: dict, source_ids: list[str]) -> list[Evidence]:
+        from app.review_adapters.citation_check import excerpt_in_chunk
+
         tasks = result.get("task_results", [])
         citations = list(dict.fromkeys(cid for task in tasks for cid in task.get("citations", [])))
         retrieved = {cid for task in tasks for cid in task.get("evidence_ids", [])}
@@ -139,10 +141,13 @@ class PipelineReviewEngine:
             # Do not turn uncited retrieved chunks or out-of-scope IDs into evidence.
             if chunk is None or citation not in retrieved or chunk.source_id not in source_ids:
                 continue
-            evidence.append(Evidence(
+            item = Evidence(
                 evidence_id=citation, source_id=chunk.source_id,
                 locator=str(chunk.provenance.get("locator") or citation), excerpt=chunk.text,
-            ))
+            )
+            # Defensive excerpt integrity boundary (currently excerpt == chunk.text).
+            if excerpt_in_chunk(item.excerpt, chunk.text):
+                evidence.append(item)
         return evidence
 
     async def run_async(

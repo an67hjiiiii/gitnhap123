@@ -1,11 +1,7 @@
-"""Slot coverage on Vietnamese text, equivalent units and number words (characterization only).
-
-Passing tests pin behaviour that is already correct. The strict xfail tests are real
-wrong verdict demotions found by probing; each states the smallest proposed fix.
-No production behaviour is changed by this file.
-"""
+"""Slot coverage regressions for Vietnamese quantities and accepted unit readings."""
 
 import pytest
+import unicodedata
 
 from app.review_adapters.slot_check import check_slots, extract_slots
 
@@ -54,26 +50,14 @@ def test_multiword_vietnamese_name_only_keeps_its_capitalised_first_word():
 
 # --- wrong demotions found by probing (requirement value IS present in the evidence) ---
 
-@pytest.mark.xfail(strict=True, reason=(
-    "WRONG DEMOTION: '1.000 ký tự' (Vietnamese thousands dot) is read as 1, so evidence '1000 ký tự' "
-    "is missing. Smallest fix: in slot_check._numbers treat a single dot followed by exactly 3 digits "
-    "as a thousands separator when the unit is not a decimal-friendly one, or accept either reading."))
 def test_vietnamese_thousands_dot_matches_plain_number():
     assert missing("Tên tệp tối đa 1.000 ký tự.", "Tên tệp tối đa 1000 ký tự.") == []
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "WRONG DEMOTION: fixed conversion gives 12 months = 360 days but 1 year = 365 days. "
-    "Smallest fix: compare months and years through a calendar-month alias (12 months == 1 year) "
-    "before falling back to seconds."))
 def test_twelve_months_equal_one_year():
     assert missing("Dữ liệu được giữ 12 tháng.", "Dữ liệu được giữ 1 năm.") == []
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "WRONG DEMOTION: number words are not parsed, so 'thirty days' / 'ba mươi ngày' do not cover 30 days. "
-    "Smallest fix: map a small closed list of English/Vietnamese number words (0-100) to digits "
-    "in the evidence text before extracting quantities."))
 @pytest.mark.parametrize("requirement,evidence", [
     ("Tickets retained for 30 days.", "Tickets are retained for thirty days."),
     ("Passwords need 12 characters.", "Passwords need twelve characters."),
@@ -84,12 +68,50 @@ def test_number_words_in_evidence_cover_digit_requirement(requirement, evidence)
     assert missing(requirement, evidence) == []
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "WRONG DEMOTION (ambiguous by design): sizes are decimal (1 GB = 1000 MB), so 2048 MB / 1024 MB "
-    "do not cover 2 GB / 1 GB. Smallest fix: also accept the binary reading (x1024) for KB/MB/GB."))
 @pytest.mark.parametrize("requirement,evidence", [
     ("Uploads up to 2 GB.", "Uploads up to 2048 MB."),
     ("Uploads up to 1 GB.", "Uploads up to 1024 MB."),
 ])
 def test_binary_size_equivalence(requirement, evidence):
     assert missing(requirement, evidence) == []
+
+
+@pytest.fixture(autouse=True)
+def fake_environment(monkeypatch):
+    monkeypatch.setenv("PROVIDER", "fake")
+
+
+@pytest.mark.parametrize("requirement,evidence", [
+    ("retain thirty days", "retain 30 days"),
+    ("straße retain thirty days", "retain 30 days"),
+    (unicodedata.normalize("NFD", "giữ mười hai ngày"), "retain 12 days"),
+    ("retain twenty-one days", "retain 21 days"),
+    ("retain zero days", "retain 0 days"),
+    ("retain one hundred days", "retain 100 days"),
+    ("retain muoi hai ngay", "retain 12 days"),
+    ("retain hai muoi lam ngay", "retain 25 days"),
+    ("retain mot tram ngay", "retain 100 days"),
+    ("limit 1000 characters", "limit 1.000 characters"),
+    ("limit 1.000 characters", "limit 1 characters"),
+    ("retain 1 year", "retain 12 months"),
+    ("retain 365 days", "retain 1 year"),
+    ("retain 1 month", "retain 30 days"),
+    ("limit 1024 bytes", "limit 1 KB"),
+    ("limit 1 MB", "limit 1024 KB"),
+    ("limit 2048 MB", "limit 2 GB"),
+])
+def test_additional_accepted_readings_in_both_directions(requirement, evidence):
+    assert missing(requirement, evidence) == []
+
+
+@pytest.mark.parametrize("requirement,evidence", [
+    ("retain twenty days", "retain 21 days"),
+    ("retain 12 months", "retain 11 months"),
+    ("retain 1 year", "retain 364 days"),
+    ("limit 1.00 characters", "limit 100 characters"),
+    ("limit 1 GB", "limit 1023 MB"),
+    ("limit 1000 characters", "limit 1.0001 characters"),
+    ("retain 101 days", "retain one hundred one days"),
+])
+def test_aliases_do_not_cover_other_values(requirement, evidence):
+    assert missing(requirement, evidence)
