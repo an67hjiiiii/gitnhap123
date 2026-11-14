@@ -18,6 +18,7 @@ from app.review.schemas import Evidence, Finding, Requirement, ReviewCase
 from app.review_adapters.spec_change_engine import SpecChangeEngine
 from app.review_adapters.verdict_rules import assess
 from .metrics import score
+from app.research.pipeline import ResearchPipeline
 
 
 _NO_FLAGS = {"retrieval_policy": False, "verdict_rules": False, "router_budget": False,
@@ -27,32 +28,41 @@ _RULES = {**_RETRIEVAL, "verdict_rules": True}
 _FULL = {**_RULES, "router_budget": True, "project_memory_suggestions": True}
 
 # Describes the factories and execution paths as implemented, not intended semantics.
-CONDITION_FLAG_MAP = {
-    "A_baseline_fake": {"harness_flags": _NO_FLAGS, "pipeline_condition": None,
-                        "description": "Fake review engine over supplied fixed evidence."},
-    "C_verdict_rules": {"harness_flags": _RULES, "pipeline_condition": None,
-                        "description": "Fixed evidence with deterministic verdict conflict rules."},
-    "C_minus_rules": {"harness_flags": _RETRIEVAL, "pipeline_condition": None,
-                      "description": "Fixed evidence with legacy supplied-status mapping."},
-    "naive_overlap": {"harness_flags": _NO_FLAGS, "pipeline_condition": None,
-                      "description": "Fixed evidence with token overlap heuristic."},
-    "D_spec_change": {"harness_flags": _RULES, "pipeline_condition": None,
-                      "description": "Spec-change adapter for spec items; rules engine otherwise."},
-    "A": {"harness_flags": _NO_FLAGS, "pipeline_condition": None,
-          "description": "Experiment fake factory: evidence disabled; real runner: source-free direct provider baseline."},
-    "B0": {"harness_flags": _RETRIEVAL, "pipeline_condition": "A",
-           "description": "Real runner grounded pipeline condition A; legacy status post-processing."},
-    "B": {"harness_flags": _RULES, "pipeline_condition": "A",
-          "description": "Real runner shares B0 grounded output and applies verdict rules."},
-    "C": {"harness_flags": _FULL, "pipeline_condition": "A",
-          "description": "Experiment uses all configured flags; real runner shares B0 output and adds budget/router/memory processing."},
-    "C-P": {"harness_flags": {**_RULES, "router_budget": True}, "pipeline_condition": None, "name_collision_with_pipeline": True,
-             "description": "Harness ablation of the C-P label. NOT the pipeline C-P (which removes Planning Retrieval); the harness does not run pipeline P/N/O."},
-    "C-N": {"harness_flags": {**_RETRIEVAL, "router_budget": True, "project_memory_suggestions": True}, "pipeline_condition": None, "name_collision_with_pipeline": True,
-             "description": "Harness ablation of the C-N label. NOT the pipeline C-N (which removes Normalization); the harness does not run pipeline P/N/O."},
-    "C-O": {"harness_flags": {**_RULES, "project_memory_suggestions": True}, "pipeline_condition": None, "name_collision_with_pipeline": True,
-             "description": "Harness ablation of the C-O label. NOT the pipeline C-O (which removes Context Allocation); the harness does not run pipeline P/N/O."},
+_PIPELINE_ABLATIONS = {
+    label: ResearchPipeline._flags(condition)
+    for label, condition in (("PL-C", "C"), ("PL-noP", "C-P"), ("PL-noN", "C-N"), ("PL-noO", "C-O"))
 }
+_NOT_APPLICABLE = "not applicable: runs through the review pipeline, not the fixed-evidence harness"
+
+CONDITION_FLAG_MAP = {
+    "A_baseline_fake": {"harness_flags": _NO_FLAGS, "pipeline_condition": None, "pipeline_flags": None,
+                        "description": "Fake review engine over supplied fixed evidence."},
+    "C_verdict_rules": {"harness_flags": _RULES, "pipeline_condition": None, "pipeline_flags": None,
+                        "description": "Fixed evidence with deterministic verdict conflict rules."},
+    "C_minus_rules": {"harness_flags": _RETRIEVAL, "pipeline_condition": None, "pipeline_flags": None,
+                      "description": "Fixed evidence with legacy supplied-status mapping."},
+    "naive_overlap": {"harness_flags": _NO_FLAGS, "pipeline_condition": None, "pipeline_flags": None,
+                      "description": "Fixed evidence with token overlap heuristic."},
+    "D_spec_change": {"harness_flags": _RULES, "pipeline_condition": None, "pipeline_flags": None,
+                      "description": "Spec-change adapter for spec items; rules engine otherwise."},
+    "A": {"harness_flags": _NO_FLAGS, "pipeline_condition": None, "pipeline_flags": None,
+          "description": "Experiment fake factory: evidence disabled; real runner: source-free direct provider baseline."},
+    "B0": {"harness_flags": _RETRIEVAL, "pipeline_condition": "A", "pipeline_flags": None,
+           "description": "Real runner grounded pipeline condition A; legacy status post-processing."},
+    "B": {"harness_flags": _RULES, "pipeline_condition": "A", "pipeline_flags": None,
+          "description": "Real runner shares B0 grounded output and applies verdict rules."},
+    "C": {"harness_flags": _FULL, "pipeline_condition": "A", "pipeline_flags": None,
+          "description": "Experiment uses all configured flags; real runner shares B0 output and adds budget/router/memory processing."},
+    "H-noMemory": {"harness_flags": {**_RULES, "router_budget": True}, "pipeline_condition": None, "pipeline_flags": None,
+             "description": "Fixed-evidence harness C ablation with project memory suggestions disabled."},
+    "H-noRules": {"harness_flags": {**_RETRIEVAL, "router_budget": True, "project_memory_suggestions": True}, "pipeline_condition": None, "pipeline_flags": None,
+             "description": "Fixed-evidence harness C ablation with verdict rules disabled."},
+    "H-noRouter": {"harness_flags": {**_RULES, "project_memory_suggestions": True}, "pipeline_condition": None, "pipeline_flags": None,
+             "description": "Fixed-evidence harness C ablation with router budget disabled."},
+}
+for _label, _flags in _PIPELINE_ABLATIONS.items():
+    CONDITION_FLAG_MAP[_label] = {"harness_flags": None, "pipeline_condition": {"PL-C": "C", "PL-noP": "C-P", "PL-noN": "C-N", "PL-noO": "C-O"}[_label],
+                                  "pipeline_flags": _flags, "description": f"Mapping-only pipeline condition; harness_flags {_NOT_APPLICABLE}. Not executable by the fake registry."}
 
 
 def condition_definition(label: str) -> dict:

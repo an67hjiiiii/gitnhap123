@@ -115,8 +115,8 @@ def test_hash_and_ablations():
     assert config_hash(config) != config_hash(changed)
     assert len(config_hash(config)) == 64
     conditions = {c["name"]: c for c in config["conditions"]}
-    for name, flag in (("C-P", "project_memory_suggestions"), ("C-N", "verdict_rules"),
-                       ("C-O", "router_budget")):
+    for name, flag in (("H-noMemory", "project_memory_suggestions"), ("H-noRules", "verdict_rules"),
+                       ("H-noRouter", "router_budget")):
         assert [key for key, value in conditions[name]["components"].items()
                 if value != conditions["C"]["components"][key]] == [flag]
         assert conditions[name]["components"][flag] is False

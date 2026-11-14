@@ -45,8 +45,8 @@ def validate_config(config):
         if not condition["definition"] or not condition["engine_id"]:
             raise ValueError("Require condition definition and engine ID")
     by_name = {c["name"]: c["components"] for c in conditions}
-    for name, removed in (("C-P", "project_memory_suggestions"), ("C-N", "verdict_rules"),
-                          ("C-O", "router_budget")):
+    for name, removed in (("H-noMemory", "project_memory_suggestions"), ("H-noRules", "verdict_rules"),
+                          ("H-noRouter", "router_budget")):
         if name in by_name:
             expected = {**by_name["C"], removed: False}
             if not by_name["C"][removed] or by_name[name] != expected:
