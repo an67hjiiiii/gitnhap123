@@ -31,3 +31,9 @@ Chỉ A, B0, B, C với P/N/O đã nối thật (`research/pipeline.py:_flags`).
 - Cắt đầu ra được đánh dấu bằng `done_reason == "length"` (cột `truncated` trong summary.csv) cho mọi lượt.
 - `A_run1` chỉ là shakedown (25 yêu cầu, 16/25 cắt, ~24 s/lượt), KHÔNG dùng làm kết quả.
 - Trần token giữ 700 cho mọi điều kiện (chưa đổi).
+
+## Cập nhật 2026-11-14 (hướng iv): model thí nghiệm không-thinking
+- Model pilot: `qwen3:4b-instruct-2507-q4_K_M`, digest `0edcdef34593` (Ollama thư viện chính thức, lưu ở D:\AI-Local-Data\Ollama\Data\models). Đặt bằng `LOCAL_LLM_MODEL` chỉ trong tiến trình pilot; mặc định sản phẩm `qwen3:4b` (`359d7dd4bcda`, bản thinking) không đổi.
+- Thăm dò (1 lượt, tính vào quota): không có thinking, 33 token đầu ra, `done_reason=stop`.
+- `A_run1` và 4 lượt thăm dò trước đều thuộc bản thinking `359d7dd4bcda`: KHÔNG dùng làm kết quả.
+- Embedding giữ nguyên (`nomic-embed-text` 0a109f422b47 / hash mặc định); trần token 700 cho mọi điều kiện.
