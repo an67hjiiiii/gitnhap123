@@ -16,6 +16,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 from statistics import median
 import tempfile
 from threading import Lock
@@ -87,17 +88,29 @@ def load_corpus(path=CORPUS):
 
 
 def parse_baseline(text):
-    """Accept only an exact label or a JSON object with exactly one verdict key."""
-    value = text.strip()
-    if value in LABELS:
-        return value
-    try:
-        obj = json.loads(value)
-    except (ValueError, TypeError):
+    """Read the last explicit verdict line, ignoring any model thinking block."""
+    value = re.sub(r"<think\b[^>]*>.*?</think\s*>", "", str(text),
+                   flags=re.IGNORECASE | re.DOTALL)
+    matches = list(re.finditer(r"\bVERDICT\s*:\s*([^\r\n]*)", value, flags=re.IGNORECASE))
+    if not matches:
         return "UNDETERMINED"
-    if isinstance(obj, dict) and set(obj) == {"verdict"} and obj["verdict"] in LABELS:
-        return obj["verdict"]
+    label = matches[-1].group(1).strip().strip("`*_\"'“”‘’ ")
+    if label.endswith("**"):
+        label = label[:-2].strip()
+    label = label.upper()
+    if label in {"SATISFIED", "PARTIAL", "DEVIATES", "NOT_FOUND"}:
+        return label
     return "UNDETERMINED"
+
+
+BASELINE_SYSTEM = (
+    "Judge the requirement directly, without source documents. Do not provide extended reasoning, "
+    "analysis, or a preamble. Return a one-line reason and then exactly one final verdict line. "
+    "The only allowed verdicts are SATISFIED, PARTIAL, DEVIATES, and NOT_FOUND. "
+    "Use this one-shot format example:\n"
+    "Reason: The requirement is explicitly met.\n"
+    "VERDICT: SATISFIED"
+)
 
 
 def _field(obj, key, default=None):
@@ -243,9 +256,10 @@ class CountingEmbedder:
             counter.on_update()
 
 
-def empty_result(corpus, *, dry_run, max_invocations, max_minutes):
+def empty_result(corpus, *, dry_run, max_invocations, max_minutes, baseline_only=False):
     return {
         "schema_version": 1, "corpus_id": corpus["id"], "dry_run": dry_run,
+        "mode": "baseline-only" if baseline_only else "full",
         "partial": True, "stop_reason": "Experiment has not completed", "errors": [],
         "total_calls": 0, "embedding_calls": 0, "calls": [], "embeddings": [],
         "latency_seconds": {"min": None, "median": None, "max": None},
@@ -262,7 +276,8 @@ def empty_result(corpus, *, dry_run, max_invocations, max_minutes):
 
 
 def markdown(result):
-    lines = ["# Real-model review experiment", "", result["limitations"], "",
+    lines = ["# Real-model review experiment", "",
+             f"Mode: {result.get('mode', 'full')}", "", result["limitations"], "",
              f"Dry run: {result['dry_run']}; partial: {result['partial']}; stop: {result['stop_reason']}",
              "", "| Condition | Accuracy | False-DEVIATES | Evidence hit |", "|---|---|---|---|"]
     def rate(value):
@@ -298,7 +313,7 @@ def write_report(result, out):
 
 
 async def run_experiment(*, out, qdrant_dir=None, real=False, dry_run=False,
-                         max_invocations=24, max_minutes=60, provider=None,
+                         max_invocations=24, max_minutes=60, provider=None, baseline_only=False,
                          clock=monotonic, scratch_dir=None, corpus_path=CORPUS):
     """Build/index once. Tests use dry_run, tmp_path scratch and memory vectors.
 
@@ -310,11 +325,11 @@ async def run_experiment(*, out, qdrant_dir=None, real=False, dry_run=False,
     out = validate_output(out)
     if qdrant_dir is not None:
         qdrant_dir = validate_qdrant_dir(qdrant_dir)
-    elif not dry_run:
+    elif not dry_run and not baseline_only:
         raise ValueError("Real experiments require qdrant-dir")
     corpus = load_corpus(corpus_path)
     result = empty_result(corpus, dry_run=dry_run, max_invocations=max_invocations,
-                          max_minutes=max_minutes)
+                          max_minutes=max_minutes, baseline_only=baseline_only)
     write_report(result, out)
     # Never load a repository .env, including on first import of RuntimeConfig.
     with patch.dict(os.environ, {"PYTHON_DOTENV_DISABLED": "1"}):
@@ -334,6 +349,22 @@ async def run_experiment(*, out, qdrant_dir=None, real=False, dry_run=False,
         counter.on_update = checkpoint
         vector_store = None
         try:
+            if baseline_only:
+                for pos, requirement in enumerate(corpus["requirements"]):
+                    counter.check()
+                    counter.context = {"stage": "baseline", "requirement_id": requirement["id"]}
+                    baseline = await counter.generate(system=BASELINE_SYSTEM, user=requirement["text"])
+                    predicted = parse_baseline(baseline.text)
+                    result["conditions"]["A"]["rows"][pos].update(
+                        predicted=predicted, completed=True, raw_output=baseline.text)
+                    if predicted == "UNDETERMINED":
+                        result["errors"].append({**counter.context,
+                            "error": f"Unparseable baseline output: {baseline.text[:200]}"})
+                    checkpoint()
+                counter.check()
+                result.update(partial=False, stop_reason=None)
+                return result
+
             from app.research import pipeline as pipeline_module
             from app.retrieval.candidate_index import CandidateIndex
             from app.retrieval.embeddings import LocalHashEmbedder, make_embedder
@@ -421,15 +452,13 @@ async def run_experiment(*, out, qdrant_dir=None, real=False, dry_run=False,
                                                       "error": raw.get("answer", "Pipeline failed")})
                         checkpoint()
                         counter.context = {"stage": "baseline", "requirement_id": requirement["id"]}
-                        baseline = await counter.generate(
-                            system='Return only a verdict: SATISFIED, PARTIAL, DEVIATES, or NOT_FOUND. '
-                                   'Judge the requirement without access to source documents.',
-                            user=requirement["text"])
+                        baseline = await counter.generate(system=BASELINE_SYSTEM, user=requirement["text"])
                         predicted = parse_baseline(baseline.text)
                         result["conditions"]["A"]["rows"][pos].update(
                             predicted=predicted, completed=True, raw_output=baseline.text)
                         if predicted == "UNDETERMINED":
-                            result["errors"].append({**counter.context, "error": "Unparseable baseline output"})
+                            result["errors"].append({**counter.context,
+                                "error": f"Unparseable baseline output: {baseline.text[:200]}"})
                         checkpoint()
                 counter.check()
                 result.update(partial=False, stop_reason=None)
