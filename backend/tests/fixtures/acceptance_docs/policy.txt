@@ -1,0 +1,1 @@
+POLICY: Temporary access grants expire after 45 minutes.
