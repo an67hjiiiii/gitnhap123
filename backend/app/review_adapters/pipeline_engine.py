@@ -8,7 +8,7 @@ import re
 import time
 from collections.abc import Callable
 
-from app.research.pipeline import ResearchPipeline
+from app.research.pipeline import CONDITIONS, ResearchPipeline
 from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
 from app.review_adapters.verdict_rules import assess, check_answer
 
@@ -22,6 +22,7 @@ class PipelineReviewEngine:
     The seconds budget is checked between calls, never interrupts an active call.
     Named event callbacks receive (name, payload). The ReviewEngine protocol's
     legacy one-argument callbacks receive only Finding objects.
+    Non-A conditions emit pipeline.trace; A preserves the legacy event sequence.
     """
 
     def __init__(
@@ -31,9 +32,14 @@ class PipelineReviewEngine:
         pipeline_factory: Callable[[str], ResearchPipeline] | None = None,
         owner_user_id: str | Callable[[ReviewCase], str] | None = None,
         source_ids_getter: Callable[[ReviewCase], list[str]] | None = None,
+        condition: str = "A",
     ) -> None:
         if (pipeline is None) == (pipeline_factory is None):
             raise ValueError("Supply exactly one pipeline or pipeline_factory")
+        condition = condition.upper()
+        if condition not in CONDITIONS:
+            raise ValueError(f"Unknown review pipeline condition {condition!r}; expected one of {sorted(CONDITIONS)}")
+        self.condition = condition
         self.pipeline = pipeline
         self.pipeline_factory = pipeline_factory
         self.owner_user_id = owner_user_id
@@ -139,7 +145,19 @@ class PipelineReviewEngine:
                     )
                     source_ids = [sid for sid in case.source_ids if sid in selected]
                     pipeline = self.pipeline_factory(owner) if self.pipeline_factory else self.pipeline
-                    result = await pipeline.run(requirement.text, source_ids=source_ids)
+                    result = await pipeline.run(
+                        requirement.text, source_ids=source_ids, condition=self.condition,
+                    )
+                    if self.condition != "A":
+                        stages = {event.get("stage"): event for event in result.get("events", [])}
+                        self._emit(emit, "pipeline.trace", {
+                            **payload,
+                            "condition": result.get("condition"),
+                            "config_hash": result.get("config_hash"),
+                            "planning_retrieval": stages.get("planning_retrieval"),
+                            "normalization": stages.get("normalization"),
+                            "context_policy": result.get("effective_config", {}).get("context_policy"),
+                        })
                     evidence = self._evidence(pipeline, result, source_ids)
                     status = result.get("status")
                     if status == "COMPLETE" and evidence:
