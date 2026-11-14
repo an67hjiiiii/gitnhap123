@@ -22,6 +22,20 @@ from app.review_adapters.pg_repository import PostgresCaseRepository
 from app.review.service import (
     CaseNotFound, InvalidDecision, RequirementsUnconfirmed, ReviewCaseService, RunCancelled,
 )
+from app.retrieval.index_identity import IndexingError
+
+
+class ErrorBody(BaseModel):
+    code: str
+    message: str
+    details: dict | None = None
+
+
+def error_responses(*statuses):
+    return {
+        status: {"model": ErrorBody, "description": "Review API error"}
+        for status in statuses
+    }
 
 
 def get_review_engine():
@@ -211,11 +225,16 @@ class ReviewRuntime:
             check()
             if not pipeline_events:
                 emit("task.started", {"case_id": case_id})
-            service.start_run(
-                case_id, owner, run["budget"], emit=finding_created, cancelled=cancelled,
-                job_id=job_id if self.durable else None, attempt=run.get("attempt", 1),
-                checkpoint=(lambda finding: self.runner.checkpoint(job_id, finding)) if self.durable else None,
-            )
+            try:
+                service.start_run(
+                    case_id, owner, run["budget"], emit=finding_created, cancelled=cancelled,
+                    job_id=job_id if self.durable else None, attempt=run.get("attempt", 1),
+                    checkpoint=(lambda finding: self.runner.checkpoint(job_id, finding)) if self.durable else None,
+                )
+            except IndexingError as exc:
+                code = getattr(exc, "code", None) or "DERIVED_INDEX_UNAVAILABLE"
+                emit("error", {"code": code, "message": str(exc)})
+                raise
             check()
             complete = service.is_complete(self.repository.get_requirements(owner, case_id),
                                            self.repository.get_findings(owner, case_id))
@@ -272,23 +291,23 @@ def build_router(*, current_user, runtime: ReviewRuntime):
     def engine(selected=Depends(get_review_engine)):
         return selected if selected is not None else runtime.engine()
 
-    @router.post("/cases", status_code=201)
+    @router.post("/cases", status_code=201, responses=error_responses(404, 422))
     def create_case(body: CaseInput, user=Depends(owner)):
         if len(runtime.selected_sources(user, body.source_ids)) != len(body.source_ids):
             raise HTTPException(404, {"code": "SOURCE_NOT_FOUND", "message": "Source not found"})
         return runtime.service(None).create_case(user, body.title, body.request_text, body.source_ids)
 
-    @router.get("/cases")
+    @router.get("/cases", responses=error_responses(422))
     def list_cases(user=Depends(owner)):
         return repo.list_cases(user)
 
-    @router.get("/cases/{case_id}")
+    @router.get("/cases/{case_id}", responses=error_responses(404, 422))
     def get_case(case_id: str, user=Depends(owner)):
         case = runtime.service(None)._case(case_id, user)
         return {**case.model_dump(), "requirements": repo.get_requirements(user, case_id),
                 "findings": repo.get_findings(user, case_id)}
 
-    @router.get("/cases/{case_id}/inspector")
+    @router.get("/cases/{case_id}/inspector", responses=error_responses(404, 422))
     def inspector(case_id: str, run: str | None = Query(default=None), user=Depends(owner)):
         case = runtime.service(None)._case(case_id, user)
         selected = run
@@ -365,13 +384,14 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                        "skipped_requirement_ids": skipped},
         }
 
-    @router.post("/cases/{case_id}/requirements:propose")
+    @router.post("/cases/{case_id}/requirements:propose",
+                 responses=error_responses(404, 409, 422, 503))
     def propose(case_id: str, user=Depends(owner), engine=Depends(engine)):
         with runtime.lock:
             runtime.mutable(user, case_id)
             return runtime.service(engine).propose_requirements(case_id, user)
 
-    @router.put("/cases/{case_id}/requirements")
+    @router.put("/cases/{case_id}/requirements", responses=error_responses(404, 409, 422))
     def replace_requirements(case_id: str, body: RequirementsInput, user=Depends(owner)):
         with runtime.lock:
             runtime.mutable(user, case_id)
@@ -394,7 +414,8 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             repo.save_case(user, case)
             return values
 
-    @router.post("/cases/{case_id}/runs", status_code=202)
+    @router.post("/cases/{case_id}/runs", status_code=202,
+                 responses=error_responses(404, 409, 422, 503))
     def start_run(case_id: str, body: RunInput = RunInput(), user=Depends(owner),
                   engine=Depends(engine)):
         with runtime.lock:
@@ -402,6 +423,13 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             requirements = repo.get_requirements(user, case_id)
             if not requirements or not all(item.confirmed for item in requirements):
                 raise RequirementsUnconfirmed(case_id)
+            budget = body.budget or {}
+            if any(isinstance(budget.get(key), (int, float)) and budget[key] <= 0
+                   for key in ("max_requirements", "max_seconds")):
+                raise HTTPException(409, {
+                    "code": "RUN_BUDGET_EXCEEDED",
+                    "message": "Run budget cannot cover one requirement",
+                })
             run = {"owner": user, "case_id": case_id, "budget": body.budget, "engine": engine}
             try:
                 job_id = runtime.runner.submit(run)
@@ -413,11 +441,11 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                 runtime.runs[job_id] = run
             return runtime.status(user, job_id)
 
-    @router.get("/runs/{job_id}")
+    @router.get("/runs/{job_id}", responses=error_responses(404, 422))
     def get_run(job_id: str, user=Depends(owner)):
         return runtime.status(user, job_id)
 
-    @router.get("/runs/{job_id}/events")
+    @router.get("/runs/{job_id}/events", responses=error_responses(404, 422))
     def events(job_id: str, user=Depends(owner),
                last_event_id: int = Header(default=0, ge=0)):
         runtime.owned_run(user, job_id)
@@ -428,13 +456,13 @@ def build_router(*, current_user, runtime: ReviewRuntime):
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
-    @router.post("/runs/{job_id}:cancel")
+    @router.post("/runs/{job_id}:cancel", responses=error_responses(404, 422))
     def cancel(job_id: str, user=Depends(owner)):
         runtime.owned_run(user, job_id)
         runtime.runner.cancel(job_id)
         return runtime.status(user, job_id)
 
-    @router.put("/findings/{finding_id}/decision")
+    @router.put("/findings/{finding_id}/decision", responses=error_responses(404, 409, 422))
     def decide(finding_id: str, body: DecisionInput, user=Depends(owner)):
         with runtime.lock:
             for case in repo.list_cases(user):
@@ -445,7 +473,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                     )
             raise CaseNotFound(finding_id)
 
-    @router.get("/cases/{case_id}/export")
+    @router.get("/cases/{case_id}/export", responses=error_responses(404, 422))
     def export(case_id: str, format: Literal["md"] = Query(default="md"), user=Depends(owner)):
         return Response(runtime.service(None).export_markdown(case_id, user), media_type="text/markdown")
 
