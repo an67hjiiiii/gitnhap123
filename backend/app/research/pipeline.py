@@ -827,8 +827,8 @@ class _BudgetedChecker:
         self.budget_cut = run_budget_exceeded(self.metrics, self.cfg, self.event, "verifier")
         return not self.budget_cut
 
-    async def verify(self, provider, answer, evidence_texts, metrics):
-        return await self.checker.verify(provider, answer, evidence_texts, metrics)
+    async def verify(self, provider, answer, evidence_texts, metrics, **kwargs):
+        return await self.checker.verify(provider, answer, evidence_texts, metrics, **kwargs)
 
 
 def _retrieval_query_with_conversation_context(

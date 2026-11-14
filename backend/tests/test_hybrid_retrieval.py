@@ -93,8 +93,9 @@ def test_retry_happens_at_most_once_and_records_event(monkeypatch):
         FakePipeline(), provider, RunMetrics(), query="Dữ liệu dự phòng được bảo vệ thế nào?",
         retrieval_query="Dữ liệu dự phòng được bảo vệ thế nào?", chunks=CHUNKS, cfg=Cfg(), source_ids=None, trace={},
         event=lambda stage, **d: events.append((stage, d)), multi=False, retry=True))
-    retries = [d for stage, d in events if stage == "retrieval.retry"]
-    assert len(retries) == 1 and provider.calls == 1
+    retries = [d for stage, d in events if stage == "retrieval.retry" and d.get("phase") == "end"]
+    starts = [d for stage, d in events if stage == "retrieval.retry" and d.get("phase") == "start"]
+    assert len(retries) == 1 and len(starts) == 1 and provider.calls == 1
     assert "c4" in {c.chunk_id for c in out}
 
 

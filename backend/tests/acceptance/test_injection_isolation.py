@@ -26,7 +26,7 @@ def test_document_injection_remains_evidence_and_does_not_change_pipeline_verdic
     monkeypatch.setattr(factory, "get_provider", lambda name=None: provider)
     doc = Path(__file__).resolve().parents[1] / "fixtures" / "acceptance_docs" / "injection.md"
     store = SourceStore(str(tmp_path / "sources"))
-    source = store.import_text("injection.md", doc.read_text(encoding="utf-8"))
+    source = store.import_text("injection.md", doc.read_text(encoding="utf-8").replace(chr(13), "").replace(chr(10)*2, chr(10)))  # same paragraph: stays one chunk
     run = __import__("asyncio").run(ResearchPipeline(store, RunStore(str(tmp_path / "runs"))).run("What is the key rotation interval?", condition="A", provider_name="fake", source_ids=[source["source_id"]]))
     system, user = provider.prompts[-1]
     clean = store.import_text("clean.md", "The key rotation interval is 90 days.")
