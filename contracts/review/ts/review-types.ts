@@ -28,3 +28,4 @@ export interface ReviewEvent<T = unknown> { id: number; event: string; data: T }
 export interface RouteDecidedEvent { route: string; reasons: string[]; budget_hint: Record<string, unknown> }
 export interface FindingCreatedEvent extends Finding {}
 export interface ExportResult { body: string; contentType: string }
+export interface SuggestionOutput { entry_id: string; similarity: number; prior_verdict: string; prior_decision: "ACCEPT" | "REJECT" | "EDIT"; edited_text: string | null; note: string }

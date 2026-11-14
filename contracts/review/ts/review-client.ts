@@ -1,4 +1,4 @@
-import type { CaseInput, DecisionInput, ErrorBody, ExportResult, Finding, Inspector, Requirement, RequirementsInput, ReviewCase, ReviewCaseDetail, ReviewEvent, ReviewJob, RunInput } from "./review-types";
+import type { SuggestionOutput, CaseInput, DecisionInput, ErrorBody, ExportResult, Finding, Inspector, Requirement, RequirementsInput, ReviewCase, ReviewCaseDetail, ReviewEvent, ReviewJob, RunInput } from "./review-types";
 
 export class ReviewApiError extends Error {
   readonly status: number;
@@ -36,6 +36,8 @@ export class ReviewClient {
   listCases(): Promise<ReviewCase[]> { return this.request("/api/review/cases"); }
   // Snapshot operationId: get_case_api_review_cases__case_id__get.
   getCase(caseId: string): Promise<ReviewCaseDetail> { return this.request(`/api/review/cases/${encodeURIComponent(caseId)}`); }
+  // Snapshot operationId: suggestions_api_review_cases__case_id__requirements__requirement_id__suggestions_get.
+  suggestions(caseId: string, requirementId: string): Promise<SuggestionOutput[]> { return this.request(`/api/review/cases/${encodeURIComponent(caseId)}/requirements/${encodeURIComponent(requirementId)}/suggestions`); }
   // Snapshot operationId: inspector_api_review_cases__case_id__inspector_get.
   inspector(caseId: string, run?: string): Promise<Inspector> {
     const query = run === undefined ? "" : `?run=${encodeURIComponent(run)}`;
