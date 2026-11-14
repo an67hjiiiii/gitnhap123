@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -437,6 +438,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         raise HTTPException(400, "MESSAGE_REQUIRED")
     try:
         user = current_user(request)
+        t_start = time.perf_counter()
         runtime_config = RuntimeConfig.from_env()
         condition, provider_name, condition_fixed = _chat_condition(body, runtime_config)
         runtime_config.assert_condition(condition)
@@ -474,7 +476,46 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
                 "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
             }
 
+        timings = {"intent_ms": int((time.perf_counter() - t_start) * 1000)}
+        store = owner_source_store(user)
+        if decision.intent == "general_knowledge":  # self-contained: answer directly, no retrieval, no pipeline
+            say("answering", "Câu này không cần tài liệu, mình trả lời trực tiếp.")
+            g0 = time.perf_counter()
+            result = await provider.generate(
+                system=("Answer the question directly and concisely, in the same language as the question. "
+                        "Do not mention documents or sources."),
+                user=message,
+            )
+            timings["answer_ms"] = int((time.perf_counter() - g0) * 1000)
+            answer = str(getattr(result, "text", result)).strip()
+            conversations.add_message(conversation_id, "USER", message)
+            conversations.add_message(conversation_id, "ASSISTANT", answer)
+            return {
+                "run_id": None, "status": "COMPLETE", "answer": answer, "citations": [], "task_results": [],
+                "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "DIRECT"},
+                           {"stage": "timings", **timings}],
+                "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
+            }
+        try:
+            has_ready_sources = any(s.get("status", "READY") == "READY" for s in store.list_sources())
+        except Exception:
+            has_ready_sources = True
+        if not has_ready_sources:
+            reply = ("Hiện chưa có tài liệu nào trong kho nên mình chưa thể trả lời từ tài liệu. "
+                     "Hãy tải tài liệu lên, hoặc hỏi một câu không cần tài liệu." if intent_info["language"] == "vi"
+                     else "There are no documents yet, so I cannot answer from documents. "
+                          "Upload a document, or ask a question that needs none.")
+            conversations.add_message(conversation_id, "USER", message)
+            conversations.add_message(conversation_id, "ASSISTANT", reply)
+            return {
+                "run_id": None, "status": "NO_EVIDENCE", "answer": reply, "citations": [], "task_results": [],
+                "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "EMPTY_STORE"},
+                           {"stage": "timings", **timings}],
+                "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
+            }
+        m0 = time.perf_counter()
         memory = await build_memory(provider, str(user["user_id"]), conversation, cache=_SUMMARY_CACHE)
+        timings["memory_ms"] = int((time.perf_counter() - m0) * 1000)
         query = message
         if has_history and (decision.intent == "follow_up" or has_reference(message)):
             say("rewriting", "Đang hiểu câu hỏi nối tiếp của bạn…")
@@ -485,11 +526,16 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         # the answer still follows the asker's language.
         asker_language = text_language(message)
         reply_hint = None
-        try:
-            sample = owner_source_store(user).chunks(selected_source_ids)
+        try:  # a few chunks of a few sources are enough to guess the documents' language
+            sample = []
+            for entry in store.list_sources()[:5]:
+                if selected_source_ids is not None and entry["source_id"] not in selected_source_ids:
+                    continue
+                sample += [c.get("text", "") for c in (store.source(entry["source_id"]) or {}).get("chunks", [])[:6]]
         except Exception:
             sample = []
-        doc_language = document_language(c.text for c in sample)
+        doc_language = document_language(sample)
+        timings["language_ms"] = int((time.perf_counter() - t_start) * 1000) - timings["intent_ms"]
         if doc_language and doc_language != asker_language:
             say("translating", "Đang chuyển câu hỏi sang ngôn ngữ của tài liệu…")
             translated = await translate_query(provider, query, doc_language)
@@ -542,9 +588,11 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             str(run.get("answer") or run.get("status") or "Run completed"),
             run_id=run["run_id"],
         )
+        timings["total_ms"] = int((time.perf_counter() - t_start) * 1000)
         events = list(run.get("events") or [])
         if route is not None:
             events.append({"stage": "route_chosen", **route})
+        events.append({"stage": "timings", **timings})
         return {
             **run, "events": events, "conversation_id": conversation_id, "intent": intent_info,
             "route": route, "rewritten_query": query if query != message else None,

@@ -78,6 +78,8 @@ def _base(pipeline, q: str, chunks, cfg, source_ids, top_k: int, trace: dict | N
 def _lists_for(pipeline, q: str, chunks, cfg, source_ids, top_k: int, fusion: str, trace=None) -> list[list[SourceChunk]]:
     lists = [_base(pipeline, q, chunks, cfg, source_ids, top_k, trace)]
     if fusion in {"bm25", "hybrid"}:
+        if chunks is None:  # lazy: only fusion needs the whole corpus
+            chunks = pipeline.source_store.chunks(source_ids)
         ranked = bm25_rank(q, chunks, top_k=top_k)
         lists += [ranked, ranked]  # BM25 counted twice: measured best of the non-vector rankings (see FE/BE notes)
         if pipeline.candidate_index is not None:
@@ -114,7 +116,7 @@ async def product_retrieve(pipeline, provider, metrics: RunMetrics, *, query: st
         rewritten = query if run_budget_exceeded(metrics, cfg, event, "query_rewrite") else await rewrite_query(provider, query, metrics)
         wide = top_k * 2
         extra = await asyncio.to_thread(
-            _lists_for, pipeline, rewritten, chunks, cfg, source_ids, wide, "bm25")
+            _lists_for, pipeline, rewritten, chunks, cfg, source_ids, wide, fusion)
         before = {c.chunk_id for c in merged}
         retried = rrf_merge([merged, *extra], wide)
         gained = [c.chunk_id for c in retried if c.chunk_id not in before]

@@ -473,6 +473,23 @@ class PostgresSourceStore:
         if available != requested:
             raise LookupError("source not found")
 
+    def chunks_by_ids(self, ids, source_ids: list[str] | None = None) -> list[SourceChunk]:
+        wanted = [str(i) for i in ids if i]
+        if not wanted:
+            return []
+        with self.session_factory() as db:
+            filters = [
+                KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                KnowledgeSourceRecord.status == "READY",
+                KnowledgeChunkRecord.chunk_id.in_(wanted),
+            ]
+            if source_ids is not None:
+                filters.append(KnowledgeChunkRecord.source_id.in_(source_ids))
+            rows = db.scalars(
+                select(KnowledgeChunkRecord).join(KnowledgeSourceRecord).where(*filters)
+            ).all()
+            return [self._chunk(row) for row in rows]
+
     def list_sources(self) -> list[dict[str, Any]]:
         with self.session_factory() as db:
             rows = db.execute(

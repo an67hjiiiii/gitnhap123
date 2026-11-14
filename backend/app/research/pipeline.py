@@ -328,7 +328,9 @@ class ResearchPipeline:
                 )
                 event("request_understanding", **understanding.to_dict())
 
-            all_chunks = self.source_store.chunks(source_ids)
+            # With a candidate index only the retrieved chunk ids are hydrated (chunks_by_ids); the whole
+            # corpus is loaded lazily and only by lexical fallback / BM25 fusion.
+            all_chunks = None if self.candidate_index is not None else self.source_store.chunks(source_ids)
             budget_cut = False
             if condition == "A" or simple_product_request:
                 r0 = time.perf_counter()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 from app.research.product_intents import _normalize_intent_text
@@ -23,9 +24,14 @@ INTENTS = (
     "out_of_scope",
     "about_system",
     "document_question",
+    "general_knowledge",
     "follow_up",
     "ambiguous",
 )
+# Rules first (cheap, predictable); the model is asked only for ambiguous short messages.
+_ARITHMETIC = re.compile(r"\d+(?:[.,]\d+)?\s*(?:[+\-*/x×÷^])\s*\d+")
+_NO_DOCS = ("kien thuc chung", "khong can tai lieu", "khong dung tai lieu", "khong can xem tai lieu",
+            "general knowledge", "without the documents", "without documents", "no documents needed")
 _GREETINGS = ("xin chao", "chao ban", "chao", "hello", "hi", "hey", "alo")
 _THANKS = ("cam on ban", "cam on", "thanks", "thank you")
 _FAREWELLS = ("tam biet", "hen gap lai", "bye")
@@ -130,6 +136,12 @@ def classify_intent(message: str, *, has_history: bool = False, has_sources: boo
         return decision("about_system", "ABOUT_SYSTEM")
     if not any(term in normalized for term in _TECH_TERMS) and any(phrase in normalized for phrase in _OUT_OF_SCOPE):
         return decision("out_of_scope", "OUT_OF_SCOPE")
+    mentions_docs = any(term in normalized for term in ("tai lieu", "document", "file"))
+    if any(phrase in normalized for phrase in _NO_DOCS) or (
+        _ARITHMETIC.search(message) and not mentions_docs
+        and any(w in normalized for w in ("bang bao nhieu", "tinh", "calculate", "compute", "what is", "=", "bao nhieu"))
+    ):
+        return decision("general_knowledge", "SELF_CONTAINED")
     if has_history and len(words) <= 8 and any(term in normalized for term in _FOLLOWUP_TERMS):
         return decision("follow_up", "FOLLOW_UP")
     if "?" in message or (
