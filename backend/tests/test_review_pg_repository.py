@@ -216,6 +216,16 @@ class RepositoryBehavior:
         repo.get_jobs("alice", "case-1")[0].budget["nested"]["tasks"].append(3)
         assert repo.get_jobs("alice", "case-1") == values
 
+    def test_save_job_updates_existing_id_and_appends_new_id(self, storage):
+        repo, _ = storage
+        repo.save_case("alice", make_case())
+        first, second = job(), job("job-2", 2)
+        repo.save_job("alice", first)
+        first.state = JobState.SUCCEEDED
+        repo.save_job("alice", first)
+        repo.save_job("alice", second)
+        assert repo.get_jobs("alice", "case-1") == [first, second]
+
     @pytest.mark.parametrize("partial", [False, True])
     def test_service_run_and_decision(self, storage, partial):
         repo, _ = storage
@@ -405,17 +415,6 @@ class TestSQLiteRepository(DatabaseBehavior):
 @pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL is not set")
 class TestPostgresRepository(DatabaseBehavior):
     backend = "postgresql"
-
-
-@pytest.mark.xfail(strict=False, reason="SUSPECTED DEFECT: InMemoryCaseRepository.save_job appends duplicate IDs instead of updating the service's job")
-def test_memory_save_job_should_update_existing_job():
-    repo = InMemoryCaseRepository()
-    repo.save_case("alice", make_case())
-    value = job()
-    repo.save_job("alice", value)
-    value.state = JobState.SUCCEEDED
-    repo.save_job("alice", value)
-    assert repo.get_jobs("alice", "case-1") == [value]
 
 
 def load_migration(filename="20261114_05_review_cases.py"):

@@ -49,7 +49,7 @@ class FakeReviewEngine:
         ]
         return [
             Requirement(
-                id=f"req-{index + 1}",
+                id=f"{case.id}:req-{index + 1}",
                 case_id=case.id,
                 text=text.rstrip(".!?"),
                 origin="AI_PROPOSED",

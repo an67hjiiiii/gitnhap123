@@ -81,7 +81,14 @@ class InMemoryCaseRepository:
     def save_job(self, owner_user_id: str, job: RunJob) -> None:
         if self.get_case(owner_user_id, job.case_id) is None:
             raise KeyError(job.case_id)
-        self._jobs.setdefault(job.case_id, []).append(job.model_copy(deep=True))
+        jobs = self._jobs.setdefault(job.case_id, [])
+        copy = job.model_copy(deep=True)
+        for index, existing in enumerate(jobs):
+            if existing.id == job.id:
+                jobs[index] = copy
+                break
+        else:
+            jobs.append(copy)
 
     def get_jobs(self, owner_user_id: str, case_id: str) -> list[RunJob]:
         if self.get_case(owner_user_id, case_id) is None:
