@@ -78,3 +78,37 @@ def test_read_and_run_rate_limits_are_separate(monkeypatch):
         assert limited.headers["retry-after"] >= "1"
         assert client.get("/api/review/cases", headers={"x-user": "bob"}).status_code == 200
     runtime.runner.shutdown()
+
+
+def test_run_status_polling_has_its_own_bucket(monkeypatch):
+    monkeypatch.setenv("REVIEW_RATE_READS_PER_MIN", "1")
+    monkeypatch.setenv("REVIEW_RATE_STATUS_PER_MIN", "5")
+    runtime = ReviewRuntime()
+    app = FastAPI()
+
+    def user(request: Request):
+        return {"user_id": "poller-1"}
+
+    app.include_router(build_router(current_user=user, runtime=runtime))
+    with TestClient(app) as client:
+        assert client.get("/api/review/cases").status_code == 200
+        assert client.get("/api/review/cases").status_code == 429  # reads bucket exhausted
+        codes = [client.get("/api/review/runs/none").status_code for _ in range(5)]
+        assert codes == [404] * 5  # polling still reaches the handler, not 429
+        assert client.get("/api/review/runs/none").status_code == 429  # own cap still applies
+        assert client.get("/api/review/runs/none/events").status_code == 429  # events share the status bucket
+    runtime.runner.shutdown()
+
+
+def test_env_can_raise_schema_length_limits_at_process_start():
+    import json
+    import os
+    import subprocess
+    import sys
+    code = ("import json;from app.api.review import CaseInput, RequirementInput, DecisionInput;"
+            "print(json.dumps([CaseInput.model_json_schema()['properties']['request_text']['maxLength'],"
+            "RequirementInput.model_json_schema()['properties']['text']['maxLength'],"
+            "DecisionInput.model_json_schema()['properties']['edited_text']['anyOf'][0]['maxLength']]))")
+    env = {**os.environ, "REVIEW_MAX_REQUEST_CHARS": "50000", "REVIEW_MAX_REQUIREMENT_CHARS": "4000", "PYTHONPATH": os.getcwd()}
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == [50000, 4000, 4000]

@@ -6,8 +6,8 @@ import inspect as pyinspect
 import re
 from collections.abc import Callable
 
-from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
 from app.review.labels import label
+from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
 from app.review.tools.openapi_diff import Change, diff
 from app.review.tools.openapi_inspect import inspect as inspect_openapi
 

@@ -3,6 +3,7 @@
 import os
 import logging
 import math
+import re
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Literal
@@ -145,10 +146,19 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+def _limit_at_import(name: str, default: int) -> int:
+    """Schema cap, read once at process start so the env var can raise it (OpenAPI maxLength follows)."""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
 class CaseInput(Input):
     title: str = Field(min_length=1, max_length=500)
     source_ids: list[str] = Field(default_factory=list)
-    request_text: str = Field(min_length=1, max_length=20000)
+    request_text: str = Field(min_length=1, max_length=_limit_at_import("REVIEW_MAX_REQUEST_CHARS", 20000))
     kind: Literal["requirement_review", "spec_change"] = "requirement_review"
     old_source_id: str | None = None
     new_source_id: str | None = None
@@ -169,7 +179,7 @@ class CaseInput(Input):
 
 class RequirementInput(Input):
     id: str | None = None
-    text: str = Field(min_length=1, max_length=2000)
+    text: str = Field(min_length=1, max_length=_limit_at_import("REVIEW_MAX_REQUIREMENT_CHARS", 2000))
     confirmed: bool = False
 
     @field_validator("text")
@@ -202,7 +212,7 @@ class RunInput(Input):
 
 class DecisionInput(Input):
     review: Literal["ACCEPT", "REJECT", "EDIT"]
-    edited_text: str | None = Field(default=None, max_length=2000)
+    edited_text: str | None = Field(default=None, max_length=_limit_at_import("REVIEW_MAX_REQUIREMENT_CHARS", 2000))
 
     @field_validator("edited_text")
     @classmethod
@@ -441,10 +451,16 @@ def build_router(*, current_user, runtime: ReviewRuntime):
 
     def owner(request: Request):
         user_id = str(current_user(request)["user_id"])
-        is_run = request.method == "POST" and request.url.path.endswith("/runs")
-        limit = configured_limit("REVIEW_RATE_RUNS_PER_MIN" if is_run else "REVIEW_RATE_READS_PER_MIN",
-                                 2 if is_run else 60)
-        allowed, retry = review_rate_limiter.allow(user_id, "runs" if is_run else "reads", limit)
+        path = request.url.path
+        is_run = request.method == "POST" and path.endswith("/runs")
+        # Run status polling and the SSE stream use their own, higher bucket so progress UIs never starve reads.
+        is_status = request.method == "GET" and re.fullmatch(r"/api/review/runs/[^/]+(?:/events)?", path) is not None
+        bucket, env_name, default = (
+            ("runs", "REVIEW_RATE_RUNS_PER_MIN", 2) if is_run
+            else ("status", "REVIEW_RATE_STATUS_PER_MIN", 600) if is_status
+            else ("reads", "REVIEW_RATE_READS_PER_MIN", 60)
+        )
+        allowed, retry = review_rate_limiter.allow(user_id, bucket, configured_limit(env_name, default))
         if not allowed:
             raise HTTPException(429, {"code": "RATE_LIMITED", "message": "Too many requests"},
                                 headers={"Retry-After": str(retry)})

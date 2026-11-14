@@ -22,7 +22,7 @@
 
 Khi xử lý lỗi, lấy `what` và `todo` để hiển thị hai câu hướng dẫn. Với HTTP 429, đọc `Retry-After` và chờ đủ số giây trước khi thử lại.
 
-Với SSE, hiển thị tiến trình bằng `events[eventName]`; unknown event dùng thông báo chung. Gửi `Last-Event-ID` khi nối lại. Ưu tiên SSE thay vì polling `GET /runs/{id}` vì polling cũng tính vào giới hạn request.
+Với SSE, hiển thị tiến trình bằng `events[eventName]`; unknown event dùng thông báo chung. Gửi `Last-Event-ID` khi nối lại. `GET /runs/{id}` và SSE `GET /runs/{id}/events` nằm trong bucket riêng (mặc định 600 request/phút/người dùng, `REVIEW_RATE_STATUS_PER_MIN`), không bị giới hạn 60/phút của các request đọc khác; vẫn nên ưu tiên SSE hơn polling.
 
 `route.decided.data.reasons` là danh sách mã cùng tham số. Với các event verdict, dùng `code` để chọn thông điệp, còn `params` có thể dùng để bổ sung chi tiết có cấu trúc. `pipeline.trace` cũng được phát ở condition A, khi một số trường chi tiết là `null`.
 
@@ -30,9 +30,9 @@ Với SSE, hiển thị tiến trình bằng `events[eventName]`; unknown event 
 
 - `task_budget` và `pipeline.trace` mô tả ngân sách/tiến trình; không diễn giải trace như kết quả cuối.
 - `verdict.slots_missing` báo những chi tiết còn thiếu trong `params.missing_slots`.
-- Giới hạn mặc định: `request_text` 20.000 ký tự; requirement và `edited_text` 2.000; tối đa 100 requirement mỗi case. Các giới hạn nội dung có thể cấu hình bằng `REVIEW_MAX_REQUEST_CHARS`, `REVIEW_MAX_REQUIREMENT_CHARS`, `REVIEW_MAX_REQUIREMENTS_PER_CASE`.
+- Giới hạn mặc định: `request_text` 20.000 ký tự; requirement và `edited_text` 2.000; tối đa 100 requirement mỗi case. Các giới hạn nội dung có thể cấu hình bằng (đặt khi khởi động tiến trình; có thể nâng hoặc hạ, OpenAPI `maxLength` theo giá trị đã đặt) `REVIEW_MAX_REQUEST_CHARS`, `REVIEW_MAX_REQUIREMENT_CHARS`, `REVIEW_MAX_REQUIREMENTS_PER_CASE`.
 - Budget gửi lên bị chặn theo `REVIEW_MAX_REQUIREMENTS` (mặc định 100), `REVIEW_MAX_SECONDS` (3600), `REVIEW_MAX_TOKENS`, `REVIEW_MAX_MODEL_CALLS`; phản hồi trạng thái job echo budget hiệu lực.
-- Mỗi người dùng mặc định có 2 lần bắt đầu chạy/phút và 60 request Review khác/phút. Cấu hình bằng `REVIEW_RATE_RUNS_PER_MIN`, `REVIEW_RATE_READS_PER_MIN`; 429 có `Retry-After`.
+- Mỗi người dùng mặc định có 2 lần bắt đầu chạy/phút , 60 request Review khác/phút và 600 request/phút cho trạng thái run + SSE. Cấu hình bằng `REVIEW_RATE_RUNS_PER_MIN`, `REVIEW_RATE_READS_PER_MIN`, `REVIEW_RATE_STATUS_PER_MIN` (0 = tắt); 429 có `Retry-After`.
 - ID proposal fake có dạng `<case>:req-n`.
 - `PDF_NO_TEXT`, `UNSUPPORTED_DOCUMENT_TYPE`, `UTF8_TEXT_REQUIRED`, `DOCUMENT_EXTRACTION_FAILED`, `DERIVED_INDEX_FAILED` là mã lỗi tải tài liệu/chỉ mục. Định dạng hỗ trợ: TXT, MD, PDF.
 
@@ -49,5 +49,6 @@ Với SSE, hiển thị tiến trình bằng `events[eventName]`; unknown event 
 | `REVIEW_MAX_MODEL_CALLS` | Trần số lần gọi model nếu cấu hình. |
 | `REVIEW_RATE_RUNS_PER_MIN` | Giới hạn bắt đầu lượt chạy mỗi phút. |
 | `REVIEW_RATE_READS_PER_MIN` | Giới hạn request Review khác mỗi phút. |
+| `REVIEW_RATE_STATUS_PER_MIN` | Giới hạn riêng cho `GET /runs/{id}` và SSE (mặc định 600). |
 
 `task_budget`, `pipeline.trace`, giới hạn body và các trường trên được giữ theo hợp đồng hiện hành; FE nên đọc OpenAPI snapshot thay vì tự suy đoán thêm trường.

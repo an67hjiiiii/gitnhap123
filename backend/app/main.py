@@ -438,7 +438,7 @@ async def chat(body: ChatRequest, request: Request):
         raise HTTPException(404, "SOURCE_NOT_FOUND") from exc
     except IndexingError as exc:
         raise HTTPException(503, getattr(exc, "code", "DERIVED_INDEX_UNAVAILABLE")) from exc
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(400, "VALIDATION_ERROR")
 
 
