@@ -1,0 +1,275 @@
+[
+  {
+    "id": "sat_en",
+    "sources": {
+      "source": "Password minimum 14 characters"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Password minimum 12 characters",
+        "expected": "SATISFIED",
+        "expected_locators": [
+          "section:sat_en"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "sat_en:e1",
+            "source_id": "source",
+            "locator": "section:sat_en",
+            "excerpt": "Password minimum 14 characters"
+          }
+        ],
+        "status": "COMPLETE"
+      }
+    ]
+  },
+  {
+    "id": "sat_vi",
+    "sources": {
+      "source": "Luu log toi thieu 60 ngay"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Luu log toi thieu 30 ngay",
+        "expected": "SATISFIED",
+        "expected_locators": [
+          "section:sat_vi"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "sat_vi:e1",
+            "source_id": "source",
+            "locator": "section:sat_vi",
+            "excerpt": "Luu log toi thieu 60 ngay"
+          }
+        ],
+        "status": "COMPLETE"
+      }
+    ]
+  },
+  {
+    "id": "sat_vi_accent",
+    "sources": {
+      "source": "Mật khẩu tối thiểu 14 ký tự"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Mật khẩu tối thiểu 12 ký tự",
+        "expected": "SATISFIED",
+        "expected_locators": [
+          "section:sat_vi_accent"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "sat_vi_accent:e1",
+            "source_id": "source",
+            "locator": "section:sat_vi_accent",
+            "excerpt": "Mật khẩu tối thiểu 14 ký tự"
+          }
+        ],
+        "status": "COMPLETE"
+      }
+    ]
+  },
+  {
+    "id": "dev_en",
+    "sources": {
+      "source": "Password minimum 8 characters"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Password minimum 12 characters",
+        "expected": "DEVIATES",
+        "expected_locators": [
+          "section:dev_en"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "dev_en:e1",
+            "source_id": "source",
+            "locator": "section:dev_en",
+            "excerpt": "Password minimum 8 characters"
+          }
+        ],
+        "status": "COMPLETE"
+      }
+    ]
+  },
+  {
+    "id": "dev_vi",
+    "sources": {
+      "source": "Luu log toi thieu 7 ngay"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Luu log toi thieu 30 ngay",
+        "expected": "DEVIATES",
+        "expected_locators": [
+          "section:dev_vi"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "dev_vi:e1",
+            "source_id": "source",
+            "locator": "section:dev_vi",
+            "excerpt": "Luu log toi thieu 7 ngay"
+          }
+        ],
+        "status": "COMPLETE"
+      }
+    ]
+  },
+  {
+    "id": "dev_vi_accent",
+    "sources": {
+      "source": "Mật khẩu tối thiểu 8 ký tự"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Mật khẩu tối thiểu 12 ký tự",
+        "expected": "DEVIATES",
+        "expected_locators": [
+          "section:dev_vi_accent"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "dev_vi_accent:e1",
+            "source_id": "source",
+            "locator": "section:dev_vi_accent",
+            "excerpt": "Mật khẩu tối thiểu 8 ký tự"
+          }
+        ],
+        "status": "COMPLETE"
+      }
+    ]
+  },
+  {
+    "id": "partial_en",
+    "sources": {
+      "source": "Password minimum 12 characters"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Password minimum 12 characters and audit every login",
+        "expected": "PARTIAL",
+        "expected_locators": [
+          "section:partial_en"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "partial_en:e1",
+            "source_id": "source",
+            "locator": "section:partial_en",
+            "excerpt": "Password minimum 12 characters"
+          }
+        ],
+        "status": "PARTIAL"
+      }
+    ]
+  },
+  {
+    "id": "partial_vi",
+    "sources": {
+      "source": "Luu log toi thieu 30 ngay"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Luu log toi thieu 30 ngay va ma hoa log",
+        "expected": "PARTIAL",
+        "expected_locators": [
+          "section:partial_vi"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "partial_vi:e1",
+            "source_id": "source",
+            "locator": "section:partial_vi",
+            "excerpt": "Luu log toi thieu 30 ngay"
+          }
+        ],
+        "status": "PARTIAL"
+      }
+    ]
+  },
+  {
+    "id": "partial_vi_accent",
+    "sources": {
+      "source": "Mật khẩu tối thiểu 12 ký tự"
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Mật khẩu tối thiểu 12 ký tự và ghi nhật ký đăng nhập",
+        "expected": "PARTIAL",
+        "expected_locators": [
+          "section:partial_vi_accent"
+        ],
+        "evidence": [
+          {
+            "evidence_id": "partial_vi_accent:e1",
+            "source_id": "source",
+            "locator": "section:partial_vi_accent",
+            "excerpt": "Mật khẩu tối thiểu 12 ký tự"
+          }
+        ],
+        "status": "PARTIAL"
+      }
+    ]
+  },
+  {
+    "id": "missing_en",
+    "sources": {
+      "source": "The interface has a blue header."
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Encrypt uploaded files",
+        "expected": "NOT_FOUND",
+        "expected_locators": [],
+        "evidence": [],
+        "status": "NO_EVIDENCE"
+      }
+    ]
+  },
+  {
+    "id": "missing_vi",
+    "sources": {
+      "source": "Giao dien co mau xanh."
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Ma hoa tep tai len",
+        "expected": "NOT_FOUND",
+        "expected_locators": [],
+        "evidence": [],
+        "status": "NO_EVIDENCE"
+      }
+    ]
+  },
+  {
+    "id": "missing_vi_accent",
+    "sources": {
+      "source": "Giao diện có màu xanh."
+    },
+    "requirements": [
+      {
+        "id": "r1",
+        "text": "Mã hóa tệp tải lên",
+        "expected": "NOT_FOUND",
+        "expected_locators": [],
+        "evidence": [],
+        "status": "NO_EVIDENCE"
+      }
+    ]
+  }
+]
