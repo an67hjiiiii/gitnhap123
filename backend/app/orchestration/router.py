@@ -90,6 +90,25 @@ def route_request(request: RouteRequest) -> RouteDecision:
         reasons.append("Grounded request needs planning beyond a short single question")
     calls = {Route.DETERMINISTIC: 0, Route.SINGLE_LLM: 1,
              Route.MULTI_AGENT: max(1, request.requirement_count) + 2}[route]
+    codes = []
+    for reason in reasons:
+        if reason.startswith("Selected mode:"):
+            codes.append({"code": "ROUTE_MODE_SELECTED", "params": {"mode": request.mode}})
+        elif reason.startswith("force_route"):
+            codes.append({"code": "ROUTE_FORCED", "params": {"route": route.value}})
+        elif request.mode == "case":
+            codes.append({"code": "ROUTE_CASE_ANALYSIS", "params": {}})
+        elif request.mode == "general":
+            codes.append({"code": "ROUTE_SINGLE_ANSWER", "params": {}})
+        elif artifacts_only:
+            codes.append({"code": "ROUTE_ARTIFACT_CHECK", "params": {}})
+        elif request.requirement_count > 1 or (request.has_sources and len(clauses) > 1):
+            codes.append({"code": "ROUTE_MULTIPLE_REQUIREMENTS", "params": {}})
+        elif route == Route.SINGLE_LLM:
+            codes.append({"code": "ROUTE_SHORT_QUESTION", "params": {}})
+        else:
+            codes.append({"code": "ROUTE_NEEDS_PLANNING", "params": {}})
+    reasons = codes
     return RouteDecision(route, reasons, {
         "tokens": 0 if route == Route.DETERMINISTIC else request.estimated_tokens,
         "model_calls": calls,

@@ -223,10 +223,10 @@ def test_export_markdown_matches_golden_string_deterministically():
     finding = service.start_run(case.id, "owner")[0]
     service.decide_finding(case.id, "owner", finding.id, Decision.EDIT, "Updated wording")
     expected = (
-        "# Audit\n\nStatus: COMPLETE\n\n## Requirements\n"
-        "1. Check policy (confirmed: true)\n"
-        "   - Verdict: SATISFIED\n"
-        "   - Decision: EDIT\n"
+        "# Audit\n\nStatus: Hoàn thành\n\n## Requirements\n"
+        "1. Check policy (đã xác nhận)\n"
+        "   - Verdict: Đã đáp ứng\n"
+        "   - Decision: Đã chỉnh sửa\n"
         "   - Evidence: e1 (s1, p1): text\n"
     )
     assert service.export_markdown(case.id, "owner") == expected

@@ -1,0 +1,239 @@
+{
+    "verdict":  {
+                    "SATISFIED":  "Đã đáp ứng",
+                    "PARTIAL":  "Đáp ứng một phần",
+                    "NOT_FOUND":  "Chưa tìm thấy bằng chứng",
+                    "DEVIATES":  "Không khớp yêu cầu",
+                    "UNDETERMINED":  "Chưa kết luận được",
+                    "SKIPPED_BUDGET":  "Chưa kiểm tra do giới hạn chạy"
+                },
+    "case_status":  {
+                        "DRAFT":  "Bản nháp",
+                        "CONFIRMING":  "Đang xác nhận yêu cầu",
+                        "READY":  "Sẵn sàng chạy",
+                        "RUNNING":  "Đang chạy",
+                        "PARTIAL":  "Hoàn thành một phần",
+                        "COMPLETE":  "Hoàn thành",
+                        "FAILED":  "Chạy lỗi"
+                    },
+    "job_state":  {
+                      "QUEUED":  "Đang chờ",
+                      "RUNNING":  "Đang chạy",
+                      "SUCCEEDED":  "Xong",
+                      "PARTIAL":  "Hoàn thành một phần",
+                      "FAILED":  "Lỗi",
+                      "CANCELLED":  "Đã hủy"
+                  },
+    "decision":  {
+                     "NONE":  "Chưa quyết định",
+                     "ACCEPT":  "Chấp nhận",
+                     "REJECT":  "Bác bỏ",
+                     "EDIT":  "Đã chỉnh sửa"
+                 },
+    "errors":  {
+                   "VALIDATION_ERROR":  {
+                                            "what":  "Thông tin chưa hợp lệ.",
+                                            "todo":  "Kiểm tra các ô được đánh dấu rồi thử lại."
+                                        },
+                   "CASE_NOT_FOUND":  {
+                                          "what":  "Không tìm thấy case này.",
+                                          "todo":  "Có thể đã bị xóa; quay lại danh sách."
+                                      },
+                   "SOURCE_NOT_FOUND":  {
+                                            "what":  "Không tìm thấy tài liệu này.",
+                                            "todo":  "Thử tải lại danh sách tài liệu."
+                                        },
+                   "RUN_NOT_FOUND":  {
+                                         "what":  "Không tìm thấy lượt chạy này.",
+                                         "todo":  "Quay lại case và chạy lại."
+                                     },
+                   "FINDING_NOT_FOUND":  {
+                                             "what":  "Không tìm thấy kết quả này.",
+                                             "todo":  "Tải lại trang để xem danh sách mới nhất."
+                                         },
+                   "REQUIREMENTS_UNCONFIRMED":  {
+                                                    "what":  "Còn yêu cầu chưa được xác nhận.",
+                                                    "todo":  "Xác nhận hết các yêu cầu rồi chạy lại."
+                                                },
+                   "CASE_RUNNING":  {
+                                        "what":  "Case đang chạy.",
+                                        "todo":  "Đợi chạy xong hoặc hủy lượt hiện tại."
+                                    },
+                   "RUN_BUDGET_EXCEEDED":  {
+                                               "what":  "Giới hạn chạy không đủ cho một yêu cầu.",
+                                               "todo":  "Giảm số yêu cầu hoặc tăng giới hạn."
+                                           },
+                   "REVIEW_ENGINE_UNAVAILABLE":  {
+                                                     "what":  "Chức năng kiểm tra chưa sẵn sàng.",
+                                                     "todo":  "Thử lại sau ít phút."
+                                                 },
+                   "DERIVED_INDEX_UNAVAILABLE":  {
+                                                     "what":  "Chỉ mục tìm kiếm tạm thời chưa dùng được.",
+                                                     "todo":  "Thử lại sau."
+                                                 },
+                   "INDEX_INCOMPATIBLE":  {
+                                              "what":  "Chỉ mục tìm kiếm không khớp cấu hình hiện tại.",
+                                              "todo":  "Cần lập lại chỉ mục."
+                                          },
+                   "INDEX_LEGACY_UNVERIFIED":  {
+                                                   "what":  "Chỉ mục tìm kiếm chưa được xác minh.",
+                                                   "todo":  "Cần lập lại chỉ mục."
+                                               },
+                   "RATE_LIMITED":  {
+                                        "what":  "Bạn thao tác hơi nhanh.",
+                                        "todo":  "Đợi một lát rồi thử lại."
+                                    },
+                   "INTERNAL_ERROR":  {
+                                          "what":  "Có lỗi xảy ra phía hệ thống.",
+                                          "todo":  "Thử lại; nếu vẫn lỗi, báo cho người quản trị."
+                                      },
+                   "AUTHENTICATION_REQUIRED":  {
+                                                   "what":  "Phiên đăng nhập đã hết hạn hoặc chưa có.",
+                                                   "todo":  "Đăng nhập lại rồi thử lại."
+                                               },
+                   "PDF_NO_TEXT":  {
+                                       "what":  "PDF không có văn bản để đọc.",
+                                       "todo":  "Thử tài liệu TXT, MD hoặc PDF có văn bản."
+                                   },
+                   "PDF_EXTRACTION_UNAVAILABLE":  {
+                                                      "what":  "Chưa đọc được nội dung PDF.",
+                                                      "todo":  "Thử tài liệu TXT, MD hoặc PDF khác."
+                                                  },
+                   "UNSUPPORTED_DOCUMENT_TYPE":  {
+                                                     "what":  "Định dạng tài liệu chưa được hỗ trợ.",
+                                                     "todo":  "Dùng tệp TXT, MD hoặc PDF."
+                                                 },
+                   "UTF8_TEXT_REQUIRED":  {
+                                              "what":  "Tệp văn bản không dùng mã UTF-8.",
+                                              "todo":  "Lưu lại dưới dạng TXT, MD hoặc PDF có văn bản UTF-8."
+                                          },
+                   "DOCUMENT_EXTRACTION_FAILED":  {
+                                                      "what":  "Không đọc được nội dung tài liệu.",
+                                                      "todo":  "Thử tệp TXT, MD hoặc PDF khác."
+                                                  },
+                   "DERIVED_INDEX_FAILED":  {
+                                                "what":  "Chưa tạo được chỉ mục tìm kiếm.",
+                                                "todo":  "Thử lại sau."
+                                            },
+                   "FILE_TOO_LARGE":  {
+                                          "what":  "Tệp vượt quá dung lượng cho phép.",
+                                          "todo":  "Chọn tệp nhỏ hơn 2 MB."
+                                      },
+                   "EMPTY_TEXT":  {
+                                      "what":  "Nội dung đang để trống.",
+                                      "todo":  "Nhập văn bản rồi thử lại."
+                                  },
+                   "EMPTY_FILE":  {
+                                      "what":  "Tệp không có nội dung.",
+                                      "todo":  "Chọn tệp TXT, MD hoặc PDF có nội dung."
+                                  },
+                   "MESSAGE_REQUIRED":  {
+                                            "what":  "Chưa có nội dung tin nhắn.",
+                                            "todo":  "Nhập tin nhắn rồi thử lại."
+                                        },
+                   "SOURCE_CHUNK_NOT_FOUND":  {
+                                                  "what":  "Không tìm thấy đoạn tài liệu này.",
+                                                  "todo":  "Tải lại tài liệu rồi thử lại."
+                                              },
+                   "CONFLICTING_CLAIM":  {
+                                             "what":  "Có thông tin trong tài liệu không khớp yêu cầu.",
+                                             "todo":  "Kiểm tra bằng chứng được trích dẫn."
+                                         },
+                   "UNSUPPORTED_ANSWER_QUANTITY":  {
+                                                       "what":  "Câu trả lời nêu số liệu chưa có bằng chứng.",
+                                                       "todo":  "Kiểm tra nguồn và câu trả lời."
+                                                   },
+                   "UNSUPPORTED_ANSWER_ALTERNATIVE":  {
+                                                          "what":  "Câu trả lời nêu lựa chọn chưa có bằng chứng.",
+                                                          "todo":  "Kiểm tra nguồn và câu trả lời."
+                                                      },
+                   "SLOTS_MISSING":  {
+                                         "what":  "Một số chi tiết yêu cầu chưa có bằng chứng.",
+                                         "todo":  "Kiểm tra các chi tiết còn thiếu."
+                                     },
+                   "RESEARCH_CONTROLS_NOT_AVAILABLE":  {
+                                                           "what":  "Tùy chọn nghiên cứu không dùng được ở chế độ này.",
+                                                           "todo":  "Bỏ các tùy chọn nghiên cứu rồi thử lại."
+                                                       },
+                   "PRODUCT_PROVIDER_NOT_CONFIGURED":  {
+                                                           "what":  "Dịch vụ trả lời chưa được cấu hình.",
+                                                           "todo":  "Thử lại sau hoặc liên hệ người quản trị."
+                                                       },
+                   "ROUTE_MODE_SELECTED":  {
+                                               "what":  "Đã chọn cách xử lý yêu cầu.",
+                                               "todo":  "Tiếp tục theo dõi tiến trình."
+                                           },
+                   "ROUTE_FORCED":  {
+                                        "what":  "Đã áp dụng cách xử lý được chỉ định.",
+                                        "todo":  "Tiếp tục theo dõi tiến trình."
+                                    },
+                   "ROUTE_CASE_ANALYSIS":  {
+                                               "what":  "Đã chọn cách phân tích case.",
+                                               "todo":  "Theo dõi kết quả kiểm tra."
+                                           },
+                   "ROUTE_SINGLE_ANSWER":  {
+                                               "what":  "Đã chọn cách trả lời trực tiếp.",
+                                               "todo":  "Theo dõi kết quả."
+                                           },
+                   "ROUTE_ARTIFACT_CHECK":  {
+                                                "what":  "Đã chọn cách kiểm tra cấu trúc.",
+                                                "todo":  "Theo dõi kết quả."
+                                            },
+                   "ROUTE_MULTIPLE_REQUIREMENTS":  {
+                                                       "what":  "Đã chọn cách xử lý nhiều yêu cầu.",
+                                                       "todo":  "Theo dõi tiến trình."
+                                                   },
+                   "ROUTE_SHORT_QUESTION":  {
+                                                "what":  "Đã chọn cách xử lý câu hỏi ngắn.",
+                                                "todo":  "Theo dõi kết quả."
+                                            },
+                   "ROUTE_NEEDS_PLANNING":  {
+                                                "what":  "Đã chọn cách lập kế hoạch kiểm tra.",
+                                                "todo":  "Theo dõi tiến trình."
+                                            },
+                   "CONVERSATION_NOT_FOUND":  {
+                                                  "what":  "Không tìm thấy cuộc trò chuyện này.",
+                                                  "todo":  "Quay lại danh sách rồi thử lại."
+                                              }
+               },
+    "events":  {
+                   "route.decided":  "Đã chọn cách xử lý yêu cầu.",
+                   "task.started":  "Đang kiểm tra yêu cầu.",
+                   "task.done":  "Đã kiểm tra xong yêu cầu.",
+                   "finding.created":  "Đã tạo kết quả kiểm tra.",
+                   "budget.skipped":  "Đã bỏ qua do chạm giới hạn chạy.",
+                   "pipeline.trace":  "Đang ghi nhận tiến trình kiểm tra.",
+                   "verdict.conflict":  "Đã tìm thấy thông tin mâu thuẫn.",
+                   "verdict.answer_inconsistent":  "Câu trả lời có thông tin chưa được hỗ trợ.",
+                   "verdict.slots_missing":  "Một số chi tiết chưa có bằng chứng.",
+                   "task.failed":  "Không thể kiểm tra yêu cầu này.",
+                   "job.started":  "Lượt chạy đã bắt đầu.",
+                   "job.resumed":  "Lượt chạy tiếp tục.",
+                   "job.done":  "Lượt chạy đã hoàn tất.",
+                   "job.failed":  "Lượt chạy gặp lỗi.",
+                   "job.cancelled":  "Lượt chạy đã bị hủy.",
+                   "error":  "Đã xảy ra lỗi trong quá trình xử lý."
+               },
+    "changes":  {
+                    "ENDPOINT_ADDED":  "Đã thêm một endpoint.",
+                    "ENDPOINT_REMOVED":  "Đã xóa một endpoint.",
+                    "ENUM_VALUE_ADDED":  "Đã thêm một giá trị enum.",
+                    "ENUM_VALUE_REMOVED":  "Đã xóa một giá trị enum.",
+                    "METHOD_ADDED":  "Đã thêm một phương thức cho endpoint.",
+                    "METHOD_REMOVED":  "Đã xóa một phương thức của endpoint.",
+                    "PARAM_ADDED":  "Đã thêm một tham số.",
+                    "PARAM_REMOVED":  "Đã xóa một tham số.",
+                    "PARAM_REQUIRED_CHANGED":  "Đã thay đổi yêu cầu bắt buộc của tham số.",
+                    "PARAM_TYPE_CHANGED":  "Đã thay đổi kiểu của tham số.",
+                    "REQUEST_BODY_CONTENT_TYPE_CHANGED":  "Đã thay đổi định dạng nội dung request.",
+                    "REQUEST_BODY_REQUIRED_CHANGED":  "Đã thay đổi yêu cầu phần thân request.",
+                    "RESPONSE_ADDED":  "Đã thêm một response.",
+                    "RESPONSE_REMOVED":  "Đã xóa một response.",
+                    "RESPONSE_SCHEMA_CHANGED":  "Đã thay đổi cấu trúc response.",
+                    "SCHEMA_PROPERTY_ADDED":  "Đã thêm một trường trong schema.",
+                    "SCHEMA_PROPERTY_REMOVED":  "Đã xóa một trường trong schema.",
+                    "SCHEMA_PROPERTY_REQUIRED_CHANGED":  "Đã thay đổi yêu cầu bắt buộc của trường.",
+                    "SCHEMA_PROPERTY_TYPE_CHANGED":  "Đã thay đổi kiểu của trường.",
+                    "SECURITY_CHANGED":  "Đã thay đổi cấu hình bảo mật."
+                }
+}

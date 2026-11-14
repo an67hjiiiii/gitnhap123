@@ -198,7 +198,8 @@ class PipelineReviewEngine:
                             evidence = list(assessment.conflicting)
                             evidence.extend(e for e in assessment.supporting if e not in evidence)
                             self._emit(emit, "verdict.conflict", {
-                                **payload, "detail": " ".join(assessment.notes),
+                                **payload, "code": "CONFLICTING_CLAIM",
+                                "params": {"claims": assessment.conflicts_data},
                                 "conflicting_evidence_ids": [
                                     e.evidence_id for e in assessment.conflicting
                                 ],
@@ -211,7 +212,11 @@ class PipelineReviewEngine:
                         if notes:
                             verdict = Verdict.PARTIAL
                             self._emit(emit, "verdict.answer_inconsistent", {
-                                **payload, "detail": " ".join(notes),
+                                **payload, "code": ("UNSUPPORTED_ANSWER_QUANTITY" if "quantity" in " ".join(notes).lower()
+                                                     else "UNSUPPORTED_ANSWER_ALTERNATIVE"),
+                                "params": {"claims": [claim for check in checks
+                                                           if check.status == "UNSUPPORTED_CLAIM"
+                                                           for claim in check.unsupported]},
                                 "evidence_ids": [e.evidence_id for e in evidence],
                             })
                     if verdict in {Verdict.SATISFIED, Verdict.PARTIAL}:
@@ -221,7 +226,8 @@ class PipelineReviewEngine:
                             if verdict == Verdict.NOT_FOUND:
                                 evidence = []
                             self._emit(emit, "verdict.slots_missing", {
-                                **payload, "missing_slots": list(coverage.missing_slots),
+                                **payload, "code": "SLOTS_MISSING",
+                                "params": {"missing_slots": list(coverage.missing_slots)},
                             })
                 except Exception:
                     verdict = Verdict.UNDETERMINED

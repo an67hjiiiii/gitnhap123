@@ -1,6 +1,105 @@
 {
   "components": {
     "schemas": {
+      "CaseDetail": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "requirement_review",
+              "spec_change"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Source Id"
+          },
+          "old_source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Source Id"
+          },
+          "owner_user_id": {
+            "title": "Owner User Id",
+            "type": "string"
+          },
+          "request_text": {
+            "title": "Request Text",
+            "type": "string"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/Requirement"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_user_id",
+          "title",
+          "status",
+          "source_ids",
+          "kind",
+          "request_text",
+          "created_at",
+          "updated_at",
+          "requirements",
+          "findings"
+        ],
+        "title": "CaseDetail",
+        "type": "object"
+      },
       "CaseInput": {
         "additionalProperties": false,
         "properties": {
@@ -62,6 +161,39 @@
         "title": "CaseInput",
         "type": "object"
       },
+      "CaseStatus": {
+        "enum": [
+          "DRAFT",
+          "CONFIRMING",
+          "READY",
+          "RUNNING",
+          "PARTIAL",
+          "COMPLETE",
+          "FAILED"
+        ],
+        "title": "CaseStatus",
+        "type": "string"
+      },
+      "Confidence": {
+        "enum": [
+          "L0",
+          "L1",
+          "L2",
+          "L3"
+        ],
+        "title": "Confidence",
+        "type": "string"
+      },
+      "Decision": {
+        "enum": [
+          "NONE",
+          "ACCEPT",
+          "REJECT",
+          "EDIT"
+        ],
+        "title": "Decision",
+        "type": "string"
+      },
       "DecisionInput": {
         "additionalProperties": false,
         "properties": {
@@ -96,8 +228,7 @@
       "ErrorBody": {
         "properties": {
           "code": {
-            "title": "Code",
-            "type": "string"
+            "$ref": "#/components/schemas/ErrorCode"
           },
           "details": {
             "anyOf": [
@@ -121,6 +252,183 @@
           "message"
         ],
         "title": "ErrorBody",
+        "type": "object"
+      },
+      "ErrorCode": {
+        "enum": [
+          "VALIDATION_ERROR",
+          "AUTHENTICATION_REQUIRED",
+          "CASE_NOT_FOUND",
+          "SOURCE_NOT_FOUND",
+          "RUN_NOT_FOUND",
+          "FINDING_NOT_FOUND",
+          "REQUIREMENTS_UNCONFIRMED",
+          "CASE_RUNNING",
+          "RUN_BUDGET_EXCEEDED",
+          "REVIEW_ENGINE_UNAVAILABLE",
+          "DERIVED_INDEX_UNAVAILABLE",
+          "INDEX_INCOMPATIBLE",
+          "INDEX_LEGACY_UNVERIFIED",
+          "RATE_LIMITED",
+          "INTERNAL_ERROR",
+          "PDF_NO_TEXT",
+          "PDF_EXTRACTION_UNAVAILABLE",
+          "UNSUPPORTED_DOCUMENT_TYPE",
+          "UTF8_TEXT_REQUIRED",
+          "DOCUMENT_EXTRACTION_FAILED",
+          "DERIVED_INDEX_FAILED",
+          "FILE_TOO_LARGE",
+          "EMPTY_TEXT",
+          "EMPTY_FILE",
+          "MESSAGE_REQUIRED",
+          "SOURCE_CHUNK_NOT_FOUND",
+          "CONFLICTING_CLAIM",
+          "UNSUPPORTED_ANSWER_QUANTITY",
+          "UNSUPPORTED_ANSWER_ALTERNATIVE",
+          "SLOTS_MISSING",
+          "RESEARCH_CONTROLS_NOT_AVAILABLE",
+          "PRODUCT_PROVIDER_NOT_CONFIGURED",
+          "ROUTE_MODE_SELECTED",
+          "ROUTE_FORCED",
+          "ROUTE_CASE_ANALYSIS",
+          "ROUTE_SINGLE_ANSWER",
+          "ROUTE_ARTIFACT_CHECK",
+          "ROUTE_MULTIPLE_REQUIREMENTS",
+          "ROUTE_SHORT_QUESTION",
+          "ROUTE_NEEDS_PLANNING",
+          "CONVERSATION_NOT_FOUND"
+        ],
+        "title": "ErrorCode",
+        "type": "string"
+      },
+      "Evidence": {
+        "properties": {
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "excerpt": {
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "locator": {
+            "title": "Locator",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "source_id",
+          "locator",
+          "excerpt"
+        ],
+        "title": "Evidence",
+        "type": "object"
+      },
+      "Finding": {
+        "properties": {
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/Confidence"
+          },
+          "edited_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edited Text"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "requirement_id": {
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "review": {
+            "$ref": "#/components/schemas/Decision",
+            "default": "NONE"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "requirement_id",
+          "verdict",
+          "confidence"
+        ],
+        "title": "Finding",
+        "type": "object"
+      },
+      "JobState": {
+        "enum": [
+          "QUEUED",
+          "RUNNING",
+          "SUCCEEDED",
+          "PARTIAL",
+          "FAILED",
+          "CANCELLED"
+        ],
+        "title": "JobState",
+        "type": "string"
+      },
+      "Requirement": {
+        "properties": {
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "confirmed": {
+            "default": false,
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "title": "Order",
+            "type": "integer"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/RequirementOrigin"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "text",
+          "origin",
+          "order"
+        ],
+        "title": "Requirement",
         "type": "object"
       },
       "RequirementInput": {
@@ -155,6 +463,14 @@
         "title": "RequirementInput",
         "type": "object"
       },
+      "RequirementOrigin": {
+        "enum": [
+          "AI_PROPOSED",
+          "USER"
+        ],
+        "title": "RequirementOrigin",
+        "type": "string"
+      },
       "RequirementsInput": {
         "additionalProperties": false,
         "properties": {
@@ -170,6 +486,88 @@
           "requirements"
         ],
         "title": "RequirementsInput",
+        "type": "object"
+      },
+      "ReviewCase": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "requirement_review",
+            "enum": [
+              "requirement_review",
+              "spec_change"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Source Id"
+          },
+          "old_source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Source Id"
+          },
+          "owner_user_id": {
+            "title": "Owner User Id",
+            "type": "string"
+          },
+          "request_text": {
+            "title": "Request Text",
+            "type": "string"
+          },
+          "source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus",
+            "default": "DRAFT"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_user_id",
+          "title",
+          "request_text",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ReviewCase",
         "type": "object"
       },
       "RunInput": {
@@ -189,6 +587,69 @@
           }
         },
         "title": "RunInput",
+        "type": "object"
+      },
+      "RunStatus": {
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "state",
+          "seq"
+        ],
+        "title": "RunStatus",
         "type": "object"
       },
       "SuggestionOutput": {
@@ -240,6 +701,18 @@
         ],
         "title": "SuggestionOutput",
         "type": "object"
+      },
+      "Verdict": {
+        "enum": [
+          "SATISFIED",
+          "PARTIAL",
+          "NOT_FOUND",
+          "DEVIATES",
+          "UNDETERMINED",
+          "SKIPPED_BUDGET"
+        ],
+        "title": "Verdict",
+        "type": "string"
       }
     }
   },
@@ -256,7 +729,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewCase"
+                  },
+                  "title": "Response List Cases Api Review Cases Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -363,7 +842,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetail"
+                }
               }
             },
             "description": "Successful Response"
@@ -580,7 +1061,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Requirement"
+                  },
+                  "title": "Response Replace Requirements Api Review Cases  Case Id  Requirements Put",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -815,7 +1302,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -905,7 +1394,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Finding"
+                }
               }
             },
             "description": "Successful Response"
@@ -975,7 +1466,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunStatus"
+                }
               }
             },
             "description": "Successful Response"
@@ -1106,7 +1599,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunStatus"
+                }
               }
             },
             "description": "Successful Response"

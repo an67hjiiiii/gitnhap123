@@ -47,7 +47,7 @@ def test_routes(changes, expected):
 def test_force_route_wins_over_mode(route):
     decision = route_request(request(mode="case", force_route=route))
     assert decision.route == route
-    assert any("force_route" in reason and route.value in reason for reason in decision.reasons)
+    assert {"code": "ROUTE_FORCED", "params": {"route": route.value}} in decision.reasons
 
 
 @pytest.mark.parametrize("changes", [

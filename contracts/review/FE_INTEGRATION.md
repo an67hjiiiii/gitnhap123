@@ -20,10 +20,13 @@ The review API is owner scoped; an unavailable or another user's resource is ret
 
 The events endpoint streams `text/event-stream`. Send `Last-Event-ID: <last seq>` when
 reconnecting; the server resumes after that sequence. Event blocks carry `id`, `event`,
-and JSON `data`. Current event names emitted by the review job include `route.decided`,
-`task.started`, `task.done`, `finding.created`, `budget.skipped`, `error`, `job.done`,
-`job.failed`, and `job.cancelled` (some depend on engine and outcome). Treat unknown
-event names as forward-compatible and use the case/run endpoints for current state.
+and JSON `data`. Current event names include `route.decided`, `task.started`, `task.done`,
+`finding.created`, `budget.skipped`, `pipeline.trace`, `verdict.conflict`,
+`verdict.answer_inconsistent`, `verdict.slots_missing`, `task.failed`, `error`,
+`job.started`, `job.resumed`, `job.done`, `job.failed`, and `job.cancelled`. Map event
+names through `labels.vi.json`'s `events`; treat unknown names as forward-compatible.
+`route.decided.data.reasons` contains `{code, params}` objects. Verdict events carry a
+stable `code` and structured `params`.
 
 ## Values
 
@@ -40,7 +43,8 @@ the current user. The response retains these IDs. The default kind ignores these
 ## Errors
 
 Error responses use `{ "code": string, "message": string, "details": ... }` where
-`details` may be absent. Show an actionable message and preserve the code for handling.
+`details` may be absent. Map codes through `labels.vi.json`; show `what` and `todo`,
+never the server `message`, and use fallback text for unknown codes.
 
 | Code | Meaning / frontend action |
 | --- | --- |
@@ -54,6 +58,9 @@ Error responses use `{ "code": string, "message": string, "details": ... }` wher
 | `VALIDATION_ERROR` | Correct request fields using the returned message/details. |
 | `REVIEW_ENGINE_UNAVAILABLE` | Run service is unavailable; allow retry. |
 | `DERIVED_INDEX_UNAVAILABLE` | Review could not access its derived index; show failure and allow retry. |
+| `FINDING_NOT_FOUND` | Finding is absent; refresh the latest results. |
+| `INTERNAL_ERROR` | A system error occurred; allow retry. |
+| `RATE_LIMITED` | Wait for the `Retry-After` seconds before retrying. |
 
 ## Retry and idempotency
 
@@ -61,6 +68,8 @@ No idempotency key is defined in this contract. A retry of case creation or run 
 can create another resource/job; check the case list or run state before retrying after
 an uncertain response. Use `Last-Event-ID` to resume SSE without replaying earlier events.
 The API rejects edits while a case has an active run with `CASE_RUNNING`.
+Limits default to 2 run starts/minute and 60 other review requests/minute per user.
+Polling `GET /runs/{id}` counts toward the latter; prefer SSE.
 
 ## Limits
 

@@ -10,6 +10,6 @@
   },
   "response": {
     "status": 200,
-    "body": "id: 1\nevent: route.decided\ndata: {\"route\":\"MULTI_AGENT\",\"reasons\":[\"Selected mode: case\",\"Case mode requests planned analysis\"],\"budget_hint\":{\"tokens\":6,\"model_calls\":3}}\n\nid: 2\nevent: job.started\ndata: {}\n\nid: 3\nevent: task.started\ndata: {\"case_id\":\"<case_id>\"}\n\nid: 4\nevent: finding.created\ndata: {\"id\":\"<finding_id>\",\"case_id\":\"<case_id>\",\"requirement_id\":\"<requirement_0>\",\"verdict\":\"SATISFIED\",\"evidence\":[],\"review\":\"NONE\",\"edited_text\":null,\"confidence\":\"L0\"}\n\nid: 5\nevent: task.done\ndata: {\"requirement_id\":\"<requirement_0>\"}\n\nid: 6\nevent: job.done\ndata: {}\n\n"
+    "body": "id: 1\nevent: route.decided\ndata: {\"route\":\"MULTI_AGENT\",\"reasons\":[{\"code\":\"ROUTE_MODE_SELECTED\",\"params\":{\"mode\":\"case\"}},{\"code\":\"ROUTE_CASE_ANALYSIS\",\"params\":{}}],\"budget_hint\":{\"tokens\":6,\"model_calls\":3}}\n\nid: 2\nevent: job.started\ndata: {}\n\nid: 3\nevent: task.started\ndata: {\"case_id\":\"<case_id>\"}\n\nid: 4\nevent: finding.created\ndata: {\"id\":\"<finding_id>\",\"case_id\":\"<case_id>\",\"requirement_id\":\"<requirement_0>\",\"verdict\":\"SATISFIED\",\"evidence\":[],\"review\":\"NONE\",\"edited_text\":null,\"confidence\":\"L0\"}\n\nid: 5\nevent: task.done\ndata: {\"requirement_id\":\"<requirement_0>\"}\n\nid: 6\nevent: job.done\ndata: {}\n\n"
   }
 }

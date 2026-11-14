@@ -252,8 +252,9 @@ def test_evidence_backed_status_mapping(setup_review, monkeypatch, status, text,
     if expected == Verdict.DEVIATES:
         assert finding.evidence and finding.evidence[0].excerpt == text
         assert conflicts[0]["conflicting_evidence_ids"] == [chunks[0].chunk_id]
-        assert "180 days" in conflicts[0]["detail"]
-        assert "90 days" in conflicts[0]["detail"]
+        assert conflicts[0]["code"] == "CONFLICTING_CLAIM"
+        assert "180 days" in str(conflicts[0]["params"])
+        assert "90 days" in str(conflicts[0]["params"])
     assert events[-1] == ("finding.created", finding.model_dump(mode="json"))
 
 
@@ -434,8 +435,9 @@ def test_in_memory_pipeline_verdict_contract(sf1_fake_provider_env, status, text
         assert conflict_events[0]["conflicting_evidence_ids"] == [
             e.evidence_id for e in assessment.conflicting
         ]
-        assert "180 days" in conflict_events[0]["detail"]
-        assert "90 days" in conflict_events[0]["detail"]
+        assert conflict_events[0]["code"] == "CONFLICTING_CLAIM"
+        assert "180 days" in str(conflict_events[0]["params"])
+        assert "90 days" in str(conflict_events[0]["params"])
     else:
         assert conflict_events == []
 
@@ -506,8 +508,10 @@ def test_answer_consistency_status_and_diagnostic_event(answer_review, requireme
         assert diagnostics[0]["case_id"] == case.id
         assert diagnostics[0]["requirement_id"] == reqs[0].id
         assert diagnostics[0]["evidence_ids"] == [chunk.chunk_id]
-        assert "Unsupported answer" in diagnostics[0]["detail"]
-        assert ("3:00" in diagnostics[0]["detail"]) or ("SMS" in diagnostics[0]["detail"])
+        assert diagnostics[0]["code"] in {"UNSUPPORTED_ANSWER_QUANTITY", "UNSUPPORTED_ANSWER_ALTERNATIVE"}
+        claims = diagnostics[0]["params"]["claims"]
+        assert claims and all(claim["kind"] in {"quantity", "alternative"} for claim in claims)
+        assert any(("3:00" in str(claim.get("span")) or claim.get("value") == "SMS") for claim in claims)
     assert events[-1] == ("finding.created", finding.model_dump(mode="json"))
     delivered = []
     repeated, = engine.run(case, reqs, None, delivered.append)

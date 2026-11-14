@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 
 from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
+from app.review.labels import label
 from app.review.tools.openapi_diff import Change, diff
 from app.review.tools.openapi_inspect import inspect as inspect_openapi
 
@@ -28,7 +29,7 @@ class SpecChangeEngine:
             source_id=(case.old_source_id or "old") if change.severity == "BREAKING" else (case.new_source_id or "new"),
             locator=" ".join(x for x in (change.method.upper(), change.path,
                                          f"[#{change.location}]" if change.location else "") if x),
-            excerpt=change.detail,
+            excerpt=label("changes", change.kind),
         )
 
     def evidence(self, case: ReviewCase) -> list[Evidence]:

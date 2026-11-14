@@ -6,6 +6,7 @@ import math
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Literal
+from enum import Enum
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -17,7 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.jobs import EventLog, JobRunner, format_sse
 from app.review.engine import FakeReviewEngine
 from app.review.repository import InMemoryCaseRepository
-from app.review.schemas import CaseStatus, Decision, Evidence, Finding, JobState, Requirement, RequirementOrigin
+from app.review.schemas import (CaseDetail, CaseStatus, Decision, Evidence, Finding, JobState,
+                                Requirement, RequirementOrigin, ReviewCase, RunStatus)
 from app.review_adapters import PipelineReviewEngine, SpecChangeEngine
 from app.review_adapters.durable_jobs import DurableJobRunner
 from app.review_adapters.pg_repository import PostgresCaseRepository
@@ -32,8 +34,52 @@ from app.api.ratelimit import configured_limit, review_rate_limiter
 logger = logging.getLogger(__name__)
 
 
+class ErrorCode(str, Enum):
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    AUTHENTICATION_REQUIRED = "AUTHENTICATION_REQUIRED"
+    CASE_NOT_FOUND = "CASE_NOT_FOUND"
+    SOURCE_NOT_FOUND = "SOURCE_NOT_FOUND"
+    RUN_NOT_FOUND = "RUN_NOT_FOUND"
+    FINDING_NOT_FOUND = "FINDING_NOT_FOUND"
+    REQUIREMENTS_UNCONFIRMED = "REQUIREMENTS_UNCONFIRMED"
+    CASE_RUNNING = "CASE_RUNNING"
+    RUN_BUDGET_EXCEEDED = "RUN_BUDGET_EXCEEDED"
+    REVIEW_ENGINE_UNAVAILABLE = "REVIEW_ENGINE_UNAVAILABLE"
+    DERIVED_INDEX_UNAVAILABLE = "DERIVED_INDEX_UNAVAILABLE"
+    INDEX_INCOMPATIBLE = "INDEX_INCOMPATIBLE"
+    INDEX_LEGACY_UNVERIFIED = "INDEX_LEGACY_UNVERIFIED"
+    RATE_LIMITED = "RATE_LIMITED"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+    PDF_NO_TEXT = "PDF_NO_TEXT"
+    PDF_EXTRACTION_UNAVAILABLE = "PDF_EXTRACTION_UNAVAILABLE"
+    UNSUPPORTED_DOCUMENT_TYPE = "UNSUPPORTED_DOCUMENT_TYPE"
+    UTF8_TEXT_REQUIRED = "UTF8_TEXT_REQUIRED"
+    DOCUMENT_EXTRACTION_FAILED = "DOCUMENT_EXTRACTION_FAILED"
+    DERIVED_INDEX_FAILED = "DERIVED_INDEX_FAILED"
+    FILE_TOO_LARGE = "FILE_TOO_LARGE"
+    EMPTY_TEXT = "EMPTY_TEXT"
+    EMPTY_FILE = "EMPTY_FILE"
+    MESSAGE_REQUIRED = "MESSAGE_REQUIRED"
+    SOURCE_CHUNK_NOT_FOUND = "SOURCE_CHUNK_NOT_FOUND"
+    CONFLICTING_CLAIM = "CONFLICTING_CLAIM"
+    UNSUPPORTED_ANSWER_QUANTITY = "UNSUPPORTED_ANSWER_QUANTITY"
+    UNSUPPORTED_ANSWER_ALTERNATIVE = "UNSUPPORTED_ANSWER_ALTERNATIVE"
+    SLOTS_MISSING = "SLOTS_MISSING"
+    RESEARCH_CONTROLS_NOT_AVAILABLE = "RESEARCH_CONTROLS_NOT_AVAILABLE"
+    PRODUCT_PROVIDER_NOT_CONFIGURED = "PRODUCT_PROVIDER_NOT_CONFIGURED"
+    ROUTE_MODE_SELECTED = "ROUTE_MODE_SELECTED"
+    ROUTE_FORCED = "ROUTE_FORCED"
+    ROUTE_CASE_ANALYSIS = "ROUTE_CASE_ANALYSIS"
+    ROUTE_SINGLE_ANSWER = "ROUTE_SINGLE_ANSWER"
+    ROUTE_ARTIFACT_CHECK = "ROUTE_ARTIFACT_CHECK"
+    ROUTE_MULTIPLE_REQUIREMENTS = "ROUTE_MULTIPLE_REQUIREMENTS"
+    ROUTE_SHORT_QUESTION = "ROUTE_SHORT_QUESTION"
+    ROUTE_NEEDS_PLANNING = "ROUTE_NEEDS_PLANNING"
+    CONVERSATION_NOT_FOUND = "CONVERSATION_NOT_FOUND"
+
+
 class ErrorBody(BaseModel):
-    code: str
+    code: ErrorCode
     message: str
     details: dict | None = None
 
@@ -422,11 +468,11 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             old_source_id=body.old_source_id, new_source_id=body.new_source_id,
         )
 
-    @router.get("/cases", responses={**error_responses(422), **rate_errors})
+    @router.get("/cases", response_model=list[ReviewCase], responses={**error_responses(422), **rate_errors})
     def list_cases(user=Depends(owner)):
         return repo.list_cases(user)
 
-    @router.get("/cases/{case_id}", responses={**error_responses(404, 422), **rate_errors})
+    @router.get("/cases/{case_id}", response_model=CaseDetail, responses={**error_responses(404, 422), **rate_errors})
     def get_case(case_id: str, user=Depends(owner)):
         case = runtime.service(None)._case(case_id, user)
         return {**case.model_dump(), "requirements": repo.get_requirements(user, case_id),
@@ -531,7 +577,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             runtime.mutable(user, case_id)
             return runtime.service(engine).propose_requirements(case_id, user)
 
-    @router.put("/cases/{case_id}/requirements", responses={**error_responses(404, 409, 422), **rate_errors})
+    @router.put("/cases/{case_id}/requirements", response_model=list[Requirement], responses={**error_responses(404, 409, 422), **rate_errors})
     def replace_requirements(case_id: str, body: RequirementsInput, user=Depends(owner)):
         maximum = _positive_env("REVIEW_MAX_REQUIREMENTS_PER_CASE", 100)
         if len(body.requirements) > maximum:
@@ -559,7 +605,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
             repo.save_case(user, case)
             return values
 
-    @router.post("/cases/{case_id}/runs", status_code=202,
+    @router.post("/cases/{case_id}/runs", status_code=202, response_model=RunStatus,
                  responses={**error_responses(404, 409, 422, 503), **rate_errors})
     def start_run(case_id: str, body: RunInput = RunInput(), user=Depends(owner),
                   engine=Depends(engine)):
@@ -596,7 +642,7 @@ def build_router(*, current_user, runtime: ReviewRuntime):
                 runtime.runs[job_id] = run
             return runtime.status(user, job_id)
 
-    @router.get("/runs/{job_id}", responses={**error_responses(404, 422), **rate_errors})
+    @router.get("/runs/{job_id}", response_model=RunStatus, responses={**error_responses(404, 422), **rate_errors})
     def get_run(job_id: str, user=Depends(owner)):
         return runtime.status(user, job_id)
 
@@ -611,13 +657,13 @@ def build_router(*, current_user, runtime: ReviewRuntime):
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
-    @router.post("/runs/{job_id}:cancel", responses={**error_responses(404, 422), **rate_errors})
+    @router.post("/runs/{job_id}:cancel", response_model=RunStatus, responses={**error_responses(404, 422), **rate_errors})
     def cancel(job_id: str, user=Depends(owner)):
         runtime.owned_run(user, job_id)
         runtime.runner.cancel(job_id)
         return runtime.status(user, job_id)
 
-    @router.put("/findings/{finding_id}/decision", responses={**error_responses(404, 409, 422), **rate_errors})
+    @router.put("/findings/{finding_id}/decision", response_model=Finding, responses={**error_responses(404, 409, 422), **rate_errors})
     def decide(finding_id: str, body: DecisionInput, user=Depends(owner)):
         with runtime.lock:
             for case in repo.list_cases(user):

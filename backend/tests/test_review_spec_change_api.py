@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.review import ReviewRuntime, build_router
 from app.review.repository import InMemoryCaseRepository
+from app.review.labels import label
 from app.review.schemas import ReviewCase
 from app.review_adapters.pg_repository import PostgresCaseRepository
 from app.storage.postgres.base import Base
@@ -112,7 +113,7 @@ def test_spec_change_routes_deterministically_and_keeps_change_evidence(api):
     finding, = case["findings"]
     assert finding["verdict"] == "DEVIATES"
     assert finding["evidence"] == [{"evidence_id": "chg:1", "source_id": old,
-                                    "locator": "/pets", "excerpt": "Endpoint removed"}]
+                                    "locator": "/pets", "excerpt": label("changes", "ENDPOINT_REMOVED")}]
     events = runtime.events.read_since(job_id, 0)
     assert events[0].type == "route.decided"
     assert events[0].data["route"] == "DETERMINISTIC" and events[0].data["reasons"]

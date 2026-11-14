@@ -109,3 +109,29 @@ class RunJob(DomainModel):
     budget: dict[str, Any] | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+
+
+class CaseDetail(DomainModel):
+    id: str
+    owner_user_id: str
+    title: str
+    status: CaseStatus
+    source_ids: list[str]
+    kind: Literal["requirement_review", "spec_change"]
+    old_source_id: str | None = None
+    new_source_id: str | None = None
+    request_text: str
+    created_at: datetime
+    updated_at: datetime
+    requirements: list[Requirement]
+    findings: list[Finding]
+
+
+class RunStatus(DomainModel):
+    id: str
+    case_id: str
+    state: JobState
+    seq: int
+    budget: dict[str, Any] | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
