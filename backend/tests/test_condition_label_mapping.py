@@ -8,6 +8,7 @@ from app.evaluation.experiment import EngineRegistration, build_conditions, fake
 from app.evaluation.guard import ResourceGuard
 from app.evaluation.harness import CONDITION_FLAG_MAP, condition_definition, default_conditions, load_corpus, run
 from app.evaluation import real_runner
+from app.research.pipeline import ResearchPipeline
 
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -34,6 +35,9 @@ def test_mapping_covers_all_emitted_labels_and_actual_factory_flags():
         assert CONDITION_FLAG_MAP[name]["harness_flags"] == flags
     for name in ("A", "B0", "B", "C"):
         assert CONDITION_FLAG_MAP[name]["pipeline_condition"] == (None if name == "A" else "A")
+    for label, condition in (("PL-C", "C"), ("PL-noP", "C-P"), ("PL-noN", "C-N"), ("PL-noO", "C-O")):
+        assert CONDITION_FLAG_MAP[label]["pipeline_flags"] == ResearchPipeline._flags(condition)
+        assert CONDITION_FLAG_MAP[label]["harness_flags"] is None
 
 
 def test_mapping_rejects_unknown_and_ablation_flags_differ_once():
@@ -41,15 +45,15 @@ def test_mapping_rejects_unknown_and_ablation_flags_differ_once():
         condition_definition("not-a-condition")
     config = load_config(EXPERIMENT)
     by_name = {condition["name"]: condition["components"] for condition in config["conditions"]}
-    for name, removed in (("C-P", "project_memory_suggestions"), ("C-N", "verdict_rules"), ("C-O", "router_budget")):
+    for name, removed in (("H-noMemory", "project_memory_suggestions"), ("H-noRules", "verdict_rules"), ("H-noRouter", "router_budget")):
         assert sum(by_name["C"][key] != by_name[name][key] for key in by_name["C"]) == 1
         assert by_name[name] == CONDITION_FLAG_MAP[name]["harness_flags"]
 
 
-def test_harness_ablation_names_are_not_pipeline_ablations():
-    for name in ("C-P", "C-N", "C-O"):
+def test_harness_ablation_names_are_distinct_from_pipeline_ablations():
+    for name in ("H-noMemory", "H-noRules", "H-noRouter"):
         entry = CONDITION_FLAG_MAP[name]
-        assert entry["pipeline_condition"] is None and entry["name_collision_with_pipeline"] is True
+        assert entry["pipeline_condition"] is None and entry["pipeline_flags"] is None
 
 
 def test_json_and_markdown_outputs_have_condition_and_hash():
@@ -64,6 +68,8 @@ def test_json_and_markdown_outputs_have_condition_and_hash():
         experiment_result = __import__("app.evaluation.experiment", fromlist=["run_experiment"]).run_experiment(
             config, [item], fake_registry(), guard)
     payload = experiment_result.results
+    assert {entry["condition"] for entry in payload["conditions"]} >= {
+        "H-noMemory", "H-noRules", "H-noRouter"}
     assert len(payload["config_hash"]) == 64
     assert all(condition["condition"] == condition["name"] for condition in payload["conditions"])
     assert all(condition["config_hash"] == payload["config_hash"] for condition in payload["conditions"])
