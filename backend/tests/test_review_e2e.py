@@ -122,7 +122,7 @@ def test_pipeline_review_evidence_decision_export_and_replay(review_app, monkeyp
     assert response.status_code == 200 and response.json()["verdict"] == finding["verdict"]
     exported = client.get(f"/api/review/cases/{case_id}/export")
     assert exported.status_code == 200
-    assert "Verdict: SATISFIED" in exported.text and "Decision: ACCEPT" in exported.text
+    assert "Verdict: Đã đáp ứng" in exported.text and "Decision: Chấp nhận" in exported.text
     assert finding["evidence"][0]["evidence_id"] in exported.text and source_id in exported.text
     assert "Authentication requires a valid token" in exported.text
 

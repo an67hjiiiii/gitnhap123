@@ -281,7 +281,7 @@ def test_http_maps_typed_errors_to_503(http_main, monkeypatch, error):
     monkeypatch.setattr(http_main, "owner_pipeline", lambda *a: SimpleNamespace(run=run))
     response = TestClient(http_main.app).post("/api/chat", json={"message": "API", "provider": "fake"})
     assert response.status_code == 503
-    assert response.json() == {"detail": error.code}
+    assert response.json()["code"] == error.code
 
 
 @pytest.mark.parametrize("strict", [False, True])
@@ -295,4 +295,4 @@ def test_real_pipeline_propagates_index_refusal(http_main, monkeypatch, strict):
     monkeypatch.setattr(http_main, "_configured_vector_store", lambda: store)
     response = TestClient(http_main.app).post("/api/chat", json={"message": "API", "provider": "fake"})
     assert response.status_code == 503
-    assert response.json()["detail"] == ("INDEX_LEGACY_UNVERIFIED" if strict else "INDEX_INCOMPATIBLE")
+    assert response.json()["code"] == ("INDEX_LEGACY_UNVERIFIED" if strict else "INDEX_INCOMPATIBLE")

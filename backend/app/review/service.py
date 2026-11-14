@@ -6,6 +6,7 @@ from app.orchestration.router import Route, RouteRequest, route_request
 
 from .engine import ReviewEngine
 from .repository import CaseRepository
+from .labels import label
 from .schemas import (
     CaseStatus,
     Confidence,
@@ -344,19 +345,19 @@ class ReviewCaseService:
             finding.requirement_id: finding
             for finding in self.repository.get_findings(owner_user_id, case_id)
         }
-        rows = [f"# {case.title}", "", f"Status: {case.status.value}", "", "## Requirements"]
+        rows = [f"# {case.title}", "", f"Status: {label('case_status', case.status.value)}", "", "## Requirements"]
         for requirement in requirements:
             rows.append(
                 f"{requirement.order + 1}. {requirement.text} "
-                f"(confirmed: {str(requirement.confirmed).lower()})"
+                f"({'đã xác nhận' if requirement.confirmed else 'chưa xác nhận'})"
             )
             finding = findings.get(requirement.id)
             if finding is None:
                 continue
             rows.extend(
                 [
-                    f"   - Verdict: {finding.verdict.value}",
-                    f"   - Decision: {finding.review.value}",
+                    f"   - Verdict: {label('verdict', finding.verdict.value)}",
+                    f"   - Decision: {label('decision', finding.review.value)}",
                 ]
             )
             rows.extend(

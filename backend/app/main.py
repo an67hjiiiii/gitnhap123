@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from app.api.auth import router as auth_router
@@ -279,20 +279,20 @@ def list_sources(request: Request):
 def get_source(source_id: str, request: Request):
     item = owner_source_store(current_user(request)).source(source_id)
     if not item:
-        raise HTTPException(404, "source not found")
+        raise HTTPException(404, "SOURCE_NOT_FOUND")
     return item
 
 @app.get("/api/chunks/{chunk_id}")
 def get_chunk(chunk_id: str, request: Request):
     item = owner_source_store(current_user(request)).chunk(chunk_id)
     if not item:
-        raise HTTPException(404, "chunk not found")
+        raise HTTPException(404, "SOURCE_CHUNK_NOT_FOUND")
     return item
 
 @app.post("/api/sources/text")
 def import_text(body: SourceTextRequest, request: Request):
     if not body.text.strip():
-        raise HTTPException(400, "text is empty")
+        raise HTTPException(400, "EMPTY_TEXT")
     user = current_user(request)
     store = owner_source_store(user)
     try:
@@ -320,7 +320,7 @@ async def import_file(request: Request, file: UploadFile = File(...)):
     if (content_length is not None and content_length.isdigit()
             and int(content_length) > maximum_size
             and not request.headers.get("content-type", "").lower().startswith("multipart/form-data")):
-        raise HTTPException(413, "Files must be no larger than 2 MB")
+        raise HTTPException(413, "FILE_TOO_LARGE")
     chunks = []
     total = 0
     while True:
@@ -329,7 +329,7 @@ async def import_file(request: Request, file: UploadFile = File(...)):
             break
         total += len(chunk)
         if total > maximum_size:
-            raise HTTPException(413, "Files must be no larger than 2 MB")
+            raise HTTPException(413, "FILE_TOO_LARGE")
         chunks.append(chunk)
     data = b"".join(chunks)
 
@@ -354,7 +354,7 @@ async def import_file(request: Request, file: UploadFile = File(...)):
         raise HTTPException(415, "UTF8_TEXT_REQUIRED") from exc
     except ValueError as exc:
         if "must not be empty" in str(exc):
-            raise HTTPException(400, "file is empty") from exc
+            raise HTTPException(400, "EMPTY_FILE") from exc
         raise HTTPException(415, "DOCUMENT_EXTRACTION_FAILED") from exc
     store = owner_source_store(user)
     try:
@@ -370,7 +370,7 @@ async def import_file(request: Request, file: UploadFile = File(...)):
 @app.post("/api/chat")
 async def chat(body: ChatRequest, request: Request):
     if not body.message.strip():
-        raise HTTPException(400, "message is required")
+        raise HTTPException(400, "MESSAGE_REQUIRED")
     try:
         user = current_user(request)
         runtime_config = RuntimeConfig.from_env()
@@ -378,7 +378,7 @@ async def chat(body: ChatRequest, request: Request):
             if body.condition is not None or body.provider is not None:
                 raise HTTPException(
                     400,
-                    "RESEARCH_CONTROLS_NOT_AVAILABLE_IN_PRODUCT_MODE",
+                    "RESEARCH_CONTROLS_NOT_AVAILABLE",
                 )
             configured_provider = runtime_config.provider
             test_mode = os.getenv("APP_ENV", "development").strip().lower() == "test"
@@ -389,7 +389,7 @@ async def chat(body: ChatRequest, request: Request):
             else:
                 raise HTTPException(
                     503,
-                    "PRODUCT_PROVIDER_NOT_CONFIGURED: set PROVIDER=ollama",
+                    "PRODUCT_PROVIDER_NOT_CONFIGURED",
                 )
             configured_product_condition = os.getenv("PRODUCT_CONDITION", "").strip().upper()
             condition = configured_product_condition or (
@@ -405,7 +405,7 @@ async def chat(body: ChatRequest, request: Request):
         conversations = owner_conversation_store(user)
         if body.conversation_id:
             if conversations.get(body.conversation_id) is None:
-                raise HTTPException(404, "conversation not found")
+                raise HTTPException(404, "CONVERSATION_NOT_FOUND")
             conversation_id = body.conversation_id
         else:
             conversation_id = conversations.create(body.message.strip()[:120])["conversation_id"]
@@ -435,11 +435,12 @@ async def chat(body: ChatRequest, request: Request):
             return run
         return run
     except LookupError as exc:
-        raise HTTPException(404, "source not found") from exc
+        raise HTTPException(404, "SOURCE_NOT_FOUND") from exc
     except IndexingError as exc:
         raise HTTPException(503, getattr(exc, "code", "DERIVED_INDEX_UNAVAILABLE")) from exc
     except ValueError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, "VALIDATION_ERROR")
+
 
 @app.get("/api/runs")
 def list_runs(request: Request):
@@ -476,3 +477,24 @@ app.include_router(_build_studio_router(
     owner_source_store=owner_source_store,
     vector_store=_configured_vector_store,
 ))
+
+
+# Normalize legacy string details at non-review API boundaries.
+@app.exception_handler(HTTPException)
+async def structured_http_errors(request: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict):
+        return JSONResponse(status_code=exc.status_code, content=detail, headers=exc.headers)
+    code = str(detail).split(":", 1)[0]
+    known = {"AUTHENTICATION_REQUIRED", "SOURCE_NOT_FOUND", "SOURCE_CHUNK_NOT_FOUND",
+             "RUN_NOT_FOUND", "CONVERSATION_NOT_FOUND", "EMPTY_TEXT", "EMPTY_FILE", "FILE_TOO_LARGE", "MESSAGE_REQUIRED",
+             "PDF_NO_TEXT", "PDF_EXTRACTION_UNAVAILABLE", "UNSUPPORTED_DOCUMENT_TYPE",
+             "UTF8_TEXT_REQUIRED", "DOCUMENT_EXTRACTION_FAILED", "DERIVED_INDEX_FAILED",
+             "DERIVED_INDEX_UNAVAILABLE", "RESEARCH_CONTROLS_NOT_AVAILABLE",
+             "PRODUCT_PROVIDER_NOT_CONFIGURED", "VALIDATION_ERROR",
+             "INDEX_INCOMPATIBLE", "INDEX_LEGACY_UNVERIFIED"}
+    if code not in known:
+        code = "INTERNAL_ERROR" if exc.status_code >= 500 else "VALIDATION_ERROR"
+    return JSONResponse(status_code=exc.status_code,
+                        content={"code": code, "message": "Request could not be completed"},
+                        headers=exc.headers)

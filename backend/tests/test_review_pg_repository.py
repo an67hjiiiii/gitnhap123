@@ -246,7 +246,7 @@ class RepositoryBehavior:
         )
         decided = service.decide_finding("case-1", "alice", result[0].id, Decision.EDIT, "Reviewed")
         assert decided.verdict == result[0].verdict
-        assert "Decision: EDIT" in service.export_markdown("case-1", "alice")
+        assert "Decision: Đã chỉnh sửa" in service.export_markdown("case-1", "alice")
 
 
 class DatabaseBehavior(RepositoryBehavior):

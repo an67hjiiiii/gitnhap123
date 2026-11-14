@@ -15,6 +15,8 @@ def test_types_cover_snapshot_schemas():
     types = (ROOT / "contracts/review/ts/review-types.ts").read_text()
     for schema in snapshot["components"]["schemas"]:
         assert re.search(rf"\b(?:interface|type)\s+{re.escape(schema)}\b", types), schema
+    for name in ("Verdict", "CaseStatus", "JobState", "Decision", "ErrorCode"):
+        assert re.search(rf"\btype\s+{name}\s*=", types), name
 
 
 def test_client_covers_snapshot_operations():

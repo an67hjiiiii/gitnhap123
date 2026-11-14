@@ -126,7 +126,8 @@ def test_all_missing_slots_clear_evidence_and_emit_payload(status):
         "task.started", "pipeline.trace", "verdict.slots_missing", "finding.created",
     ]
     assert events[2][1] == {"case_id": "slots-case", "requirement_id": "r1",
-                            "missing_slots": ["number:180 days"]}
+                            "code": "SLOTS_MISSING",
+                            "params": {"missing_slots": ["number:180 days"]}}
 
 
 @pytest.mark.parametrize("status,diagnostic", [("COMPLETE", True), ("PARTIAL", False)])
@@ -136,7 +137,8 @@ def test_some_covered_slots_keep_evidence_and_only_downgrade_satisfied(status, d
     assert finding.verdict == Verdict.PARTIAL
     assert [e.evidence_id for e in finding.evidence] == ["c0"]
     assert [payload for name, payload in events if name == "verdict.slots_missing"] == (
-        [{"case_id": "slots-case", "requirement_id": "r1", "missing_slots": ["literal:immutable"]}]
+        [{"case_id": "slots-case", "requirement_id": "r1", "code": "SLOTS_MISSING",
+          "params": {"missing_slots": ["literal:immutable"]}}]
         if diagnostic else []
     )
 

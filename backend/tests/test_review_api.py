@@ -80,7 +80,7 @@ def test_flow_propose_confirm_run_decision_export(api, partial):
     assert response.json()["verdict"] == finding["verdict"]
     export = client.get(f"/api/review/cases/{case_id}/export?format=md")
     assert export.status_code == 200 and export.headers["content-type"].startswith("text/markdown")
-    assert "# Audit" in export.text and "Decision: EDIT" in export.text
+    assert "# Audit" in export.text and "Decision: Đã chỉnh sửa" in export.text
 
 
 def test_unconfirmed_and_empty_requirements_refuse_run(api):

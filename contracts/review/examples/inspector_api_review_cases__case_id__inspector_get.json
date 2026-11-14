@@ -48,8 +48,16 @@
         "route_decision": {
           "route": "MULTI_AGENT",
           "reasons": [
-            "Selected mode: case",
-            "Case mode requests planned analysis"
+            {
+              "code": "ROUTE_MODE_SELECTED",
+              "params": {
+                "mode": "case"
+              }
+            },
+            {
+              "code": "ROUTE_CASE_ANALYSIS",
+              "params": {}
+            }
           ],
           "budget_hint": {
             "tokens": 6,
@@ -65,8 +73,16 @@
           "data": {
             "route": "MULTI_AGENT",
             "reasons": [
-              "Selected mode: case",
-              "Case mode requests planned analysis"
+              {
+                "code": "ROUTE_MODE_SELECTED",
+                "params": {
+                  "mode": "case"
+                }
+              },
+              {
+                "code": "ROUTE_CASE_ANALYSIS",
+                "params": {}
+              }
             ],
             "budget_hint": {
               "tokens": 6,

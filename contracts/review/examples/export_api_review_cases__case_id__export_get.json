@@ -9,6 +9,6 @@
   },
   "response": {
     "status": 200,
-    "body": "# Policy review\n\nStatus: COMPLETE\n\n## Requirements\n1. Review the policy (confirmed: true)\n   - Verdict: SATISFIED\n   - Decision: ACCEPT\n"
+    "body": "# Policy review\n\nStatus: Hoàn thành\n\n## Requirements\n1. Review the policy (đã xác nhận)\n   - Verdict: Đã đáp ứng\n   - Decision: Chấp nhận\n"
   }
 }

@@ -7,7 +7,7 @@ lexical hints, not parsed entities; synonyms and implicit obligations are unknow
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 import re
 import unicodedata
@@ -36,6 +36,7 @@ class Assessment:
     supporting: list[Any]
     conflicting: list[Any]
     notes: list[str]
+    conflicts_data: list[dict] = field(default_factory=list)
 
 
 def _fold(text: str) -> str:
@@ -223,7 +224,7 @@ def assess(requirement_text: str | None, evidence_items: Iterable[Any] | None) -
     can both support and conflict; conflicting takes precedence in verdict_hint.
     """
     requirements = extract_claims(requirement_text)
-    supporting, conflicting, notes = [], [], []
+    supporting, conflicting, notes, conflicts_data = [], [], [], []
     for item in evidence_items if evidence_items is not None else ():
         excerpt = item if isinstance(item, str) else (
             item.get("excerpt", "") if isinstance(item, dict) else getattr(item, "excerpt", "")
@@ -235,6 +236,12 @@ def assess(requirement_text: str | None, evidence_items: Iterable[Any] | None) -
                 outcome = compare(req, ev)
                 outcomes.add(outcome)
                 if outcome == CONFLICTS:
+                    conflicts_data.append({
+                        "requirement": {"span": req.span, "op": req.op,
+                                         "value": str(req.value), "unit": req.unit},
+                        "evidence": {"span": ev.span, "op": ev.op,
+                                     "value": str(ev.value), "unit": ev.unit},
+                    })
                     notes.append(f"Conflicting claim: requirement [{req.span}] ({req.op} "
                                  f"{req.value} {req.unit}); evidence [{ev.span}] "
                                  f"({ev.op} {ev.value} {ev.unit}).")
@@ -243,13 +250,14 @@ def assess(requirement_text: str | None, evidence_items: Iterable[Any] | None) -
         if SATISFIES in outcomes:
             supporting.append(item)
     hint = "DEVIATES" if conflicting else SATISFIES if supporting else UNRELATED
-    return Assessment(hint, supporting, conflicting, notes)
+    return Assessment(hint, supporting, conflicting, notes, conflicts_data)
 
 
 @dataclass(frozen=True)
 class AnswerCheck:
     status: str
     notes: list[str]
+    unsupported: list[dict] = field(default_factory=list)
 
 
 # Separate from the evidence lexer: malformed numeric tokens must stay whole,
@@ -333,7 +341,7 @@ def check_answer(
                  for unit, value, _ in _answer_quantities(text)}
     evidence_tokens = set(re.findall(r"[\w-]+", _fold(" ".join(excerpts))))
     subjects = [_answer_subject(text) for text in requirements]
-    notes = []
+    notes, unsupported = [], []
     checked = False
     for clause in answers:
         subject = _answer_subject(clause)
@@ -347,6 +355,8 @@ def check_answer(
             for unit, value, span in _answer_quantities(part):
                 checked = True
                 if (unit, value) not in supported:
+                    unsupported.append({"kind": "quantity", "span": span,
+                                        "unit": unit, "value": str(value)})
                     notes.append(f"Unsupported answer quantity [{span}] for requirement "
                                  f"[{requirement_text}]; absent from requirement and evidence excerpts.")
         for match in _ANSWER_ALTERNATIVE.finditer(clause):
@@ -357,10 +367,12 @@ def check_answer(
                 continue
             checked = True
             if _fold(extra) not in evidence_tokens:
+                unsupported.append({"kind": "alternative", "value": extra})
                 notes.append(f"Unsupported answer alternative [{extra}]; "
                              "absent from evidence excerpts.")
         if subject and subject <= set(_subject(_fold(" ".join(excerpts))).split()):
             checked = True
         if _CHANNELS & evidence_tokens & set(re.findall(r"[\w-]+", _fold(clause))):
             checked = True
-    return AnswerCheck("UNSUPPORTED_CLAIM" if notes else "CONSISTENT" if checked else "UNKNOWN", notes)
+    return AnswerCheck("UNSUPPORTED_CLAIM" if notes else "CONSISTENT" if checked else "UNKNOWN",
+                       notes, unsupported)
