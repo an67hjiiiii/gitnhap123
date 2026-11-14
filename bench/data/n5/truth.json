@@ -1,0 +1,756 @@
+{
+  "size": "n5",
+  "facts": {
+    "sec01": {
+      "fact_id": "sec01",
+      "subject": "tài khoản",
+      "attribute": "thời hạn mật khẩu",
+      "value": "90",
+      "unit": "ngày",
+      "condition": "mọi tài khoản",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 90.0,
+      "doc": "n5/docs/doc_001.md",
+      "heading": "Security requirements",
+      "sentence": "Mật khẩu phải được đổi sau 90 ngày."
+    },
+    "sec02": {
+      "fact_id": "sec02",
+      "subject": "nhật ký truy cập",
+      "attribute": "thời hạn lưu",
+      "value": "90",
+      "unit": "ngày",
+      "condition": "mọi hệ thống",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 90.0,
+      "doc": "n5/docs/doc_002.md",
+      "heading": "Security requirements",
+      "sentence": "Theo chính sách, nhật ký truy cập được lưu trong 90 ngày."
+    },
+    "sec03": {
+      "fact_id": "sec03",
+      "subject": "quản trị viên",
+      "attribute": "xác thực hai yếu tố",
+      "value": "bắt buộc",
+      "unit": "",
+      "condition": "tài khoản quản trị",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": "bắt buộc",
+      "doc": "n5/docs/doc_003.md",
+      "heading": "Security requirements",
+      "sentence": "Phạm vi tài khoản quản trị: Quản trị viên bắt buộc xác thực hai yếu tố (tài khoản quản trị)."
+    },
+    "sec04": {
+      "fact_id": "sec04",
+      "subject": "người dùng thường",
+      "attribute": "xác thực hai yếu tố",
+      "value": "không bắt buộc",
+      "unit": "",
+      "condition": "tài khoản thường",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": "không bắt buộc",
+      "doc": "n5/docs/doc_004.md",
+      "heading": "Security requirements",
+      "sentence": "Người dùng thường không bắt buộc xác thực hai yếu tố (tài khoản thường)."
+    },
+    "sec05": {
+      "fact_id": "sec05",
+      "subject": "mật khẩu",
+      "attribute": "độ dài tối thiểu",
+      "value": "12",
+      "unit": "ký tự",
+      "condition": "mọi tài khoản",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 12.0,
+      "doc": "n5/docs/doc_005.md",
+      "heading": "Security requirements",
+      "sentence": "Theo chính sách, mật khẩu — độ dài tối thiểu: 12 ký tự (mọi tài khoản)."
+    },
+    "sec06": {
+      "fact_id": "sec06",
+      "subject": "phiên đăng nhập",
+      "attribute": "thời hạn",
+      "value": "8",
+      "unit": "giờ",
+      "condition": "không hoạt động",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 28800.0,
+      "doc": "n5/docs/doc_001.md",
+      "heading": "Security requirements",
+      "sentence": "Theo chính sách, phiên đăng nhập — thời hạn: 8 giờ (không hoạt động)."
+    },
+    "sec07": {
+      "fact_id": "sec07",
+      "subject": "tài khoản",
+      "attribute": "khóa sau",
+      "value": "5",
+      "unit": "lần",
+      "condition": "đăng nhập sai liên tiếp",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 5.0,
+      "doc": "n5/docs/doc_002.md",
+      "heading": "Security requirements",
+      "sentence": "Phạm vi đăng nhập sai liên tiếp: Tài khoản — khóa sau: 5 lần (đăng nhập sai liên tiếp)."
+    },
+    "sec08": {
+      "fact_id": "sec08",
+      "subject": "mã khôi phục",
+      "attribute": "thời hạn",
+      "value": "24",
+      "unit": "giờ",
+      "condition": "sau khi tạo",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 86400,
+      "doc": "n5/docs/doc_003.md",
+      "heading": "Security requirements",
+      "sentence": "Mã khôi phục — thời hạn: 24 giờ (sau khi tạo)."
+    },
+    "sec09": {
+      "fact_id": "sec09",
+      "subject": "nhân viên",
+      "attribute": "quyền sửa nhật ký",
+      "value": "không được phép sửa",
+      "unit": "",
+      "condition": "mọi nhân viên",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": "không được phép sửa",
+      "doc": "n5/docs/doc_004.md",
+      "heading": "Security requirements",
+      "sentence": "Theo chính sách, nhân viên không được phép sửa (quyền sửa nhật ký; mọi nhân viên)."
+    },
+    "sec10": {
+      "fact_id": "sec10",
+      "subject": "kiểm toán viên",
+      "attribute": "quyền sửa nhật ký",
+      "value": "được phép sửa",
+      "unit": "",
+      "condition": "bản sao làm việc",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": "được phép sửa",
+      "doc": "n5/docs/doc_005.md",
+      "heading": "Security requirements",
+      "sentence": "Phạm vi bản sao làm việc: Kiểm toán viên được phép sửa (quyền sửa nhật ký; bản sao làm việc)."
+    },
+    "api01": {
+      "fact_id": "api01",
+      "subject": "API",
+      "attribute": "thời gian chờ",
+      "value": "30",
+      "unit": "giây",
+      "condition": "mỗi yêu cầu",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": 30.0,
+      "doc": "n5/docs/doc_001.md",
+      "heading": "Api requirements",
+      "sentence": "Phạm vi mỗi yêu cầu: Api — thời gian chờ: 30 giây (mỗi yêu cầu)."
+    },
+    "api02": {
+      "fact_id": "api02",
+      "subject": "API",
+      "attribute": "giới hạn tốc độ",
+      "value": "100",
+      "unit": "yêu cầu/phút",
+      "condition": "mỗi khóa",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": 100.0,
+      "doc": "n5/docs/doc_002.md",
+      "heading": "Api requirements",
+      "sentence": "Api — giới hạn tốc độ: 100 yêu cầu/phút (mỗi khóa)."
+    },
+    "api03": {
+      "fact_id": "api03",
+      "subject": "tải lên",
+      "attribute": "dung lượng tối đa",
+      "value": "25",
+      "unit": "MB",
+      "condition": "mỗi tệp",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": 25.0,
+      "doc": "n5/docs/doc_003.md",
+      "heading": "Api requirements",
+      "sentence": "Theo chính sách, tải lên — dung lượng tối đa: 25 MB (mỗi tệp)."
+    },
+    "api04": {
+      "fact_id": "api04",
+      "subject": "phân trang",
+      "attribute": "kích thước mặc định",
+      "value": "20",
+      "unit": "bản ghi",
+      "condition": "mỗi trang",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": 20.0,
+      "doc": "n5/docs/doc_004.md",
+      "heading": "Api requirements",
+      "sentence": "Phạm vi mỗi trang: Phân trang — kích thước mặc định: 20 bản ghi (mỗi trang)."
+    },
+    "api05": {
+      "fact_id": "api05",
+      "subject": "phân trang",
+      "attribute": "kích thước tối đa",
+      "value": "100",
+      "unit": "bản ghi",
+      "condition": "mỗi trang",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": 100.0,
+      "doc": "n5/docs/doc_005.md",
+      "heading": "Api requirements",
+      "sentence": "Phân trang — kích thước tối đa: 100 bản ghi (mỗi trang)."
+    },
+    "api06": {
+      "fact_id": "api06",
+      "subject": "API",
+      "attribute": "phiên bản",
+      "value": "v2",
+      "unit": "",
+      "condition": "endpoint công khai",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": "v2",
+      "doc": "n5/docs/doc_001.md",
+      "heading": "Api requirements",
+      "sentence": "Api — phiên bản: v2 (endpoint công khai)."
+    },
+    "api07": {
+      "fact_id": "api07",
+      "subject": "webhook",
+      "attribute": "số lần thử lại",
+      "value": "3",
+      "unit": "lần",
+      "condition": "khi lỗi tạm thời",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": 3.0,
+      "doc": "n5/docs/doc_002.md",
+      "heading": "Api requirements",
+      "sentence": "Theo chính sách, webhook — số lần thử lại: 3 lần (khi lỗi tạm thời)."
+    },
+    "api08": {
+      "fact_id": "api08",
+      "subject": "webhook",
+      "attribute": "khoảng thử lại",
+      "value": "30",
+      "unit": "giây",
+      "condition": "giữa hai lần",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": 30.0,
+      "doc": "n5/docs/doc_003.md",
+      "heading": "Api requirements",
+      "sentence": "Phạm vi giữa hai lần: Webhook — khoảng thử lại: 30 giây (giữa hai lần)."
+    },
+    "api09": {
+      "fact_id": "api09",
+      "subject": "API",
+      "attribute": "định dạng thời gian",
+      "value": "ISO 8601",
+      "unit": "",
+      "condition": "mọi dấu thời gian",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": "ISO 8601",
+      "doc": "n5/docs/doc_004.md",
+      "heading": "Api requirements",
+      "sentence": "Api — định dạng thời gian: ISO 8601 (mọi dấu thời gian)."
+    },
+    "api10": {
+      "fact_id": "api10",
+      "subject": "khóa API",
+      "attribute": "chu kỳ xoay vòng",
+      "value": "180",
+      "unit": "ngày",
+      "condition": "khóa dịch vụ",
+      "doc_kind": "API",
+      "normalised_value_seconds_or_number": 180.0,
+      "doc": "n5/docs/doc_005.md",
+      "heading": "Api requirements",
+      "sentence": "Theo chính sách, khóa api — chu kỳ xoay vòng: 180 ngày (khóa dịch vụ)."
+    },
+    "cx_n5_01": {
+      "fact_id": "cx_n5_01",
+      "subject": "tài khoản",
+      "attribute": "thời hạn mật khẩu",
+      "value": "45",
+      "unit": "ngày",
+      "condition": "mọi tài khoản",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 45.0,
+      "doc": "n5/docs/doc_004.md",
+      "heading": "Conflicting revision",
+      "sentence": "Mật khẩu phải được đổi sau 45 ngày."
+    },
+    "cx_n5_02": {
+      "fact_id": "cx_n5_02",
+      "subject": "nhật ký truy cập",
+      "attribute": "thời hạn lưu",
+      "value": "45",
+      "unit": "ngày",
+      "condition": "mọi hệ thống",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 45.0,
+      "doc": "n5/docs/doc_003.md",
+      "heading": "Conflicting revision",
+      "sentence": "Nhật ký truy cập được lưu trong 45 ngày."
+    },
+    "cx_n5_03": {
+      "fact_id": "cx_n5_03",
+      "subject": "mật khẩu",
+      "attribute": "độ dài tối thiểu",
+      "value": "6",
+      "unit": "ký tự",
+      "condition": "mọi tài khoản",
+      "doc_kind": "security",
+      "normalised_value_seconds_or_number": 6.0,
+      "doc": "n5/docs/doc_002.md",
+      "heading": "Conflicting revision",
+      "sentence": "Mật khẩu — độ dài tối thiểu: 6 ký tự (mọi tài khoản)."
+    }
+  },
+  "contradictions": [
+    {
+      "fact_a": "sec01",
+      "fact_b": "cx_n5_01",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Conflicting revision",
+      "reason": "Same subject, attribute and scope; 90 ngày conflicts with 45 ngày after unit normalization."
+    },
+    {
+      "fact_a": "sec02",
+      "fact_b": "cx_n5_02",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Conflicting revision",
+      "reason": "Same subject, attribute and scope; 90 ngày conflicts with 45 ngày after unit normalization."
+    },
+    {
+      "fact_a": "sec05",
+      "fact_b": "cx_n5_03",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Conflicting revision",
+      "reason": "Same subject, attribute and scope; 12 ký tự conflicts with 6 ký tự after unit normalization."
+    }
+  ],
+  "decoys": [
+    {
+      "fact_a": "sec01",
+      "fact_b": "api08",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec02",
+      "fact_b": "api09",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec03",
+      "fact_b": "api10",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec04",
+      "fact_b": "sec01",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec05",
+      "fact_b": "sec02",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec06",
+      "fact_b": "sec03",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec07",
+      "fact_b": "sec04",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec08",
+      "fact_b": "sec05",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec09",
+      "fact_b": "sec06",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec10",
+      "fact_b": "sec07",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api01",
+      "fact_b": "sec08",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api02",
+      "fact_b": "sec09",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api03",
+      "fact_b": "sec10",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api04",
+      "fact_b": "api01",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api05",
+      "fact_b": "api02",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api06",
+      "fact_b": "api03",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api07",
+      "fact_b": "api04",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api08",
+      "fact_b": "api05",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api09",
+      "fact_b": "api06",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api10",
+      "fact_b": "api07",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec01",
+      "fact_b": "api08",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec02",
+      "fact_b": "api09",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec03",
+      "fact_b": "api10",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec04",
+      "fact_b": "sec01",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec05",
+      "fact_b": "sec02",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec06",
+      "fact_b": "sec03",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec07",
+      "fact_b": "sec04",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec08",
+      "fact_b": "sec05",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec09",
+      "fact_b": "sec06",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec10",
+      "fact_b": "sec07",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api01",
+      "fact_b": "sec08",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api02",
+      "fact_b": "sec09",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api03",
+      "fact_b": "sec10",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api04",
+      "fact_b": "api01",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api05",
+      "fact_b": "api02",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api06",
+      "fact_b": "api03",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api07",
+      "fact_b": "api04",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api08",
+      "fact_b": "api05",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api09",
+      "fact_b": "api06",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "api10",
+      "fact_b": "api07",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec01",
+      "fact_b": "api08",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec02",
+      "fact_b": "api09",
+      "doc_a": "n5/docs/doc_002.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_004.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec03",
+      "fact_b": "api10",
+      "doc_a": "n5/docs/doc_003.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_005.md",
+      "heading_b": "Api requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec04",
+      "fact_b": "sec01",
+      "doc_a": "n5/docs/doc_004.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_001.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    },
+    {
+      "fact_a": "sec05",
+      "fact_b": "sec02",
+      "doc_a": "n5/docs/doc_005.md",
+      "heading_a": "Security requirements",
+      "doc_b": "n5/docs/doc_002.md",
+      "heading_b": "Security requirements",
+      "reason": "Consistent decoy: different attribute or scope; apparent value overlap is not a contradiction."
+    }
+  ],
+  "duplicates": [
+    {
+      "fact_id": "api01",
+      "doc_a": "n5/docs/doc_001.md",
+      "heading_a": "Api requirements",
+      "doc_b": "n5/docs/doc_003.md",
+      "heading_b": "Repeated policy"
+    }
+  ],
+  "document_texts": {
+    "n5/docs/doc_001.md": "# Document 001\n\n## Security requirements\n\nMật khẩu phải được đổi sau 90 ngày.\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nTheo chính sách, phiên đăng nhập — thời hạn: 8 giờ (không hoạt động).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \n## Api requirements\n\nPhạm vi mỗi yêu cầu: Api — thời gian chờ: 30 giây (mỗi yêu cầu).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nApi — phiên bản: v2 (endpoint công khai).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo.\n",
+    "n5/docs/doc_002.md": "# Document 002\n\n## Security requirements\n\nTheo chính sách, nhật ký truy cập được lưu trong 90 ngày.\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nPhạm vi đăng nhập sai liên tiếp: Tài khoản — khóa sau: 5 lần (đăng nhập sai liên tiếp).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \n## Api requirements\n\nApi — giới hạn tốc độ: 100 yêu cầu/phút (mỗi khóa).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nTheo chính sách, webhook — số lần thử lại: 3 lần (khi lỗi tạm thời).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo.\n\n## Conflicting revision\n\nMật khẩu — độ dài tối thiểu: 6 ký tự (mọi tài khoản).\n",
+    "n5/docs/doc_003.md": "# Document 003\n\n## Security requirements\n\nPhạm vi tài khoản quản trị: Quản trị viên bắt buộc xác thực hai yếu tố (tài khoản quản trị).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nMã khôi phục — thời hạn: 24 giờ (sau khi tạo).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \n## Api requirements\n\nTheo chính sách, tải lên — dung lượng tối đa: 25 MB (mỗi tệp).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nPhạm vi giữa hai lần: Webhook — khoảng thử lại: 30 giây (giữa hai lần).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo.\n\n## Conflicting revision\n\nNhật ký truy cập được lưu trong 45 ngày.\n\n## Repeated policy\n\nPhạm vi mỗi yêu cầu: Api — thời gian chờ: 30 giây (mỗi yêu cầu).\n",
+    "n5/docs/doc_004.md": "# Document 004\n\n## Security requirements\n\nNgười dùng thường không bắt buộc xác thực hai yếu tố (tài khoản thường).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nTheo chính sách, nhân viên không được phép sửa (quyền sửa nhật ký; mọi nhân viên).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \n## Api requirements\n\nPhạm vi mỗi trang: Phân trang — kích thước mặc định: 20 bản ghi (mỗi trang).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nApi — định dạng thời gian: ISO 8601 (mọi dấu thời gian).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo.\n\n## Conflicting revision\n\nMật khẩu phải được đổi sau 45 ngày.\n",
+    "n5/docs/doc_005.md": "# Document 005\n\n## Security requirements\n\nTheo chính sách, mật khẩu — độ dài tối thiểu: 12 ký tự (mọi tài khoản).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nPhạm vi bản sao làm việc: Kiểm toán viên được phép sửa (quyền sửa nhật ký; bản sao làm việc).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \n## Api requirements\n\nPhân trang — kích thước tối đa: 100 bản ghi (mỗi trang).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nTheo chính sách, khóa api — chu kỳ xoay vòng: 180 ngày (khóa dịch vụ).\n\nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo. \nQuy trình được rà soát trong đợt phát hành định kỳ. Nhóm phụ trách ghi nhận thay đổi, kiểm tra quyền truy cập và lưu biên bản để các bộ phận có thể tra cứu thống nhất. Mọi ngoại lệ cần nêu rõ phạm vi áp dụng, người chịu trách nhiệm và ngày đánh giá tiếp theo.\n"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "documents": [
+    {
+      "path": "docs/DEMO_QUICKSTART.md",
+      "questions": [
+        {
+          "question": "Which Python version does the Windows quickstart specify?",
+          "answer": "Python 3.12",
+          "quote": "On Windows with Python 3.12, run this once from the repository root:"
+        },
+        {
+          "question": "Which provider does the fake demo use?",
+          "answer": "PROVIDER=fake",
+          "quote": "`PROVIDER=fake` and `REVIEW_ENGINE=fake` mean answers/findings are deterministic fake-provider demo output, not real model output."
+        },
+        {
+          "question": "Is vector indexing enabled in the demo?",
+          "answer": "No; vector indexing is disabled.",
+          "quote": "Vector indexing is disabled and retrieval uses the lexical backend."
+        },
+        {
+          "question": "What API returns the complete schema?",
+          "answer": "The schema is at http://127.0.0.1:8000/docs.",
+          "quote": "The complete API schema is available at `http://127.0.0.1:8000/docs`."
+        },
+        {
+          "question": "What format can be exported in the walkthrough?",
+          "answer": "Markdown",
+          "quote": "Export Markdown with `GET /api/review/cases/{case_id}/export?format=md`."
+        }
+      ]
+    },
+    {
+      "path": "docs/adr/0002-postgres-authoritative-qdrant-derived.md",
+      "questions": [
+        {
+          "question": "Which database is authoritative?",
+          "answer": "PostgreSQL.",
+          "quote": "Xem PostgreSQL là authoritative và Qdrant là derived index."
+        },
+        {
+          "question": "What is Qdrant's role?",
+          "answer": "It is a derived index.",
+          "quote": "Xem PostgreSQL là authoritative và Qdrant là derived index."
+        },
+        {
+          "question": "What HTTP status is used for INDEX_INCOMPATIBLE?",
+          "answer": "503.",
+          "quote": "Lỗi identity không tương thích được ánh xạ thành `INDEX_INCOMPATIBLE`"
+        },
+        {
+          "question": "What happens if the manifest is missing?",
+          "answer": "It is treated as legacy and unverified.",
+          "quote": "Manifest vắng mặt cho trạng thái legacy chưa xác minh;"
+        },
+        {
+          "question": "Is the concrete rebuild and recovery operation verified?",
+          "answer": "No, it is unverified.",
+          "quote": "Quy trình dựng lại và vận hành khôi phục cụ thể: chưa xác minh."
+        }
+      ]
+    }
+  ]
+}
