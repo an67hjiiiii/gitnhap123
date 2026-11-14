@@ -32,6 +32,7 @@ def test_review_draft_endpoints_exist_in_snapshot():
         ("post", "/api/review/runs/{job_id}:cancel"),
         ("put", "/api/review/findings/{finding_id}/decision"),
         ("get", "/api/review/cases/{case_id}/export"),
+        ("get", "/api/review/cases/{case_id}/requirements/{requirement_id}/suggestions"),
     }
     available = {(method.lower(), path) for path, methods in snapshot["paths"].items()
                  for method in methods if method.lower() in {"get", "post", "put", "delete", "patch"}}
@@ -78,6 +79,9 @@ def test_review_snapshot_preserves_previous_paths_methods_and_input_fields():
     for path, methods in prior_operations.items():
         assert path in snapshot["paths"]
         assert methods <= snapshot["paths"][path].keys()
+    assert {"get"} <= snapshot["paths"][
+        "/api/review/cases/{case_id}/requirements/{requirement_id}/suggestions"
+    ].keys()
     prior_fields = {
         "CaseInput": {"title", "source_ids", "request_text"},
         "DecisionInput": {"review", "edited_text"},
