@@ -61,3 +61,18 @@ No idempotency key is defined in this contract. A retry of case creation or run 
 can create another resource/job; check the case list or run state before retrying after
 an uncertain response. Use `Last-Event-ID` to resume SSE without replaying earlier events.
 The API rejects edits while a case has an active run with `CASE_RUNNING`.
+
+## Limits
+
+`request_text` is limited to 20,000 characters and requirement text, including edited
+text, to 2,000 characters by default. A case accepts at most 100 requirements. Configure
+these with `REVIEW_MAX_REQUEST_CHARS`, `REVIEW_MAX_REQUIREMENT_CHARS`, and
+`REVIEW_MAX_REQUIREMENTS_PER_CASE`. Run budgets are capped by `REVIEW_MAX_REQUIREMENTS`
+(100) and `REVIEW_MAX_SECONDS` (3600); `REVIEW_MAX_TOKENS` and
+`REVIEW_MAX_MODEL_CALLS` have no ceiling unless configured. When capped, returned job
+budgets show the effective values.
+
+The per-user limits default to 2 run starts and 60 other review requests per minute,
+configured with `REVIEW_RATE_RUNS_PER_MIN` and `REVIEW_RATE_READS_PER_MIN`. Set either
+to `0` to disable it. A limited request returns HTTP 429 with code `RATE_LIMITED`;
+wait at least the number of seconds in the `Retry-After` response header before retrying.

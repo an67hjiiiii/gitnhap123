@@ -62,7 +62,7 @@ def test_inspector_returns_stable_requirement_finding_evidence_chain(inspector_a
     assert req["evidence"] == [{"source_id": "source-1", "locator": "p. 1",
                                 "excerpt": "Policy text"}]
     assert body["events"] == sorted(body["events"], key=lambda event: event["seq"])
-    assert body["budget"]["given"] is None
+    assert body["budget"]["given"] == {"max_requirements": 100, "max_seconds": 3600}
 
 
 def test_inspector_marks_budget_skipped_and_supports_selected_run(inspector_api):
@@ -70,7 +70,7 @@ def test_inspector_marks_budget_skipped_and_supports_selected_run(inspector_api)
     app.dependency_overrides[get_review_engine] = lambda: FakeReviewEngine(skip_budget=True)
     case_id, job_id = ready_and_run(client, runtime, budget={"max_requirements": 1})
     body = client.get(f"/api/review/cases/{case_id}/inspector?run={job_id}").json()
-    assert body["budget"]["given"] == {"max_requirements": 1}
+    assert body["budget"]["given"] == {"max_requirements": 1, "max_seconds": 3600}
     assert [item["finding"]["verdict"] for item in body["requirements"]] == [
         "SKIPPED_BUDGET", "SKIPPED_BUDGET",
     ]

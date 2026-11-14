@@ -36,6 +36,7 @@
             "title": "Old Source Id"
           },
           "request_text": {
+            "maxLength": 20000,
             "minLength": 1,
             "title": "Request Text",
             "type": "string"
@@ -67,6 +68,7 @@
           "edited_text": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -141,6 +143,7 @@
             "title": "Id"
           },
           "text": {
+            "maxLength": 2000,
             "minLength": 1,
             "title": "Text",
             "type": "string"
@@ -267,6 +270,16 @@
               }
             },
             "description": "Review API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
           }
         },
         "summary": "List Cases",
@@ -306,6 +319,16 @@
             "description": "Review API error"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {
@@ -356,6 +379,16 @@
             "description": "Review API error"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {
@@ -425,6 +458,16 @@
               }
             },
             "description": "Review API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
           }
         },
         "summary": "Export",
@@ -483,6 +526,16 @@
             "description": "Review API error"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {
@@ -561,6 +614,16 @@
               }
             },
             "description": "Review API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
           }
         },
         "summary": "Replace Requirements",
@@ -626,6 +689,16 @@
               }
             },
             "description": "Review API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
           }
         },
         "summary": "Suggestions",
@@ -678,6 +751,16 @@
             "description": "Review API error"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {
@@ -767,6 +850,16 @@
             },
             "description": "Review API error"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -846,6 +939,16 @@
               }
             },
             "description": "Review API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
           }
         },
         "summary": "Decide",
@@ -888,6 +991,16 @@
             "description": "Review API error"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {
@@ -957,6 +1070,16 @@
               }
             },
             "description": "Review API error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
           }
         },
         "summary": "Events",
@@ -999,6 +1122,16 @@
             "description": "Review API error"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Review API error"
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {

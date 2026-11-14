@@ -347,7 +347,7 @@ def test_durable_api_submits_one_job_and_keeps_response_shape(database, monkeypa
             assert case["status"] == ("PARTIAL" if partial else "COMPLETE")
             status = client.get(f"/api/review/runs/{job_id}").json()
             assert set(status) == {"id", "case_id", "state", "seq", "budget", "started_at", "finished_at"}
-            assert status["budget"] == {"tasks": 2}
+            assert status["budget"] == {"tasks": 2, "max_requirements": 100, "max_seconds": 3600}
     finally:
         runtime.runner.shutdown()
 
