@@ -1,0 +1,23 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Check fixture", "version": "1"},
+  "security": [{"Bearer": []}],
+  "paths": {
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "parameters": [{"name": "page", "in": "query"}],
+        "responses": {
+          "200": {"description": "Items", "content": {"application/json": {"schema": {"type": "array", "items": {"type": "string"}}}}},
+          "400": {"description": "Bad request"},
+          "401": {"description": "Unauthorized"}
+        }
+      }
+    },
+    "/items/{itemId}": {
+      "get": {"operationId": "getItem", "responses": {"200": {"description": "Item"}, "400": {"description": "Bad request"}, "401": {"description": "Unauthorized"}}},
+      "post": {"operationId": "replaceItem", "requestBody": {"content": {"application/json": {"schema": {"type": "object"}}}}, "responses": {"200": {"description": "Updated"}, "400": {"description": "Bad request"}, "401": {"description": "Unauthorized"}}}
+    }
+  },
+  "components": {"schemas": {"Item": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "description": "Item name", "example": "cup"}}}}}
+}
