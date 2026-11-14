@@ -1,4 +1,11 @@
 {
+    "route_reason": {
+        "SINGLE_IDEA": "Yêu cầu có một ý chính nên được xử lý trực tiếp.",
+        "MULTI_IDEA": "Yêu cầu có nhiều ý nên cần lập kế hoạch xử lý.",
+        "MULTI_QUANTITY": "Yêu cầu có nhiều ý và chi tiết định lượng nên cần lập kế hoạch.",
+        "SHORT_REQUEST": "Yêu cầu ngắn nên được xử lý trực tiếp.",
+        "C_NOT_AVAILABLE": "Hồ sơ hiện tại chưa cho phép lập kế hoạch nên xử lý trực tiếp."
+    },
     "verdict":  {
                     "SATISFIED":  "Đã đáp ứng",
                     "PARTIAL":  "Đáp ứng một phần",

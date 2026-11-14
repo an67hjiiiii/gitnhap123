@@ -14,6 +14,7 @@ from app.research.pipeline import CONDITIONS, ResearchPipeline
 from app.research.token_context import POLICIES
 from app.review.schemas import Confidence, Evidence, Finding, Requirement, ReviewCase, Verdict
 from app.review_adapters.slot_check import check_slots
+from app.review_adapters.auto_route import choose_path
 from app.review_adapters.verdict_rules import assess, check_answer
 
 _log = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ class PipelineReviewEngine:
         if (pipeline is None) == (pipeline_factory is None):
             raise ValueError("Supply exactly one pipeline or pipeline_factory")
         condition = condition.upper()
-        if condition not in CONDITIONS:
+        if condition != "AUTO" and condition not in CONDITIONS:
             raise ValueError(f"Unknown review pipeline condition {condition!r}; expected one of {sorted(CONDITIONS)}")
         self.condition = condition
         policy = context_policy if context_policy is not None else os.getenv("REVIEW_CONTEXT_POLICY")
@@ -189,12 +190,28 @@ class PipelineReviewEngine:
                     )
                     source_ids = [sid for sid in case.source_ids if sid in selected]
                     pipeline = self.pipeline_factory(owner) if self.pipeline_factory else self.pipeline
-                    policy_kwargs = (
-                        {"context_policy": self.context_policy} if self.context_policy is not None else {}
-                    )
-                    run_kwargs = {"source_ids": source_ids, "condition": self.condition, **policy_kwargs}
+                    actual_condition = self.condition
+                    if self.condition == "AUTO":
+                        from app.core.config import RuntimeConfig
+
+                        try:
+                            RuntimeConfig.from_env().assert_condition("C")
+                            c_available = True
+                        except ValueError:
+                            c_available = False
+                        choice = choose_path(requirement.text, c_available=c_available)
+                        actual_condition = "A" if choice.path == "B" else "C"
+                        self._emit(emit, "route.chosen", {
+                            **payload, "path": choice.path, "reason": choice.reason,
+                            "params": choice.params,
+                        })
+                    policy = self.context_policy
+                    if self.condition == "AUTO" and actual_condition == "C" and policy is None:
+                        policy = "adaptive_qwen"
+                    policy_kwargs = {"context_policy": policy} if policy is not None else {}
                     result = await pipeline.run(
-                        requirement.text, **run_kwargs,
+                        requirement.text, source_ids=source_ids, condition=actual_condition,
+                        **policy_kwargs,
                     )
                     stages = {event.get("stage"): event for event in result.get("events", [])}
                     if result.get("status") == "FAILED":
@@ -206,10 +223,10 @@ class PipelineReviewEngine:
                         self._emit(emit, "pipeline.trace", {
                             **payload, "condition": result.get("condition"),
                             "config_hash": result.get("config_hash"),
-                            "planning_retrieval": stages.get("planning_retrieval") if self.condition != "A" else None,
-                            "normalization": stages.get("normalization") if self.condition != "A" else None,
+                            "planning_retrieval": stages.get("planning_retrieval") if actual_condition != "A" else None,
+                            "normalization": stages.get("normalization") if actual_condition != "A" else None,
                             "context_policy": (result.get("effective_config", {}).get("context_policy")
-                                               if self.condition != "A" else None),
+                                               if actual_condition != "A" else None),
                             "task_budget": None,
                         })
                         raise _RunFailed(_failure_code(result))
@@ -218,15 +235,15 @@ class PipelineReviewEngine:
                         **payload,
                         "condition": result.get("condition"),
                         "config_hash": result.get("config_hash"),
-                        "planning_retrieval": stages.get("planning_retrieval") if self.condition != "A" else None,
-                        "normalization": stages.get("normalization") if self.condition != "A" else None,
+                        "planning_retrieval": stages.get("planning_retrieval") if actual_condition != "A" else None,
+                        "normalization": stages.get("normalization") if actual_condition != "A" else None,
                         "context_policy": (
                             result.get("effective_config", {}).get("context_policy")
-                            if self.condition != "A" else None
+                            if actual_condition != "A" else None
                         ),
                         "task_budget": (
                             {key: budget_plan.get(key) for key in ("policy", "total_tokens", "needs", "limits")}
-                            if self.condition != "A" and budget_plan is not None else None
+                            if actual_condition != "A" and budget_plan is not None else None
                         ),
                     })
                     decomposition = stages.get("decomposition")

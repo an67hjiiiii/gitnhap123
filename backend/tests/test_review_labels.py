@@ -13,6 +13,9 @@ def test_label_file_is_utf8_without_bom_and_contains_all_enums():
     assert set(labels["case_status"]) == {"DRAFT", "CONFIRMING", "READY", "RUNNING", "PARTIAL", "COMPLETE", "FAILED"}
     assert set(labels["job_state"]) == {"QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"}
     assert set(labels["decision"]) == {"NONE", "ACCEPT", "REJECT", "EDIT"}
+    assert set(labels["route_reason"]) == {
+        "SINGLE_IDEA", "MULTI_IDEA", "MULTI_QUANTITY", "SHORT_REQUEST", "C_NOT_AVAILABLE",
+    }
     assert label("verdict", "SATISFIED") == "Đã đáp ứng"
     assert label("verdict", "UNKNOWN") == "UNKNOWN"
 
@@ -59,3 +62,5 @@ def test_progress_and_friendly_error_labels_are_complete():
     }
     for entry in labels["friendly_errors"].values():
         assert entry["message"] and entry["hint"]
+
+

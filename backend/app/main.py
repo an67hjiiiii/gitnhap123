@@ -212,6 +212,11 @@ def owner_conversation_store(user: dict):
     root = Path(DATA_DIR) / "owners" / str(user["user_id"]) / "conversations"
     return ConversationStore(root)
 
+from app.chat.memory import SummaryCache as _SummaryCache
+
+_SUMMARY_CACHE = _SummaryCache()
+
+
 class ChatRequest(BaseModel):
     message: str
     condition: str | None = None
@@ -367,62 +372,115 @@ async def import_file(request: Request, file: UploadFile = File(...)):
     except IndexingError as exc:
         raise HTTPException(503, getattr(exc, "code", "DERIVED_INDEX_FAILED")) from exc
 
-@app.post("/api/chat")
-async def chat(body: ChatRequest, request: Request):
-    if not body.message.strip():
+def _chat_condition(body, runtime_config):
+    """Return (condition, provider_name, fixed): same decisions as the original chat endpoint."""
+    if body.product_mode:
+        if body.condition is not None or body.provider is not None:
+            raise HTTPException(400, "RESEARCH_CONTROLS_NOT_AVAILABLE")
+        configured_provider = runtime_config.provider
+        test_mode = os.getenv("APP_ENV", "development").strip().lower() == "test"
+        if configured_provider == "fake" and test_mode:
+            provider_name = configured_provider
+        elif configured_provider == "ollama":
+            provider_name = configured_provider
+        else:
+            raise HTTPException(503, "PRODUCT_PROVIDER_NOT_CONFIGURED")
+        configured = os.getenv("PRODUCT_CONDITION", "").strip().upper()
+        condition = configured or (
+            "C" if runtime_config.implementation_profile in {"m1", "m2", "dev"} else "A"
+        )
+        return condition, provider_name, bool(configured)
+    if body.condition is not None:
+        return body.condition.upper(), body.provider, True
+    return "A", body.provider, True
+
+
+async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notify=None):
+    """One chat turn: intent -> memory/rewrite -> path choice -> pipeline. notify(step, text) reports progress."""
+    from app.chat.intent import classify_intent, classify_with_llm
+    from app.chat.memory import build_memory, has_reference, render_context, rewrite_follow_up
+    from app.providers.factory import get_provider
+    from app.review_adapters.auto_route import choose_path
+
+    def say(step: str, text: str) -> None:
+        if notify is not None:
+            notify(step, text)
+
+    message = body.message.strip()
+    if not message:
         raise HTTPException(400, "MESSAGE_REQUIRED")
     try:
         user = current_user(request)
         runtime_config = RuntimeConfig.from_env()
-        if body.product_mode:
-            if body.condition is not None or body.provider is not None:
-                raise HTTPException(
-                    400,
-                    "RESEARCH_CONTROLS_NOT_AVAILABLE",
-                )
-            configured_provider = runtime_config.provider
-            test_mode = os.getenv("APP_ENV", "development").strip().lower() == "test"
-            if configured_provider == "fake" and test_mode:
-                provider_name = configured_provider
-            elif configured_provider == "ollama":
-                provider_name = configured_provider
-            else:
-                raise HTTPException(
-                    503,
-                    "PRODUCT_PROVIDER_NOT_CONFIGURED",
-                )
-            configured_product_condition = os.getenv("PRODUCT_CONDITION", "").strip().upper()
-            condition = configured_product_condition or (
-                "C" if runtime_config.implementation_profile in {"m1", "m2", "dev"} else "A"
-            )
-        elif body.condition is not None:
-            condition = body.condition.upper()
-            provider_name = body.provider
-        else:
-            condition = "A"
-            provider_name = body.provider
+        condition, provider_name, condition_fixed = _chat_condition(body, runtime_config)
         runtime_config.assert_condition(condition)
         conversations = owner_conversation_store(user)
         if body.conversation_id:
-            if conversations.get(body.conversation_id) is None:
+            conversation = conversations.get(body.conversation_id)
+            if conversation is None:
                 raise HTTPException(404, "CONVERSATION_NOT_FOUND")
             conversation_id = body.conversation_id
         else:
-            conversation_id = conversations.create(body.message.strip()[:120])["conversation_id"]
-        conversation_context = build_conversation_context(conversations.get(conversation_id))
+            conversation = None
+            conversation_id = conversations.create(message[:120])["conversation_id"]
+        has_history = bool(conversation and conversation.get("messages"))
         selected_source_ids = None if body.source_ids is None else [str(source_id) for source_id in body.source_ids]
         validator = getattr(owner_source_store(user), "validate_source_selection", None)
         if callable(validator) and selected_source_ids is not None:
             validator(selected_source_ids)
-        conversations.add_message(conversation_id, "USER", body.message.strip())
+
+        provider = get_provider(provider_name)
+        say("routing", "Đang xem bạn muốn hỏi gì…")
+        decision = classify_intent(message, has_history=has_history)
+        if decision.needs_llm:
+            try:
+                decision = await classify_with_llm(provider, message)
+            except Exception:
+                pass
+        intent_info = {"intent": decision.intent, "reason": decision.reason, "language": decision.language}
+
+        if decision.reply is not None:  # greeting/thanks/farewell/out_of_scope/about_system: no retrieval, no pipeline
+            conversations.add_message(conversation_id, "USER", message)
+            conversations.add_message(conversation_id, "ASSISTANT", decision.reply)
+            return {
+                "run_id": None, "status": "COMPLETE", "answer": decision.reply, "citations": [],
+                "task_results": [], "events": [{"stage": "intent_routed", **intent_info, "retrieval": False}],
+                "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
+            }
+
+        memory = await build_memory(provider, str(user["user_id"]), conversation, cache=_SUMMARY_CACHE)
+        query = message
+        if has_history and (decision.intent == "follow_up" or has_reference(message)):
+            say("rewriting", "Đang hiểu câu hỏi nối tiếp của bạn…")
+            query = await rewrite_follow_up(provider, message, memory)
+        context_text = render_context(memory)
+
+        route = None
+        if not condition_fixed:
+            c_available = True
+            try:
+                runtime_config.assert_condition("C")
+            except ValueError:
+                c_available = False
+            choice = choose_path(query, c_available=c_available)
+            route = {"path": choice.path, "reason": choice.reason, "params": choice.params}
+            condition = "C" if choice.path == "C" else "A"
+        elif body.product_mode:
+            route = {"path": "C" if condition.startswith("C") else "B", "reason": "CONFIGURED", "params": {}}
+        if route is not None:
+            say("route", "Câu hỏi nhiều ý, mình sẽ chia nhỏ để trả lời." if route["path"] == "C"
+                else "Mình tra cứu trực tiếp trong tài liệu.")
+
+        conversations.add_message(conversation_id, "USER", message)
         run = await owner_pipeline(user, conversation_id).run(
-            body.message.strip(),
+            query,
             condition,
             provider_name,
             source_ids=selected_source_ids,
-            conversation_context=conversation_context,
+            conversation_context=context_text,
             conversation_id=conversation_id,
             product_mode=body.product_mode,
+            on_event=on_event,
         )
         conversations.add_message(
             conversation_id,
@@ -430,16 +488,75 @@ async def chat(body: ChatRequest, request: Request):
             str(run.get("answer") or run.get("status") or "Run completed"),
             run_id=run["run_id"],
         )
-        run = {**run, "conversation_id": conversation_id}
-        if run["status"] == "FAILED":
-            return run
-        return run
+        events = list(run.get("events") or [])
+        if route is not None:
+            events.append({"stage": "route_chosen", **route})
+        return {
+            **run, "events": events, "conversation_id": conversation_id, "intent": intent_info,
+            "route": route, "rewritten_query": query if query != message else None,
+        }
     except LookupError as exc:
         raise HTTPException(404, "SOURCE_NOT_FOUND") from exc
     except IndexingError as exc:
         raise HTTPException(503, getattr(exc, "code", "DERIVED_INDEX_UNAVAILABLE")) from exc
     except ValueError:
         raise HTTPException(400, "VALIDATION_ERROR")
+
+
+@app.post("/api/chat")
+async def chat(body: ChatRequest, request: Request):
+    return await _chat_core(body, request)
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(body: ChatRequest, request: Request):
+    """Same turn as /api/chat as SSE: event 'status' {step,text} (many), then 'done' {chat response} or 'error'."""
+    import asyncio
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from app.chat.progress import friendly_error, stage_label
+
+    queue: asyncio.Queue = asyncio.Queue()
+    language = "vi" if any(ord(ch) > 127 for ch in body.message) or any(
+        w in body.message.lower() for w in ("xin", "chao", "ban", "toi")) else "en"
+
+    def on_event(event: dict) -> None:
+        label = stage_label(event, language)
+        if label is not None:
+            queue.put_nowait(("status", label))
+
+    def notify(step: str, text: str) -> None:
+        queue.put_nowait(("status", {"step": step, "text": text}))
+
+    async def worker() -> None:
+        try:
+            queue.put_nowait(("done", await _chat_core(body, request, on_event=on_event, notify=notify)))
+        except HTTPException as exc:
+            code = exc.detail if isinstance(exc.detail, str) else "UNKNOWN"
+            queue.put_nowait(("error", {"http_status": exc.status_code, **friendly_error(code, language)}))
+        except Exception:
+            queue.put_nowait(("error", {"http_status": 500, **friendly_error("UNKNOWN", language)}))
+        finally:
+            queue.put_nowait(None)
+
+    task = asyncio.create_task(worker())
+
+    async def stream():
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                name, data = item
+                yield f"event: {name}\ndata: {_json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/runs")
