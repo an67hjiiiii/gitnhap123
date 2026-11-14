@@ -43,28 +43,62 @@ def terms(text: str) -> set[str]:
     return normalized
 
 
-def chunk_text(text: str, max_chars: int = 1200) -> list[str]:
-    text = normalize_text(text)
-    if not text:
-        return []
-    parts = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
-    chunks: list[str] = []
-    buf = ""
-    for part in parts:
-        if len(buf) + len(part) + 2 <= max_chars:
-            buf = (buf + "\n\n" + part).strip()
+def content_hash(text: str) -> str:
+    return hashlib.sha256(normalize_text(text).encode("utf-8")).hexdigest()[:16]
+
+
+def contextual_text(chunk: SourceChunk) -> str:
+    header = chunk.provenance.get("context_header")
+    return f"{header}\n{chunk.text}" if header else chunk.text
+
+
+def _document_parts(text: str) -> list[tuple[str, str]]:
+    """Keep paragraph boundaries independent of neighbouring paragraph lengths."""
+    result: list[tuple[str, str]] = []
+    headings: list[tuple[int, str]] = []
+    pending: list[str] = []
+
+    def flush() -> None:
+        if pending:
+            result.append(("\n".join(pending).strip(), " > ".join(h for _, h in headings)))
+            pending.clear()
+
+    for line in normalize_text(text).splitlines():
+        heading = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if heading:
+            flush()
+            level = len(heading[1])
+            headings = [(n, h) for n, h in headings if n < level]
+            headings.append((level, heading[2]))
+            pending.append(line)
+        elif not line.strip():
+            # Attach a heading to its first paragraph, even with a blank line.
+            if pending and not all(re.match(r"^\s*#", p) for p in pending):
+                flush()
         else:
-            if buf:
-                chunks.append(buf)
-            if len(part) <= max_chars:
-                buf = part
-            else:
-                for i in range(0, len(part), max_chars):
-                    chunks.append(part[i:i+max_chars])
-                buf = ""
-    if buf:
-        chunks.append(buf)
-    return chunks
+            pending.append(line)
+    flush()
+    return result
+
+
+def _split_paragraph(text: str, max_chars: int) -> list[str]:
+    if max_chars < 1:
+        raise ValueError("max_chars must be positive")
+    result: list[str] = []
+    while len(text) > max_chars:
+        boundaries = list(re.finditer(r"[.!?。！？](?:[\"'”’)]*)\s+", text[:max_chars + 1]))
+        boundaries = [m for m in boundaries if m.end() >= max_chars * 0.8 and m.end() <= max_chars]
+        end = boundaries[-1].end() if boundaries else max_chars
+        result.append(text[:end].strip())
+        text = text[end:].strip()
+    if text:
+        result.append(text)
+    return result
+
+
+def chunk_text(text: str, max_chars: int = 1200) -> list[str]:
+    return [piece for part, _ in _document_parts(text)
+            for piece in _split_paragraph(part, max_chars)]
 
 
 def make_chunks(
@@ -76,17 +110,22 @@ def make_chunks(
 ) -> list[SourceChunk]:
     clean = normalize_text(text)
     source_id = "src_" + hashlib.sha256((source_name + "\0" + clean).encode()).hexdigest()[:16]
-    base_provenance = dict(provenance or {})
+    # Source versions remain content-addressed; document identity survives re-upload.
+    doc_id = "src_" + hashlib.sha256(source_name.encode()).hexdigest()[:16]
     result: list[SourceChunk] = []
-    for i, chunk in enumerate(chunk_text(clean, max_chars=max_chars)):
-        result.append(SourceChunk(
-            chunk_id=f"{source_id}_c{i:04d}",
-            source_id=source_id,
-            source_name=source_name,
-            text=chunk,
-            index=i,
-            provenance={**base_provenance, "chunk_index": i},
-        ))
+    for order, (part, section_path) in enumerate(_document_parts(clean)):
+        for piece_order, chunk in enumerate(_split_paragraph(part, max_chars)):
+            chunk_id = f"{doc_id}_c{order:04d}"
+            if piece_order:
+                chunk_id += f"_p{piece_order:04d}"
+            result.append(SourceChunk(
+                chunk_id=chunk_id, source_id=source_id, source_name=source_name,
+                text=chunk, index=len(result),
+                provenance={**dict(provenance or {}), "doc_id": doc_id,
+                            "chunk_index": len(result), "content_hash": content_hash(chunk),
+                            "section_path": section_path,
+                            "context_header": f"Tài liệu: {source_name} > {section_path}"},
+            ))
     return result
 
 

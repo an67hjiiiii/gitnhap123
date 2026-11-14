@@ -95,6 +95,7 @@ class SourceStore:
                     **chunk.__dict__,
                     "provenance": {
                         **source_provenance,
+                        **chunk.provenance,
                         "chunk_id": chunk.chunk_id,
                         "chunk_index": chunk.index,
                     },
@@ -104,7 +105,12 @@ class SourceStore:
         ]
         existing_ids = {c.chunk_id for c in self._chunks}
         added = [c for c in chunks if c.chunk_id not in existing_ids]
-        self._chunks.extend(added)
+        doc_id = chunks[0].provenance["doc_id"]
+        replaced_sources = {c.source_id for c in self._chunks if c.provenance.get("doc_id") == doc_id}
+        self._chunks = [c for c in self._chunks if c.source_id not in replaced_sources]
+        for replaced in replaced_sources:
+            self._sources.pop(replaced, None)
+        self._chunks.extend(chunks)
         self._sources[source_id] = {
             "source_id": source_id,
             "source_name": clean_name,
@@ -135,6 +141,14 @@ class SourceStore:
             if (selected is None or c.source_id in selected)
             and self._sources.get(c.source_id, {}).get("status", "READY") == "READY"
         ]
+
+    def chunks_by_ids(self, ids, source_ids=None) -> list[SourceChunk]:
+        requested = set(ids)
+        selected = None if source_ids is None else set(source_ids)
+        return [SourceChunk(**{**c.__dict__, "provenance": dict(c.provenance)})
+                for c in self._chunks if c.chunk_id in requested
+                and (selected is None or c.source_id in selected)
+                and self._sources.get(c.source_id, {}).get("status", "READY") == "READY"]
 
     def list_sources(self) -> list[dict]:
         grouped: dict[str, dict] = {}

@@ -27,7 +27,7 @@ from app.ingestion.documents import (
 from app.providers.ollama import OllamaProvider
 from app.research.pipeline import ResearchPipeline
 from app.retrieval.candidate_index import CandidateIndex, IndexingError
-from app.retrieval.embeddings import make_embedder
+from app.retrieval.embeddings import effective_dimension, make_embedder, validate_embedding_config
 from app.review.memory import InMemoryMemoryStore
 from app.storage.conversation_store import ConversationStore
 from app.storage.postgres import create_postgres_engine, create_session_factory
@@ -156,13 +156,13 @@ def owner_pipeline(user: dict, conversation_id: str | None = None) -> ResearchPi
     if VECTOR_BACKEND not in {"", "disabled", "off", "none"}:
         vector_store = _configured_vector_store()
         if vector_store is not None:
+            embedder = make_embedder(int(getattr(vector_store, "vector_size", 768) or 768))
+            validate_embedding_config(embedder, int(getattr(vector_store, "vector_size", 768) or 768))
             candidate_index = CandidateIndex(
                 sources,
                 vector_store,
                 owner_user_id=str(user["user_id"]),
-                embedder=make_embedder(
-                    int(getattr(vector_store, "vector_size", 768) or 768)
-                ),
+                embedder=embedder,
             )
     return ResearchPipeline(
         sources,
@@ -184,7 +184,7 @@ def _configured_vector_store():
     if _derived_vector_store is not None and _derived_vector_store_backend == backend:
         return _derived_vector_store
     try:
-        vector_size = int(VECTOR_SIZE)
+        vector_size = effective_dimension(int(VECTOR_SIZE))
     except (TypeError, ValueError) as exc:
         raise IndexingError("VECTOR_SIZE must be a positive integer") from exc
     if vector_size < 1:
@@ -212,13 +212,13 @@ def _index_imported_source(user: dict, source_store, imported: dict) -> dict:
         vector_store = _configured_vector_store()
         if vector_store is None:
             return imported
+        embedder = make_embedder(int(getattr(vector_store, "vector_size", 768) or 768))
+        validate_embedding_config(embedder, int(getattr(vector_store, "vector_size", 768) or 768))
         index = CandidateIndex(
             source_store,
             vector_store,
             owner_user_id=str(user["user_id"]),
-            embedder=make_embedder(
-                int(getattr(vector_store, "vector_size", 768) or 768)
-            ),
+            embedder=embedder,
         )
         result = index.index_source(source_id)
     except Exception as exc:
