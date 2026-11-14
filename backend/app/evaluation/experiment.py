@@ -123,7 +123,7 @@ def run_experiment(config, corpus, registry, guard, *, dry_run=True):
     result = EvaluationResult(payload)
     stopped = False
     for condition, spec in zip(conditions, config["conditions"]):
-        entry = {**deepcopy(spec), "config_hash": digest, "runs": [], "consistent": True}
+        entry = {**deepcopy(spec), "condition": condition.name, "config_hash": digest, "runs": [], "consistent": True}
         payload["conditions"].append(entry)
         for repeat, seed in enumerate(config["seeds"]):
             rows = []

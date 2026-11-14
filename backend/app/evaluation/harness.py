@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
 from pathlib import Path
 import re
@@ -17,6 +18,49 @@ from app.review.schemas import Evidence, Finding, Requirement, ReviewCase
 from app.review_adapters.spec_change_engine import SpecChangeEngine
 from app.review_adapters.verdict_rules import assess
 from .metrics import score
+
+
+_NO_FLAGS = {"retrieval_policy": False, "verdict_rules": False, "router_budget": False,
+             "project_memory_suggestions": False}
+_RETRIEVAL = {**_NO_FLAGS, "retrieval_policy": True}
+_RULES = {**_RETRIEVAL, "verdict_rules": True}
+_FULL = {**_RULES, "router_budget": True, "project_memory_suggestions": True}
+
+# Describes the factories and execution paths as implemented, not intended semantics.
+CONDITION_FLAG_MAP = {
+    "A_baseline_fake": {"harness_flags": _NO_FLAGS, "pipeline_condition": None,
+                        "description": "Fake review engine over supplied fixed evidence."},
+    "C_verdict_rules": {"harness_flags": _RULES, "pipeline_condition": None,
+                        "description": "Fixed evidence with deterministic verdict conflict rules."},
+    "C_minus_rules": {"harness_flags": _RETRIEVAL, "pipeline_condition": None,
+                      "description": "Fixed evidence with legacy supplied-status mapping."},
+    "naive_overlap": {"harness_flags": _NO_FLAGS, "pipeline_condition": None,
+                      "description": "Fixed evidence with token overlap heuristic."},
+    "D_spec_change": {"harness_flags": _RULES, "pipeline_condition": None,
+                      "description": "Spec-change adapter for spec items; rules engine otherwise."},
+    "A": {"harness_flags": _NO_FLAGS, "pipeline_condition": None,
+          "description": "Experiment fake factory: evidence disabled; real runner: source-free direct provider baseline."},
+    "B0": {"harness_flags": _RETRIEVAL, "pipeline_condition": "A",
+           "description": "Real runner grounded pipeline condition A; legacy status post-processing."},
+    "B": {"harness_flags": _RULES, "pipeline_condition": "A",
+          "description": "Real runner shares B0 grounded output and applies verdict rules."},
+    "C": {"harness_flags": _FULL, "pipeline_condition": "A",
+          "description": "Experiment uses all configured flags; real runner shares B0 output and adds budget/router/memory processing."},
+    "C-P": {"harness_flags": {**_RULES, "router_budget": True}, "pipeline_condition": "C-P",
+             "description": "Experiment C without project memory; pipeline ablation removes P."},
+    "C-N": {"harness_flags": {**_RETRIEVAL, "router_budget": True, "project_memory_suggestions": True}, "pipeline_condition": "C-N",
+             "description": "Experiment C without verdict rules; pipeline ablation removes N."},
+    "C-O": {"harness_flags": {**_RULES, "project_memory_suggestions": True}, "pipeline_condition": "C-O",
+             "description": "Experiment C without router/budget; pipeline ablation removes O."},
+}
+
+
+def condition_definition(label: str) -> dict:
+    """Return the documented mapping; reject labels without an explicit definition."""
+    try:
+        return CONDITION_FLAG_MAP[label]
+    except KeyError as exc:
+        raise ValueError(f"Unknown evaluation condition: {label}") from exc
 
 
 class LabelledRequirement(BaseModel):
@@ -138,7 +182,11 @@ def run(conditions: list[Condition], corpus: list[CorpusCase], repeats: int = 3,
         raise ValueError("Duplicate condition names")
     if len({c.id for c in corpus}) != len(corpus):
         raise ValueError("Duplicate case IDs")
-    payload = {"seed": seed, "repeats": repeats, "conditions": [],
+    config_hash = sha256(json.dumps({"seed": seed, "repeats": repeats,
+                                     "conditions": {name: CONDITION_FLAG_MAP.get(name)
+                                                    for name in sorted(c.name for c in conditions)}},
+                                    sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    payload = {"seed": seed, "repeats": repeats, "config_hash": config_hash, "conditions": [],
                "limitations": "Synthetic fixed evidence and supplied statuses; no retrieval, provider, "
                "translation or production accuracy claims. Repeats are not independent samples. "
                "D_spec_change uses the OpenAPI adapter on spec items; other conditions use corpus evidence."}
@@ -166,6 +214,6 @@ def run(conditions: list[Condition], corpus: list[CorpusCase], repeats: int = 3,
                                  "predicted": finding.verdict.value, "expected_locators": req.expected_locators,
                                  "cited_locators": [e.locator for e in finding.evidence]})
             runs.append({"repeat": repeat, "rows": rows, "metrics": score(rows)})
-        payload["conditions"].append({"name": condition.name, "runs": runs,
+        payload["conditions"].append({"name": condition.name, "condition": condition.name, "runs": runs,
                                       "consistent": all(r["rows"] == runs[0]["rows"] for r in runs)})
     return EvaluationResult(payload, latencies)

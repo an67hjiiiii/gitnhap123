@@ -8,7 +8,7 @@ from .metrics import NOTE
 
 
 def markdown(result: EvaluationResult) -> str:
-    lines = ["# Review evaluation", "", NOTE, "", result.results["limitations"], "",
+    lines = ["# Review evaluation", "", f'Config hash: {result.results["config_hash"]}', "", NOTE, "", result.results["limitations"], "",
              "Rates include numerator/denominator; macro-F1 averages the four labelled verdicts.", "",
              "| Condition | Run | n | Accuracy | Macro-F1 (4 labels) | Evidence hit | False-DEVIATES | Consistent |",
              "|---|---:|---:|---:|---:|---:|---:|---|"]
@@ -17,7 +17,7 @@ def markdown(result: EvaluationResult) -> str:
         return f'{value["rate"]:.4f} ({value["numerator"]}/{value["denominator"]})'
 
     for condition in result.results["conditions"]:
-        name = condition["name"].replace("|", "\\|").replace("\n", " ")
+        name = condition["condition"].replace("|", "\\|").replace("\n", " ")
         for run in condition["runs"]:
             m = run["metrics"]
             lines.append(f'| {name} | {run["repeat"]} | {m["n"]} | '
