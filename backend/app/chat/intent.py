@@ -25,11 +25,18 @@ INTENTS = (
     "about_system",
     "document_question",
     "general_knowledge",
+    "history_answer",
     "follow_up",
     "ambiguous",
 )
 # Rules first (cheap, predictable); the model is asked only for ambiguous short messages.
 _ARITHMETIC = re.compile(r"\d+(?:[.,]\d+)?\s*(?:[+\-*/x×÷^])\s*\d+")
+_VI_CHARS = re.compile("[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]")
+_DEFINITION_VI = re.compile(r"^(?:giai thich |cho biet )?[a-z0-9][a-z0-9 .+#/-]{0,40} la (?:gi|cai gi)$")
+_DEFINITION_EN = re.compile(r"^(?:what is|what are|what s|define|explain)(?: an?)? [a-z0-9][a-z0-9 .+#/-]{0,40}$")
+_DOC_WORDS = ("tai lieu", "document", "file", "yeu cau", "requirement", "ho so", "he thong cua", "du an")
+_HISTORY_CUES = ("o tren", "vua roi", "luc nay", "ban nay", "truoc do", "ban vua", "o truong hop", "trong truong hop",
+                 "above", "earlier", "you just said", "you said", "previous answer", "in case")
 _NO_DOCS = ("kien thuc chung", "khong can tai lieu", "khong dung tai lieu", "khong can xem tai lieu",
             "general knowledge", "without the documents", "without documents", "no documents needed")
 _GREETINGS = ("xin chao", "chao ban", "chao", "hello", "hi", "hey", "alo")
@@ -85,6 +92,8 @@ _FOLLOWUP_TERMS = (
 
 
 def _language(message: str, normalized: str) -> str:
+    if _VI_CHARS.search(message.casefold()):  # short messages like "REST là gì?" fool the detector
+        return "vi"
     lang = detect_language(message)
     if lang == "en" and any(
         normalized == phrase or normalized.startswith(phrase + " ")
@@ -142,6 +151,10 @@ def classify_intent(message: str, *, has_history: bool = False, has_sources: boo
         and any(w in normalized for w in ("bang bao nhieu", "tinh", "calculate", "compute", "what is", "=", "bao nhieu"))
     ):
         return decision("general_knowledge", "SELF_CONTAINED")
+    if has_history and any(cue in normalized for cue in _HISTORY_CUES):
+        return decision("history_answer", "HISTORY_CUE")
+    if (_DEFINITION_VI.match(normalized) or _DEFINITION_EN.match(normalized)) and not any(w in normalized for w in _DOC_WORDS):
+        return decision("general_knowledge", "DEFINITION")
     if has_history and len(words) <= 8 and any(term in normalized for term in _FOLLOWUP_TERMS):
         return decision("follow_up", "FOLLOW_UP")
     if "?" in message or (

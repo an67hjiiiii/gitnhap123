@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.core.text_clean import strip_placeholder_tags
+
 import json
 import re
 
@@ -42,7 +44,7 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         "VANILLA_RAG_ANSWERER. Chỉ dùng bằng chứng được cấp. Chỉ trả JSON theo Schema. "
         "Mặc định viết answer bằng tiếng Việt (Vietnamese), tự nhiên, tối đa 4 câu, khoảng 100 từ; "
         "chỉ dài hơn khi yêu cầu cần danh sách. Mỗi khẳng định từ tài liệu phải có chunk ID chính xác trong citations. "
-        "Diễn giải, không chép nguyên đoạn; dẫn nguồn trong câu bằng 'theo tài liệu <source name>', "
+        "Diễn giải, không chép nguyên đoạn; dẫn nguồn trong câu bằng 'theo tài liệu + tên tài liệu', "
         "dùng tên ở dòng Tài liệu, nếu chỉ có ID thì giữ ID. Không tự tạo tên nguồn hay ID. "
         "Thiếu thông tin: nói rõ phần chưa tìm thấy, trả PARTIAL hoặc NO_EVIDENCE, "
         "đề xuất đúng một bước tiếp theo cụ thể, không chỉ từ chối. "
@@ -76,7 +78,7 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
     metrics.add_citations(valid, invalid)
 
     status = str(obj.get("status") or "PARTIAL").upper()
-    answer = str(obj.get("answer") or "").strip()
+    answer = strip_placeholder_tags(str(obj.get("answer") or "").strip())
     missing = [str(x) for x in obj.get("missing_information") or []]
     if invalid:
         status = "PARTIAL"

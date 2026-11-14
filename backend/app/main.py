@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from app.api.review import build_router as _build_review_router
 from app.auth.store import AuthStore, InvalidSessionError
 from app.chat.memory import SummaryCache as _SummaryCache
 from app.core.config import RuntimeConfig
+from app.core.text_clean import strip_placeholder_tags
 from app.core.observability import RequestIdMiddleware, SecurityHeadersMiddleware, TTLCache, configure_logging
 from app.core.readiness import check_ollama, check_postgres, check_vector
 from app.ingestion.documents import (
@@ -423,7 +425,7 @@ def _chat_condition(body, runtime_config):
 async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notify=None):
     """One chat turn: intent -> memory/rewrite -> path choice -> pipeline. notify(step, text) reports progress."""
     from app.chat.answer_guard import AnswerChecker
-    from app.chat.intent import classify_intent, classify_with_llm
+    from app.chat.intent import IntentDecision, classify_intent, classify_with_llm
     from app.chat.language import document_language, text_language, translate_query
     from app.chat.memory import build_memory, has_reference, render_context, rewrite_follow_up
     from app.providers.factory import get_provider
@@ -478,7 +480,43 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
 
         timings = {"intent_ms": int((time.perf_counter() - t_start) * 1000)}
         store = owner_source_store(user)
-        if decision.intent == "general_knowledge":  # self-contained: answer directly, no retrieval, no pipeline
+        direct_path = None
+        if decision.intent == "history_answer" and has_history:  # answer already in the recent conversation
+            h0 = time.perf_counter()
+            recent = "\n".join(f"{m.get('role')}: {m.get('content')}" for m in (conversation.get("messages") or [])[-6:])
+            result = await provider.generate(
+                system=("Answer ONLY from the conversation below, in the language of the question, concisely. "
+                        "If the answer is not stated in the conversation, reply exactly NOT_IN_HISTORY."),
+                user=f"CONVERSATION:\n{recent}\n\nQUESTION: {message}",
+            )
+            timings["history_ms"] = int((time.perf_counter() - h0) * 1000)
+            history_text = strip_placeholder_tags(str(getattr(result, "text", result)).strip())
+            if history_text and "NOT_IN_HISTORY" not in history_text:
+                direct_path, direct_text, direct_note = "HISTORY", history_text, ""
+            else:
+                decision = IntentDecision("follow_up", None, False, "HISTORY_MISS", decision.language)
+                intent_info = {"intent": "follow_up", "reason": "HISTORY_MISS", "language": decision.language}
+        elif decision.intent == "history_answer":
+            decision = IntentDecision("document_question", None, False, "NO_HISTORY", decision.language)
+            intent_info = {"intent": "document_question", "reason": "NO_HISTORY", "language": decision.language}
+        if decision.intent == "general_knowledge" and decision.reason != "SELF_CONTAINED":
+            # cheap retrieval gate: a definition-like question still goes to the documents when they clearly match
+            try:
+                has_docs = any(s.get("status", "READY") == "READY" for s in store.list_sources())
+            except Exception:
+                has_docs = True
+            matched = []
+            if has_docs:
+                g0 = time.perf_counter()
+                matched = await asyncio.to_thread(
+                    owner_pipeline(user, None)._retrieve_candidates, message, None, top_k=1,
+                    min_score=runtime_config.retrieval_min_score, source_ids=selected_source_ids)
+                timings["gate_ms"] = int((time.perf_counter() - g0) * 1000)
+            if matched:
+                decision = IntentDecision("document_question", None, False, "GATE_DOCUMENT_MATCH", decision.language)
+                intent_info = {"intent": "document_question", "reason": "GATE_DOCUMENT_MATCH",
+                               "language": decision.language}
+        if direct_path is None and decision.intent == "general_knowledge":  # no retrieval, no pipeline
             say("answering", "Câu này không cần tài liệu, mình trả lời trực tiếp.")
             g0 = time.perf_counter()
             result = await provider.generate(
@@ -487,12 +525,19 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
                 user=message,
             )
             timings["answer_ms"] = int((time.perf_counter() - g0) * 1000)
-            answer = str(getattr(result, "text", result)).strip()
+            direct_path = "DIRECT"
+            direct_text = strip_placeholder_tags(str(getattr(result, "text", result)).strip())
+            direct_note = "" if decision.reason == "SELF_CONTAINED" else (
+                "\n\n_(Không dựa trên tài liệu của bạn.)_" if decision.language == "vi"
+                else "\n\n_(Not based on your documents.)_")
+        if direct_path is not None:
+            answer = direct_text + direct_note
             conversations.add_message(conversation_id, "USER", message)
             conversations.add_message(conversation_id, "ASSISTANT", answer)
             return {
                 "run_id": None, "status": "COMPLETE", "answer": answer, "citations": [], "task_results": [],
-                "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "DIRECT"},
+                "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": direct_path,
+                            "grounded": False},
                            {"stage": "timings", **timings}],
                 "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
             }
@@ -589,6 +634,8 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             run_id=run["run_id"],
         )
         timings["total_ms"] = int((time.perf_counter() - t_start) * 1000)
+        if isinstance(run.get("answer"), str):
+            run["answer"] = strip_placeholder_tags(run["answer"])
         events = list(run.get("events") or [])
         if route is not None:
             events.append({"stage": "route_chosen", **route})
