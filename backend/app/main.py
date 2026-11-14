@@ -115,6 +115,27 @@ def start_review_runtime():
 def stop_review_runtime():
     review_runtime.runner.shutdown()
 
+
+@app.on_event("startup")
+def mark_stale_chat_runs():
+    max_age = float(os.getenv("CHAT_STALE_RUN_SECONDS", "3600"))
+    if STORAGE_BACKEND == "postgres":
+        from sqlalchemy import inspect, select
+        from app.storage.postgres.models import RunRecord
+
+        with app.state.session_factory() as db:
+            # Review-only deployments may not have a chat runs table yet.
+            if not inspect(db.get_bind()).has_table(RunRecord.__tablename__):
+                return
+            owners = db.scalars(select(RunRecord.owner_user_id).distinct()).all()
+        for owner in owners:
+            PostgresRunStore(app.state.session_factory, owner).mark_stale_running_runs(max_age)
+    else:
+        run_store.mark_stale_running_runs(max_age)
+        for root in (Path(RUNS_DIR) / "owners").glob("*"):
+            if root.is_dir():
+                RunStore(str(root)).mark_stale_running_runs(max_age)
+
 def owner_source_store(user: dict):
     if STORAGE_BACKEND == "postgres":
         return PostgresSourceStore(app.state.session_factory, str(user["user_id"]))
@@ -588,6 +609,11 @@ async def chat_stream(body: ChatRequest, request: Request):
         finally:
             if not task.done():
                 task.cancel()
+            # Wait for pipeline cancellation to persist its terminal run status.
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                pass
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
