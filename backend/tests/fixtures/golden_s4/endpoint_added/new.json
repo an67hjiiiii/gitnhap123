@@ -1,0 +1,124 @@
+{
+  "components": {
+    "schemas": {
+      "Widget": {
+        "properties": {
+          "id": {
+            "description": "Identifier",
+            "type": "string"
+          },
+          "label": {
+            "description": "Display label",
+            "type": "string"
+          },
+          "state": {
+            "description": "Current state",
+            "enum": [
+              "active",
+              "paused",
+              "retired"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Widgets",
+    "version": "1"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/widgets": {
+      "get": {
+        "operationId": "listWidgets",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Widget"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "ok"
+          },
+          "400": {
+            "description": "bad request"
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          }
+        ]
+      }
+    },
+    "/widgets/search": {
+      "post": {
+        "operationId": "searchWidgets",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          }
+        ]
+      }
+    },
+    "/widgets/{widgetId}": {
+      "get": {
+        "operationId": "getWidget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "widgetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Widget"
+                }
+              }
+            },
+            "description": "ok"
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          }
+        ]
+      }
+    }
+  }
+}

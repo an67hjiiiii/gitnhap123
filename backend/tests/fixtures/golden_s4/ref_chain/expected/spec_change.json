@@ -1,0 +1,10 @@
+{
+  "findings": [
+    {
+      "evidence_ids": [],
+      "requirement_text": "Verify an unrelated billing concern",
+      "verdict": "NOT_FOUND"
+    }
+  ],
+  "proposed_requirements": []
+}

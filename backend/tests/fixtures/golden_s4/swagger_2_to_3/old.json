@@ -1,0 +1,42 @@
+{
+  "basePath": "/v1",
+  "host": "api.example.test",
+  "info": {
+    "title": "Widgets",
+    "version": "1"
+  },
+  "paths": {
+    "/widgets": {
+      "get": {
+        "operationId": "listWidgets",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        },
+        "security": [
+          {
+            "apiKey": []
+          }
+        ]
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "securityDefinitions": {
+    "apiKey": {
+      "in": "header",
+      "name": "key",
+      "type": "apiKey"
+    }
+  },
+  "swagger": "2.0"
+}

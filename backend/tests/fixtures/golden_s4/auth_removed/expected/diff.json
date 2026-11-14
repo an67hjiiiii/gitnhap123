@@ -1,0 +1,12 @@
+{
+  "changes": [
+    {
+      "detail": "Operation security requirements changed",
+      "kind": "SECURITY_CHANGED",
+      "location": "security",
+      "method": "get",
+      "path": "/widgets",
+      "severity": "BREAKING"
+    }
+  ]
+}

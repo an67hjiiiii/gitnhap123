@@ -1,0 +1,12 @@
+{
+  "changes": [
+    {
+      "detail": "Endpoint removed",
+      "kind": "ENDPOINT_REMOVED",
+      "location": "",
+      "method": "",
+      "path": "/widgets/{widgetId}",
+      "severity": "BREAKING"
+    }
+  ]
+}
