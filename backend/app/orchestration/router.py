@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import Enum
 import re
-from typing import Literal
+from typing import Any, Literal
 
 
 class Route(str, Enum):
@@ -39,7 +39,7 @@ class RouteRequest:
 @dataclass(frozen=True)
 class RouteDecision:
     route: Route
-    reasons: list[str]
+    reasons: list[Any]  # legacy strings or {code, params}
     budget_hint: dict[str, int]
 
 
@@ -108,8 +108,7 @@ def route_request(request: RouteRequest) -> RouteDecision:
             codes.append({"code": "ROUTE_SHORT_QUESTION", "params": {}})
         else:
             codes.append({"code": "ROUTE_NEEDS_PLANNING", "params": {}})
-    reasons = codes
-    return RouteDecision(route, reasons, {
+    return RouteDecision(route, codes, {
         "tokens": 0 if route == Route.DETERMINISTIC else request.estimated_tokens,
         "model_calls": calls,
     })

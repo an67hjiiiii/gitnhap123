@@ -5,8 +5,8 @@ from app.orchestration.budget import BudgetCost, BudgetManager
 from app.orchestration.router import Route, RouteRequest, route_request
 
 from .engine import ReviewEngine
-from .repository import CaseRepository
 from .labels import label
+from .repository import CaseRepository
 from .schemas import (
     CaseStatus,
     Confidence,
