@@ -85,6 +85,8 @@ app.include_router(_build_review_router(current_user=current_user, runtime=revie
 @app.on_event("startup")
 def start_review_runtime():
     review_runtime.startup()
+    if review_runtime.durable:
+        review_runtime.runner.start_recovery()
 
 @app.on_event("shutdown")
 def stop_review_runtime():

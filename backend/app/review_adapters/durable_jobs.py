@@ -1,6 +1,9 @@
 """Leased database workers with checkpointed findings and replayable SSE events."""
 
 import asyncio
+import logging
+import math
+import os
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock, Thread
 from time import monotonic
@@ -14,18 +17,49 @@ from app.review.service import RunCancelled
 _TERMINAL = {JobState.SUCCEEDED, JobState.PARTIAL, JobState.FAILED, JobState.CANCELLED}
 
 
+def _positive_env(name, default):
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return value if math.isfinite(value) and value > 0 else default
+
+
 class DurableJobRunner:
     def __init__(self, queue, work_fn, lease_owner, lease_seconds, clock, max_concurrent=1):
         if not lease_owner or lease_seconds <= 0 or max_concurrent < 1:
             raise ValueError("A lease owner, positive lease and worker count are required")
         self.queue, self.work_fn = queue, work_fn
         self.lease_owner, self.lease_seconds, self.clock = lease_owner, lease_seconds, clock
+        # The HTTP runtime supplies the historical 30-second lease positionally.
+        self.lease_seconds = _positive_env("REVIEW_LEASE_SECONDS", lease_seconds)
+        self.heartbeat_seconds = _positive_env("REVIEW_HEARTBEAT_SECONDS", self.lease_seconds / 3)
+        if self.heartbeat_seconds >= self.lease_seconds:
+            self.heartbeat_seconds = self.lease_seconds / 3
+        self.recover_interval_seconds = _positive_env("REVIEW_RECOVER_INTERVAL_SECONDS", 5)
         self.max_concurrent = max_concurrent
         self._stop, self._wake, self._changed = Event(), Event(), Event()
         self._lock = Lock()
         self._executor = None
         self._futures = []
         self._inputs = {}
+        self._recovery_thread = None
+
+    def start_recovery(self):
+        """Run periodic expired-lease recovery until this runner shuts down."""
+        with self._lock:
+            if self._recovery_thread is None and not self._stop.is_set():
+                self._recovery_thread = Thread(
+                    target=self._recover_periodically, daemon=True, name="review-recovery",
+                )
+                self._recovery_thread.start()
+
+    def _recover_periodically(self):
+        while not self._stop.wait(self.recover_interval_seconds):
+            try:
+                self.recover(self.clock())
+            except Exception:
+                logging.getLogger(__name__).exception("Periodic review recovery failed")
 
     def start(self):
         with self._lock:
@@ -60,7 +94,6 @@ class DurableJobRunner:
         while not self._stop.is_set():
             self._wake.clear()
             try:
-                self.queue.recover_jobs(self.clock())
                 row = self.queue.claim_next_job(
                     self.lease_owner, self.lease_seconds, self.clock(),
                     all_owners=True, prepare_case=True,
@@ -80,7 +113,7 @@ class DurableJobRunner:
         heartbeat_stop, lost_lease = Event(), Event()
 
         def heartbeat():
-            while not heartbeat_stop.wait(self.lease_seconds / 3):
+            while not heartbeat_stop.wait(self.heartbeat_seconds):
                 try:
                     valid = self.queue.heartbeat(job_id, self.lease_owner,
                                                  self.lease_seconds, self.clock(),
@@ -183,5 +216,7 @@ class DurableJobRunner:
     def shutdown(self, wait=True):
         self._stop.set()
         self._wake.set()
+        if self._recovery_thread is not None:
+            self._recovery_thread.join()
         if self._executor is not None:
             self._executor.shutdown(wait=wait)
