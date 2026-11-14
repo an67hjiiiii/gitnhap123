@@ -1,3 +1,12 @@
 {
-  "changes": []
+  "changes": [
+    {
+      "detail": "Request body media types added: text/plain; removed: application/json",
+      "kind": "REQUEST_BODY_CONTENT_TYPE_CHANGED",
+      "location": "requestBody:content",
+      "method": "get",
+      "path": "/widgets/{widgetId}",
+      "severity": "BREAKING"
+    }
+  ]
 }

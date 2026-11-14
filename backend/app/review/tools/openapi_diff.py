@@ -87,6 +87,21 @@ def diff(old: str | dict | OpenApiSummary, new: str | dict | OpenApiSummary) -> 
             changes.append(Change(kind="REQUEST_BODY_REQUIRED_CHANGED", severity="BREAKING" if yb.required else "NON_BREAKING", path=path, method=method, location="requestBody", detail=f"Required changed from {xb.required} to {yb.required}"))
         elif xb is None and yb and yb.required:
             changes.append(Change(kind="REQUEST_BODY_REQUIRED_CHANGED", severity="BREAKING", path=path, method=method, location="requestBody", detail="Required request body added"))
+        if xb is not None and yb is not None:
+            added_types = sorted(set(yb.content_types) - set(xb.content_types))
+            removed_types = sorted(set(xb.content_types) - set(yb.content_types))
+            if added_types or removed_types:
+                details = []
+                if added_types:
+                    details.append(f"added: {', '.join(added_types)}")
+                if removed_types:
+                    details.append(f"removed: {', '.join(removed_types)}")
+                changes.append(Change(
+                    kind="REQUEST_BODY_CONTENT_TYPE_CHANGED",
+                    severity="BREAKING" if removed_types else "NON_BREAKING",
+                    path=path, method=method, location="requestBody:content",
+                    detail="Request body media types " + "; ".join(details),
+                ))
         xr, yr = x.responses, y.responses
         for status in sorted(xr.keys() - yr.keys()):
             changes.append(Change(kind="RESPONSE_REMOVED", severity="BREAKING", path=path, method=method, location=f"response:{status}", detail="Response removed"))
