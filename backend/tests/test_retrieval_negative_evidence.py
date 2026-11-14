@@ -223,4 +223,4 @@ def test_fully_absent_evidence_maps_to_not_found(case):
     assert finding.verdict == Verdict.NOT_FOUND
     assert finding.verdict != Verdict.DEVIATES
     assert finding.evidence == []
-    assert [name for name, _ in events] == ["task.started", "finding.created"]
+    assert [name for name, _ in events] == ["task.started", "pipeline.trace", "finding.created"]
