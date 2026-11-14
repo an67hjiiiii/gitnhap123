@@ -99,7 +99,7 @@ def _legacy(raw: dict, evidence) -> str:
 
 
 async def run_pilot(*, cases_path, out_dir, conditions=("A",), max_calls=30, max_minutes=10,
-                    limit=None, provider=None, c_abort_after=3) -> dict:
+                    limit=None, only=None, provider=None, c_abort_after=3) -> dict:
     from app.providers.factory import get_provider
     from app.research import pipeline as pm
     from app.retrieval.candidate_index import CandidateIndex
@@ -171,6 +171,8 @@ async def run_pilot(*, cases_path, out_dir, conditions=("A",), max_calls=30, max
 
                     pipeline.run = wrapped  # type: ignore[method-assign]  # capture the raw run for B0 and citation stats
                 for req in case["requirements"]:
+                    if only and req["id"] not in only:
+                        continue
                     if counter.failure or counter.count >= max_calls:
                         stop_reason = counter.failure or f"Call cap {max_calls} reached"
                         break
@@ -253,9 +255,11 @@ def main(argv=None) -> int:
     p.add_argument("--max-calls", type=int, default=30)
     p.add_argument("--max-minutes", type=int, default=10)
     p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--only", default=None, help="comma-separated requirement ids")
     a = p.parse_args(argv)
     summary = asyncio.run(run_pilot(cases_path=a.cases, out_dir=a.out, conditions=tuple(a.conditions.split(",")),
-                                    max_calls=a.max_calls, max_minutes=a.max_minutes, limit=a.limit))
+                                    max_calls=a.max_calls, max_minutes=a.max_minutes, limit=a.limit,
+                                    only=set(a.only.split(",")) if a.only else None))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 
