@@ -46,12 +46,12 @@ CONDITION_FLAG_MAP = {
           "description": "Real runner shares B0 grounded output and applies verdict rules."},
     "C": {"harness_flags": _FULL, "pipeline_condition": "A",
           "description": "Experiment uses all configured flags; real runner shares B0 output and adds budget/router/memory processing."},
-    "C-P": {"harness_flags": {**_RULES, "router_budget": True}, "pipeline_condition": "C-P",
-             "description": "Experiment C without project memory; pipeline ablation removes P."},
-    "C-N": {"harness_flags": {**_RETRIEVAL, "router_budget": True, "project_memory_suggestions": True}, "pipeline_condition": "C-N",
-             "description": "Experiment C without verdict rules; pipeline ablation removes N."},
-    "C-O": {"harness_flags": {**_RULES, "project_memory_suggestions": True}, "pipeline_condition": "C-O",
-             "description": "Experiment C without router/budget; pipeline ablation removes O."},
+    "C-P": {"harness_flags": {**_RULES, "router_budget": True}, "pipeline_condition": None, "name_collision_with_pipeline": True,
+             "description": "Harness ablation of the C-P label. NOT the pipeline C-P (which removes Planning Retrieval); the harness does not run pipeline P/N/O."},
+    "C-N": {"harness_flags": {**_RETRIEVAL, "router_budget": True, "project_memory_suggestions": True}, "pipeline_condition": None, "name_collision_with_pipeline": True,
+             "description": "Harness ablation of the C-N label. NOT the pipeline C-N (which removes Normalization); the harness does not run pipeline P/N/O."},
+    "C-O": {"harness_flags": {**_RULES, "project_memory_suggestions": True}, "pipeline_condition": None, "name_collision_with_pipeline": True,
+             "description": "Harness ablation of the C-O label. NOT the pipeline C-O (which removes Context Allocation); the harness does not run pipeline P/N/O."},
 }
 
 
