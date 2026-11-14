@@ -19,6 +19,7 @@ Regenerate all scenario documents and expected outputs from `backend` with:
 ```
 
 The helper uses only local deterministic inputs and writes JSON with sorted keys.
-The separate content-type assertion is marked xfail because the current diff
-does not report a request body media-type-only change; the frozen output still
-records the current behavior, and the check result records disallowed media.
+The `content_type_change` scenario reports request body media-type changes.
+Added media types are non-breaking; removed media types are breaking. The diff
+detail lists both sets in sorted order. Its checks output independently records
+disallowed media.

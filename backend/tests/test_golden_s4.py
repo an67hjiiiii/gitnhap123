@@ -55,10 +55,6 @@ def test_golden_scenario_outputs_are_exact_and_deterministic(scenario_dir: Path)
         )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="SUSPECTED DEFECT: request body media type changes are absent from OpenAPI diff output",
-)
 def test_content_type_change_is_reported_by_diff():
     old = read_doc(FIXTURES / "content_type_change" / "old.json")
     new = read_doc(FIXTURES / "content_type_change" / "new.json")
