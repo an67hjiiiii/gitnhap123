@@ -184,13 +184,9 @@ def guard_answer(answer: str, *, status: str, evidence_texts: Iterable[str],
             body = f"Mình chưa kiểm chứng được số liệu trong câu trả lời. Đoạn liên quan trong tài liệu{where}: {excerpt}"
             notes.append("ANSWER_REPLACED_BY_EXCERPT")
     if status == "COMPLETE":
-        before = split_sentences(body)
         body, removed = drop_trailing_negatives(body)
-        if removed:
+        if removed:  # filler "no information about X" is not a dropped claim: status stays COMPLETE
             notes.append(f"TRAILING_NEGATIVE_DROPPED:{removed}")
-            for sentence in split_sentences(body):
-                before.remove(sentence)
-            removed_claims.extend(before)
     return GuardResult(body, list(dict.fromkeys(notes)), removed_claims)
 
 

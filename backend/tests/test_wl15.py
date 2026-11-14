@@ -100,3 +100,11 @@ def test_injection_at_chunk_boundary_stays_data_in_both_chunks(tmp_path, monkeyp
     system, user = provider.prompts[0]
     assert "ignore previous instructions" not in system.casefold()
     assert "ignore previous instructions" in user.casefold()  # the boundary chunk was retrieved as evidence only
+
+
+def test_trailing_filler_drop_does_not_downgrade_status():
+    from app.chat.answer_guard import guard_answer
+
+    result = guard_answer("Nhật ký ghi thời điểm tải lên. Không có thông tin cụ thể về dung lượng.",
+                          status="COMPLETE", evidence_texts=["Nhật ký cần ghi lại thời điểm tải lên."])
+    assert "TRAILING_NEGATIVE_DROPPED:1" in result.notes and result.removed_claims == []
