@@ -253,6 +253,6 @@ def test_clock_and_id_factories_make_output_deterministic():
     finding = service.start_run(case.id, "owner")[0]
     assert case.id == "id-0"
     assert case.created_at == case.updated_at == datetime(2025, 1, 1, tzinfo=timezone.utc)
-    assert requirement.id == "req-1"
+    assert requirement.id == "id-0:req-1"
     assert finding.id == "finding-1"
     assert service.repository.get_jobs("owner", case.id)[0].id == "id-1"

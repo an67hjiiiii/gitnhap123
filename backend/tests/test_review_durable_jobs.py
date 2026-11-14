@@ -411,7 +411,6 @@ def test_concurrent_recovery_only_requeues_once(database):
     assert repo.job_record("expired")["state"] == "QUEUED"
 
 
-@pytest.mark.xfail(strict=False, reason="SUSPECTED DEFECT: FakeReviewEngine reuses proposal IDs across cases, colliding with the persisted requirement primary key")
 def test_fake_engine_proposals_should_support_multiple_persisted_cases(database):
     ids = iter(["fake-case-1", "fake-case-2"])
     service = ReviewCaseService(PostgresCaseRepository(database.factory), FakeReviewEngine(),
