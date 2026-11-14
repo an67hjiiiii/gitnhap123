@@ -86,7 +86,12 @@ def test_index_errors_fail_run_and_emit_code(api, error_type, expected_code):
 
     events = runtime.events.read_since(job_id, 0)
     error_event = next(event for event in events if event.type == "error")
-    assert error_event.data == {"code": expected_code, "message": "index cannot be used"}
+    assert error_event.data == {"code": expected_code, "message": {
+        "INDEX_INCOMPATIBLE": "The search index is incompatible",
+        "INDEX_LEGACY_UNVERIFIED": "The search index could not be verified",
+        "DERIVED_INDEX_UNAVAILABLE": "The search index is unavailable",
+    }[expected_code]}
+    assert "index cannot be used" not in error_event.data["message"]
     assert events[-1].type == "job.failed"
 
 

@@ -147,7 +147,8 @@ def test_foreign_owner_cannot_access_case_requirements_run_finding_export_or_ins
     for method, path, body in route_cases:
         response = client.request(method, "/api/review" + path, json=body,
                                   headers=_headers(tokens["bob"]))
-        _assert_error_body(response, "CASE_NOT_FOUND")
+        _assert_error_body(response, "FINDING_NOT_FOUND" if method == "PUT" and "/findings/" in path
+                           else "CASE_NOT_FOUND")
     listed = client.get("/api/review/cases", headers=_headers(tokens["bob"]))
     assert listed.status_code == 200
     assert all(case["id"] != case_id for case in listed.json())
@@ -173,7 +174,7 @@ def test_finding_guess_and_foreign_case_context_are_hidden(auth_api):
     bob_case = _create(client, tokens["bob"], sources["bob"])
     response = client.put(f"/api/review/findings/{finding['id']}/decision",
                           json={"review": "ACCEPT"}, headers=_headers(tokens["bob"]))
-    _assert_error_body(response, "CASE_NOT_FOUND")
+    _assert_error_body(response, "FINDING_NOT_FOUND")
     response = client.get(f"/api/review/cases/{bob_case}/inspector?run={finding['id']}",
                           headers=_headers(tokens["bob"]))
     _assert_error_body(response, "RUN_NOT_FOUND")

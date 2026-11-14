@@ -130,7 +130,7 @@ def test_foreign_owner_cannot_access_any_resource(api):
     for method, path, body in requests:
         response = client.request(method, "/api/review" + path, json=body, headers={"x-user": "bob"})
         assert response.status_code == 404, path
-        assert response.json()["code"] == "CASE_NOT_FOUND"
+        assert response.json()["code"] == ("FINDING_NOT_FOUND" if path.startswith("/findings/") else "CASE_NOT_FOUND")
     assert client.get("/api/review/cases", headers={"x-user": "bob"}).json() == []
 
 
