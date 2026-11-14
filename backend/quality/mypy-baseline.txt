@@ -28,7 +28,7 @@ app\research\pipeline.py: error: Item "None" of "TaskPlan | None" has no attribu
 app\research\pipeline.py: error: Item "None" of "TaskPlan | None" has no attribute "request"  [union-attr]
 app\research\pipeline.py: error: Item "None" of "TaskPlan | None" has no attribute "request"  [union-attr]
 app\research\pipeline.py: error: Item "None" of "TaskPlan | None" has no attribute "tasks"  [union-attr]
-app\research\pipeline.py: error: Name "retrieval_trace" already defined on line 303  [no-redef]
+app\research\pipeline.py: error: Name "retrieval_trace" already defined on line 304  [no-redef]
 app\research\pipeline.py: error: Need type annotation for "matches_by_id" (hint: "matches_by_id: dict[<type>, <type>] = ...")  [var-annotated]
 app\research\pipeline.py: error: Value of type variable "SupportsRichComparisonT" of "max" cannot be "float | None"  [type-var]
 app\research\plan_verification.py: error: Item "None" of "Match[str] | None" has no attribute "group"  [union-attr]

@@ -1,7 +1,7 @@
 """Pure citation integrity checks; numeric diagnostics do not assign verdicts."""
 
-from collections.abc import Iterable
 import unicodedata
+from collections.abc import Iterable
 
 from app.review_adapters.slot_check import Slot, _numbers, _quantity_keys
 

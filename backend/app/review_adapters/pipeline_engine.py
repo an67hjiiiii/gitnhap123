@@ -29,7 +29,7 @@ class _RunFailed(Exception):
 
 def _failure_code(result: dict) -> str:
     events = result.get("events", [])
-    failed = next((e for e in reversed(events) if e.get("stage") == "run_failed"), {})
+    failed: dict = next((e for e in reversed(events) if e.get("stage") == "run_failed"), {})
     error_type = str(failed.get("error_type") or "")
     error = str(failed.get("error") or "")
     if any(e.get("stage") == "planning_rejected" for e in events):
@@ -198,7 +198,7 @@ class PipelineReviewEngine:
                     )
                     stages = {event.get("stage"): event for event in result.get("events", [])}
                     if result.get("status") == "FAILED":
-                        failed = stages.get("run_failed") or {}
+                        failed: dict = stages.get("run_failed") or {}
                         _log.warning(
                             "Review pipeline run failed case_id=%s requirement_id=%s error_type=%s error=%s",
                             case.id, requirement.id, failed.get("error_type"), failed.get("error"),
