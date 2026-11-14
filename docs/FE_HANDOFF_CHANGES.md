@@ -56,3 +56,6 @@ Với SSE, hiển thị tiến trình bằng `events[eventName]`; unknown event 
 ## Lỗi một yêu cầu (task.failed)
 - Khi pipeline trả run FAILED, finding vẫn là UNDETERMINED (evidence rỗng; trước đây giữ evidence nếu có) và có thêm event pipeline.trace + 	ask.failed với error_type thuộc: PLAN_REJECTED, PROVIDER_LIMIT, CONDITION_NOT_AVAILABLE, PIPELINE_RUN_FAILED, UNKNOWN. error luôn là thông điệp cố định; chi tiết chỉ ở log máy chủ.
 - Nhãn tiếng Việt ở contracts/review/labels.vi.json mục 	ask_failed (what/todo).
+
+## Export Markdown: dòng Edited (2026-11-14)
+Khi quyết định là EDIT và có edited_text, export thêm dòng `   - Edited: <văn bản>` sau dòng Decision. Thay đổi cộng thêm, không đổi cấu trúc cũ.

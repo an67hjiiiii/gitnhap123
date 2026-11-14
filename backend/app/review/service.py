@@ -360,6 +360,8 @@ class ReviewCaseService:
                     f"   - Decision: {label('decision', finding.review.value)}",
                 ]
             )
+            if finding.edited_text:
+                rows.append(f"   - Edited: {finding.edited_text}")
             rows.extend(
                 f"   - Evidence: {item.evidence_id} ({item.source_id}, "
                 f"{item.locator}): {item.excerpt}"
