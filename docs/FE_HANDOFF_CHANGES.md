@@ -123,3 +123,16 @@ Chỉ thêm, không đổi hợp đồng cũ.
 - Backend phát hiện chỉ mục khác `embedding_version` hiện tại (lúc khởi động và lười khi có câu hỏi tài liệu) → lập lại trong nền theo từng nguồn (tăng dần, không xoá collection cũ).
 - Trong lúc chạy, câu hỏi tài liệu trả `200`, `status=NO_EVIDENCE`, `answer` tiếng Việt từ `labels.vi.json` (`reindex.running`: "Đang cập nhật chỉ mục tài liệu (x/y), thử lại sau ít phút."), event `intent_routed.path="REINDEXING"`, event `reindex_progress {status,done,total,failed,started_at,finished_at,duration_s}` và trường `index` cùng nội dung. Không còn 503 `INDEX_INCOMPATIBLE` thô. Câu trả thẳng/HISTORY không bị chặn.
 - `GET /api/index/status` (cần đăng nhập) trả trạng thái tiến độ: `idle|running|done|failed`.
+
+## Hiển thị kết quả (BE, chỉ thêm khoá)
+- Phản hồi `/api/chat` có thêm `grounding`: `"document"` (dựa tài liệu) hoặc `"none"` (phép tính, định nghĩa chung, follow-up từ lịch sử). Ghi chú "Không dựa trên tài liệu của bạn" đã bỏ khỏi `answer`; FE tự hiện nhãn theo `grounding`. Câu hỏi về nội dung tài liệu mà không có bằng chứng vẫn `NO_EVIDENCE` với thông báo chưa tìm thấy.
+- `sources`: `[{n, doc_name, section, snippet, chunk_id}]` ở cấp trên của phản hồi (rỗng nếu không có). Thân `answer` dùng `[n]` thay cho mã chunk, dòng `Nguồn: [...]` không còn trong `answer`. `task_results[*].citations` và mọi khoá cũ giữ nguyên.
+- `answer` không còn thẻ `<source name>`, `<src_…>`, mã chunk thô, hay tên tệp bị lặp.
+- Chế độ Phân tích: mục "Tóm tắt" chỉ có khi thân bài >= 600 ký tự và có từ 2 miền trở lên (env `SYNTH_MIN_BODY_CHARS`, mặc định 600; 0 = luôn tóm tắt); không bao giờ lặp thân bài.
+- Câu hỏi tổng quan kho ("trong tài liệu có gì", "có những tài liệu nào", "kho có gì"): `intent.intent="corpus_overview"`, `events[0].path="OVERVIEW"`, trả bằng mã từ danh sách tài liệu + tiêu đề mục, không gọi model, không đi chế độ Phân tích; kho trống nói không có tài liệu.
+
+## Ngoại lệ FE nhỏ do Owner cho phép — tải nhiều tệp (branch s3/fe-sync)
+Chỉ chạm `frontend/src/studio/components/LeftPanel.tsx` và `handleUpload` trong `frontend/src/studio/App.tsx`:
+- Ô chọn tệp có `multiple`; kéo-thả nhận nhiều tệp và cả thư mục (khi trình duyệt có `webkitGetAsEntry`). Danh sách loại tệp giữ nguyên (`.pdf,.md,.markdown,.sql,.txt`); loại khác bị bỏ qua và báo rõ.
+- Tải tối đa 2 tệp song song bằng `uploadDocument` có sẵn; hiện "Đang tải i/n…"; một tệp lỗi chỉ báo riêng tệp đó; cuối cùng "Đã tải x/y · lỗi: … · bỏ qua vì đã có: …". Tệp trùng tên đã có (hoặc trùng trong cùng lượt) bị bỏ qua và nói rõ.
+- `handleUpload` nay trả `true/false` (không ném lỗi) và đếm số lượt đang tải để cờ `isUploading` không tắt sớm. `Workspace.onUploadFile` vẫn gọi được như cũ.
