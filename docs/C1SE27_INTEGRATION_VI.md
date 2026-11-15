@@ -84,11 +84,35 @@ CAP1 có hai vai trò: USER và ADMIN. Mỗi người chỉ thấy và xóa đư
 
 Các giá trị đổi theo cuộn (chương câu chuyện, bước đường ray) và hộp phương pháp tự chuyển được tách thành khối nhỏ, nên không render lại cả trang. Đo bằng Playwright (cuộn hết trang): trước 10 long task, khoảng 1 giây; sau 0 long task, ngang bản C1SE.27 gốc. Hiệu ứng, mốc cuộn và âm thanh giữ nguyên.
 
+## Chức năng phân tích (13/11/2026)
+
+Module riêng `backend/app/analysis/` và API `backend/app/api/analysis.py` (`/api/studio/...`), không đi qua `/api/chat`, planner hay bước kiểm tra kế hoạch của CAP1; luồng nghiên cứu A/B/C giữ nguyên. Báo cáo lưu trong bảng mới `studio_reports` (migration `20261113_05`, tạo tự động khi backend khởi động). Giao diện: các mục mới ở thanh bên của Studio. Cách dùng: `docs/HUONG_DAN_SU_DUNG.md`.
+
+| Chức năng | Mã nguồn | Ghi chú phương pháp |
+|---|---|---|
+| Truy vết yêu cầu | `analysis/traceability.py`, `components/ChecklistView.tsx` | Trích yêu cầu có mã (không dùng mô hình); tác tử chọn theo chuyên môn; kết luận có lược đồ JSON và kiểm tra trích dẫn; quy tắc hạ kết luận (không căn cứ, còn điểm thiếu, thiếu con số mục tiêu) |
+| Gói thiết kế kỹ thuật | `analysis/design.py`, `components/DesignView.tsx` | Ý chính → ba tác tử → kiểm tra độ phủ; mỗi tác tử truy xuất riêng, ưu tiên đoạn tác tử trước chưa dùng; đo token và thời gian theo từng tác tử; sinh SQL/OpenAPI nháp |
+| Rà soát bảo mật | `analysis/security_review.py` | 32 tiêu chí chọn lọc OWASP ASVS 4.0.3, tác tử Bảo mật, thêm quy tắc thuật ngữ cốt lõi phải có trong đoạn trích |
+| Kiểm tra mâu thuẫn | `analysis/consistency.py`, `components/ConsistencyView.tsx` | Ghép cặp câu quy định cùng chủ đề khác con số/phủ định (không dùng mô hình); chỉ tự xác nhận xung đột con số cùng phạm vi |
+| Kiểm chứng câu trả lời | `analysis/grounding.py`, `components/AnswerTools.tsx` | Đối chiếu từng câu với đoạn lượt chạy đã đọc (trùng từ 0,7 + trùng cặp từ 0,3; con số phải có trong đoạn); không gọi mô hình, không đổi lượt chạy |
+| Hồ sơ tài liệu | `analysis/insights.py`, `components/DocumentProfileView.tsx` | Tại máy: chất lượng, thông tin nhạy cảm (chỉ trả giá trị đã che, thẻ qua Luhn), thuật ngữ định nghĩa sẵn, tài liệu liên quan (cosine), so dòng hai phiên bản. Mô hình: tóm tắt, câu hỏi gợi ý (mã đoạn ràng buộc enum), định nghĩa thuật ngữ, tóm tắt thay đổi |
+| Đọc tài liệu, sơ đồ tư duy, báo cáo | `analysis/reading.py`, `components/DocumentReader.tsx`, `components/MindMap.tsx`, `components/analysis/exporters.tsx` | Sơ đồ theo đề mục (tại máy) hoặc do mô hình gom ý (mã đoạn rút gọn D1, D2… ràng buộc enum rồi đổi lại mã thật); giải thích đoạn bôi đen; báo cáo từ câu trả lời (nguồn lấy từ đoạn thật, không do mô hình viết); Word dựng bằng thư viện chuẩn `zipfile`; PDF qua hộp thoại in |
+| Neo nghĩa vụ khi kiểm tra kế hoạch | `research/plan_anchoring.py`, gọi trong `research/pipeline.py` | Chỉ chạy sau khi lần sửa bằng mô hình vẫn bị từ chối: chép nguyên văn nghĩa vụ/mối quan tâm vào nhiệm vụ đã nhận; nếu nhiệm vụ nhận sai mảng theo luật định tuyến của bộ kiểm tra thì chuyển sang đúng tác tử. Kế hoạch vẫn phải qua đúng `verify_task_plan` cũ; ghi sự kiện `plan_anchoring` (thay đổi, lỗi, nhiệm vụ) |
+| Nhiệm vụ phụ thuộc | `research/worker.py`, `research/pipeline.py` | Tác tử của nhiệm vụ phụ thuộc nhận kết quả các nhiệm vụ tiền đề trong khối `[UPSTREAM]` (để nhất quán, không phải bằng chứng, không được trích dẫn) |
+| Đo tài nguyên | `core/telemetry.py`, `RunMetrics` | Thêm `cpu_percent` (CPU toàn máy trung bình trong lượt) và `model_rss_mb` (RAM tiến trình Ollama) |
+| Chấm mù | `analysis/blind_rating.py`, API `/api/studio/rating/*`, migration `20261114_07`, `components/BlindRatingView.tsx` | Mục chấm giữ điều kiện ở máy chủ, xáo thứ tự theo người chấm, chặn chủ đợt tự chấm; Krippendorff alpha khoảng, Wilcoxon cặp |
+| Câu hỏi tiếp nối | `research/conversation_context.py` (`resolve_follow_up`), `research/pipeline.py` | Chỉ ở chế độ sản phẩm (`product_mode`): câu ngắn hoặc có từ chỉ trỏ được ghép câu hỏi trước vào truy vấn truy xuất và câu hỏi gửi mô hình; ghi sự kiện `follow_up_resolved`. Điều kiện A/B/C của thực nghiệm không đổi |
+| Kiểm tra kho, thống kê, phản hồi cho quản trị | `analysis/reading.py` (`library_quality`, `question_topics`), `GET /api/studio/admin/feedback`, `components/AdminFeedbackModal.tsx` | Trùng tài liệu theo cosine ≥ 0,9; chủ đề tách từ ghép theo tần suất cặp chữ trong kho; phản hồi cho quản trị chỉ ADMIN xem |
+| Phản hồi, nhật ký, tổng quan | `api/analysis.py`, middleware trong `main.py`, `components/OverviewView.tsx` | Bảng `studio_feedback`, `studio_activity` (migration `20261113_06`); nhật ký ghi tên thao tác và đối tượng, không ghi nội dung; ghi lỗi không làm hỏng yêu cầu |
+| Phòng đánh giá | `analysis/evaluation.py`, `components/EvaluationView.tsx` | Bộ câu hỏi có ý chính, chạy A/B/C (cùng thiết lập ngôn ngữ cho mọi điều kiện), chấm mù, Wilcoxon cặp chính xác (đối chiếu ví dụ chuẩn của R), khoảng tin cậy 95%, rank-biserial, Cohen's dz |
+
+Truy xuất bằng chứng của module này dùng BM25 (cặp âm tiết) trước, thiếu mới bù vector: trên 12 câu có đáp án của bộ tài liệu mẫu, đoạn đúng vào top 4 ở 12/12 câu, so với 6/12 khi chỉ dùng vector nomic (kiểm tra kỹ thuật, không phải số liệu nghiên cứu). Truy xuất của A/B/C không đổi.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.
 - Chưa có tạo hoặc khóa cấu hình. Cấu hình CAP1 lấy từ biến môi trường; Studio chỉ hiển thị kèm `config_hash`.
-- Chưa có token theo từng tác tử, token tiết kiệm, độ phủ. Studio hiện "Chưa đo".
+- Ở trang Thực nghiệm chưa có token theo từng tác tử, token tiết kiệm, độ phủ nhiệm vụ (hiện "Chưa đo"). Gói thiết kế đo token theo từng tác tử; Phòng đánh giá đo độ phủ ý chính tự động và điểm người chấm.
 - Chưa có diễn tập nghẽn LLM và đăng nhập Google/GitHub. Đã bỏ khỏi giao diện, không giả lập.
 - Điều kiện B và C của CAP1 thường bị từ chối ở bước kiểm tra kế hoạch với yêu cầu dài nhiều ý (rà soát 11/11: cả B và C từ chối yêu cầu "Thiết kế cổng thanh toán chống trừ tiền hai lần… và phân quyền truy cập"). Đây là hành vi sẵn có của CAP1, không do tích hợp. Studio báo lỗi bằng tiếng Việt và giữ nguyên thông báo gốc.
 - Ngôn ngữ trả lời (chế độ Hỏi nhanh): câu hỏi có dấu tiếng Việt thì có thêm lời nhắc cuối prompt "trả lời bằng tiếng Việt, gọn khoảng 150 từ" (qwen3:4b hay trả lời theo ngôn ngữ của tài liệu tiếng Anh; giới hạn 700 token đầu ra làm câu dài bị cụt). Điều kiện A/B/C dùng cho thực nghiệm không đổi. Chạy thật 11/11: 6/7 câu mẫu trả lời tiếng Việt, câu tiếng Anh vẫn trả lời tiếng Anh.

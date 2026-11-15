@@ -68,7 +68,10 @@ def build_query_variants(query: str) -> list[RetrievalQueryVariant]:
         if any(_fold(term) in folded for term in (*vi_terms, *en_terms)):
             concepts.extend(terms)
     # Keep identifiers and technical terms from the original representation.
-    technical = re.findall(r"\b[A-Za-z][A-Za-z0-9_:.+-]{2,}\b", query)
+    # Only identifier-shaped tokens (API, PostgreSQL, owner_id, HMAC-SHA256): plain words such as
+    # unaccented Vietnamese syllables ("thu", "sau") would otherwise pollute the alternate query.
+    technical = [token for token in re.findall(r"\b[A-Za-z][A-Za-z0-9_:.+-]{2,}\b", query)
+                 if re.search(r"[A-Z0-9_:.+-]", token[1:])]
     expansion = " ".join(dict.fromkeys([*concepts, *technical]))
     if expansion and _fold(expansion) != _fold(query):
         variants.append(RetrievalQueryVariant("cross_language_concepts", expansion, target))

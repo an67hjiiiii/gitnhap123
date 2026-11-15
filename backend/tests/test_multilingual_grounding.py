@@ -64,3 +64,13 @@ def test_no_evidence_stays_honest():
     result = asyncio.run(answer_vanilla(provider, "Unsupported", [], RunMetrics()))
     assert result.status == "NO_EVIDENCE"
     assert result.citations == []
+
+
+def test_plain_vietnamese_words_are_not_treated_as_identifiers():
+    # Từ tiếng Việt không dấu ("thu", "sau", "bao") từng lọt vào biến thể và kéo đoạn mở đầu tài liệu lên đầu.
+    alt = [v.text for v in build_query_variants("Khóa API bị thu hồi mất hiệu lực sau bao lâu?") if v.label == "cross_language_concepts"]
+    assert alt and "API" in alt[0].split()
+    assert not {"thu", "sau", "bao"} & set(alt[0].split())
+    assert [v.label for v in build_query_variants("Đơn thanh toán hết hạn sau bao lâu? Theo tài liệu")] == ["original"]
+    ids = build_query_variants("Làm sao kiểm tra chữ ký HMAC-SHA256 cho merchant_id trong PostgreSQL?")[1].text.split()
+    assert {"HMAC-SHA256", "merchant_id", "PostgreSQL"} <= set(ids)

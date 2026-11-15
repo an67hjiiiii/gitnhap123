@@ -22,7 +22,11 @@ export function answerText(raw: unknown): string {
   if (!text.startsWith('{')) return text;
   try {
     const parsed = JSON.parse(text);
-    return [parsed.answer, parsed.final_answer, parsed.text].find(v => typeof v === 'string' && v.trim()) ?? text;
+    const own = [parsed.answer, parsed.final_answer, parsed.text].find(v => typeof v === 'string' && v.trim());
+    if (own) return own;
+    // Bộ tổng hợp đôi khi chép lại cả cấu trúc {"task_results":[{"answer":...}]}: ghép phần chữ của từng việc.
+    const parts = (Array.isArray(parsed.task_results) ? parsed.task_results : []).map((r: any) => r?.answer).filter((v: unknown) => typeof v === 'string' && v.trim());
+    return parts.length ? parts.join('\n\n') : text;
   } catch {
     // JSON bị cụt (mô hình chạm giới hạn độ dài): lấy phần "answer" đọc được, bỏ ký tự thoát.
     const m = text.match(/"(?:answer|final_answer|text)"\s*:\s*"((?:[^"\\]|\\.)*)/);
@@ -77,7 +81,7 @@ export function adaptRun(run: Cap1Run): ModeExecutionResult {
     completion_tokens: Number(m.output_tokens ?? 0),
     tokens_saved: null,
     token_saving_ratio: null,
-    cpu_percent: null as unknown as number,
+    cpu_percent: m.cpu_percent ?? (null as unknown as number),
     ram_usage_mb: m.peak_rss_mb ?? (null as unknown as number),
     ram_delta_mb: null as unknown as number,
     task_coverage: null,
