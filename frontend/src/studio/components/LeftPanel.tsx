@@ -5,7 +5,7 @@ import { useDismiss } from './Header';
 
 interface LeftPanelProps {
   documents: DocumentInfo[];
-  onUpload: (file: File) => Promise<void>;
+  onUpload: (file: File) => Promise<boolean | void>;
   onClear: () => Promise<void>;
   onSeedDocs: () => Promise<void>;
   onInspectDocument?: (doc: DocumentInfo) => void;
@@ -17,6 +17,8 @@ interface LeftPanelProps {
   isMobileDrawerOpen?: boolean;
   onCloseMobileDrawer?: () => void;
 }
+
+const ACCEPTED = /\.(pdf|md|markdown|sql|txt)$/i; // danh sách loại tệp hiện tại, không đổi
 
 type Domain = 'all' | 'database' | 'api' | 'security';
 const DOMAIN_LABEL: Record<Domain, string> = { all: 'Tất cả', database: 'Dữ liệu', api: 'API', security: 'Bảo mật' };
@@ -59,16 +61,52 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   const closeMenu = React.useCallback(() => setMenuOpen(false), []);
   const menuRef = useDismiss(menuOpen, closeMenu);
 
-  const processFile = async (file: File) => {
-    try {
-      setStatus({ text: `Đang phân đoạn ${file.name}…`, tone: 'info' });
-      await onUpload(file);
-      setStatus({ text: `Đã thêm ${file.name}`, tone: 'ok' });
-      setTimeout(() => setStatus(null), 3000);
-    } catch (err: any) {
-      setStatus({ text: `Lỗi: ${err.message}`, tone: 'error' });
-      setTimeout(() => setStatus(null), 4000);
+  // Tải nhiều tệp: tối đa 2 tệp song song (Ollama không nghẽn), lỗi một tệp không dừng cả lượt.
+  const processFiles = async (picked: File[]) => {
+    const have = new Set(documents.map(d => d.source_file));
+    const seen = new Set<string>();
+    const todo: File[] = []; const skipped: string[] = []; const unsupported: string[] = [];
+    for (const f of picked) {
+      if (!ACCEPTED.test(f.name)) unsupported.push(f.name);
+      else if (have.has(f.name) || seen.has(f.name)) skipped.push(f.name);
+      else { seen.add(f.name); todo.push(f); }
     }
+    const failed: string[] = []; let done = 0; let next = 0;
+    const worker = async () => {
+      while (next < todo.length) {
+        const file = todo[next++];
+        try { if ((await onUpload(file)) === false) failed.push(file.name); } catch { failed.push(file.name); }
+        done += 1;
+        setStatus({ text: `Đang tải ${Math.min(done + 1, todo.length)}/${todo.length}…`, tone: 'info' });
+      }
+    };
+    if (todo.length) {
+      setStatus({ text: `Đang tải 1/${todo.length}…`, tone: 'info' });
+      await Promise.all([worker(), worker()]);
+    }
+    const parts = [`Đã tải ${todo.length - failed.length}/${todo.length}`];
+    if (failed.length) parts.push(`lỗi: ${failed.join(', ')}`);
+    if (skipped.length) parts.push(`bỏ qua vì đã có: ${skipped.join(', ')}`);
+    if (unsupported.length) parts.push(`không hỗ trợ loại tệp: ${unsupported.join(', ')}`);
+    setStatus({ text: parts.join(' · '), tone: failed.length ? 'error' : 'ok' });
+    setTimeout(() => setStatus(null), failed.length || skipped.length || unsupported.length ? 8000 : 3500);
+  };
+  // Kéo-thả: nhận nhiều tệp và cả thư mục (nếu trình duyệt cho webkitGetAsEntry).
+  const filesOf = async (dt: DataTransfer): Promise<File[]> => {
+    const entries = Array.from(dt.items ?? []).map(i => (i as any).webkitGetAsEntry?.()).filter(Boolean);
+    if (!entries.length) return Array.from(dt.files ?? []);
+    const out: File[] = [];
+    const walk = async (entry: any): Promise<void> => {
+      if (entry.isFile) { out.push(await new Promise<File>((res, rej) => entry.file(res, rej))); return; }
+      const reader = entry.createReader();
+      for (;;) {
+        const batch: any[] = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const child of batch) await walk(child);
+      }
+    };
+    for (const entry of entries) await walk(entry);
+    return out;
   };
   const onDrag = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -77,7 +115,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   };
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false);
-    if (e.dataTransfer.files?.[0]) await processFile(e.dataTransfer.files[0]);
+    const files = await filesOf(e.dataTransfer);
+    if (files.length) await processFiles(files);
   };
 
   const docs = useMemo(() => documents.filter(doc =>
@@ -87,7 +126,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
 
   return (
     <div className={`kb${dragActive ? ' is-drag' : ''}`} onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}>
-      <input ref={fileInputRef} type="file" accept=".pdf,.md,.markdown,.sql,.txt" hidden onChange={async e => { if (e.target.files?.[0]) await processFile(e.target.files[0]); e.target.value = ''; }} />
+      <input ref={fileInputRef} type="file" multiple accept=".pdf,.md,.markdown,.sql,.txt" hidden onChange={async e => { const picked = Array.from(e.target.files ?? []); e.target.value = ''; if (picked.length) await processFiles(picked); }} />
       <div className="kb-head">
         <span className="kb-title">Kho tri thức</span>
         <span className="kb-count" title={`${totalChunks} phân đoạn`}>{documents.length}</span>

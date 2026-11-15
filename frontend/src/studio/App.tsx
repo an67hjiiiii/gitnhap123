@@ -148,7 +148,10 @@ function DashboardWorkspace({
     }
   };
 
-  const handleUpload = async (file: File) => {
+  // Trả true/false thay vì ném lỗi để LeftPanel tải nhiều tệp và báo riêng từng tệp lỗi (tối đa 2 tệp song song).
+  const uploadsInFlight = useRef(0);
+  const handleUpload = async (file: File): Promise<boolean> => {
+    uploadsInFlight.current += 1;
     setIsUploading(true);
     setRobotState('searching');
     robotSpeak(`Đang phân đoạn và lưu trữ bản sao ${file.name} vào CSDL & Vector DB...`);
@@ -157,11 +160,14 @@ function DashboardWorkspace({
       await refreshState();
       setRobotState('happy');
       robotSpeak(`Đã chỉ mục thành công tài liệu ${file.name}!`);
+      return true;
     } catch (err: any) {
       setRobotState('error');
-      robotSpeak(`Lỗi tải tệp: ${err.message}`);
+      robotSpeak(`Lỗi tải tệp ${file.name}: ${err.message}`);
+      return false;
     } finally {
-      setIsUploading(false);
+      uploadsInFlight.current -= 1;
+      if (uploadsInFlight.current <= 0) setIsUploading(false);
     }
   };
 
