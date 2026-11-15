@@ -202,12 +202,16 @@ def index_status(request: Request):
     return _REINDEX.status()
 
 
+def _ready_sources(store, selected_source_ids) -> list[dict]:
+    return [s for s in store.list_sources()
+            if s.get("status", "READY") == "READY"
+            and (selected_source_ids is None or s["source_id"] in selected_source_ids)]
+
+
 def _corpus_overview(store, selected_source_ids, language: str) -> str:
-    """Document list + section titles of the workspace, built by code (no model)."""
+    """Document list + chunk counts + section titles of the workspace, built by code (no model)."""
     labels = load_labels().get("overview", {})
-    entries = [s for s in store.list_sources()
-               if s.get("status", "READY") == "READY"
-               and (selected_source_ids is None or s["source_id"] in selected_source_ids)]
+    entries = _ready_sources(store, selected_source_ids)
     if not entries:
         return labels.get("empty", "")
     lines = [labels.get("header", "").format(n=len(entries))]
@@ -219,7 +223,11 @@ def _corpus_overview(store, selected_source_ids, language: str) -> str:
             if title and title not in sections:
                 sections.append(title)
         tail = (labels.get("sections", "") + ": " + "; ".join(sections[:8])) if sections else labels.get("no_sections", "")
-        lines.append(f"- **{entry.get('source_name')}**: {tail}")
+        count = entry.get("chunk_count")
+        if count is None:
+            count = len(detail.get("chunks", []))
+        unit = "chunks" if language == "en" else "đoạn"
+        lines.append(f"- **{entry.get('source_name')}** ({count} {unit}): {tail}")
     return "\n".join(lines)
 
 
@@ -514,7 +522,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
     """One chat turn: intent -> memory/rewrite -> path choice -> pipeline. notify(step, text) reports progress."""
     from app.chat.answer_guard import AnswerChecker
     from app.chat.intent import (
-        IntentDecision, classify_intent, classify_with_llm, definition_terms, mentions_terms,
+        IntentDecision, classify_intent, classify_with_llm, definition_terms, library_reply, mentions_terms,
     )
     from app.chat.language import document_language, text_language, translate_query
     from app.chat.memory import build_memory, has_reference, render_context, rewrite_follow_up
@@ -560,10 +568,16 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         intent_info = {"intent": decision.intent, "reason": decision.reason, "language": decision.language}
 
         if decision.reply is not None:  # greeting/thanks/farewell/out_of_scope/about_system: no retrieval, no pipeline
+            reply_text = decision.reply
+            try:  # kho đã có tài liệu thì không bảo người dùng tải lên nữa
+                names = [str(s.get("source_name")) for s in _ready_sources(owner_source_store(user), selected_source_ids)]
+                reply_text = library_reply(decision.intent, decision.language, names) or reply_text
+            except Exception:
+                pass
             conversations.add_message(conversation_id, "USER", message)
-            conversations.add_message(conversation_id, "ASSISTANT", decision.reply)
+            conversations.add_message(conversation_id, "ASSISTANT", reply_text)
             return {
-                "run_id": None, "status": "COMPLETE", "answer": decision.reply, "citations": [], "sources": [],
+                "run_id": None, "status": "COMPLETE", "answer": reply_text, "citations": [], "sources": [],
                 "task_results": [], "events": [{"stage": "intent_routed", **intent_info, "retrieval": False}],
                 "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
             }

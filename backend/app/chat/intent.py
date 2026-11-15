@@ -39,6 +39,8 @@ _DOC_WORDS = ("tai lieu", "document", "file", "yeu cau", "requirement", "ho so",
 _HISTORY_CUES = ("o tren", "vua roi", "luc nay", "ban nay", "truoc do", "ban vua", "o truong hop", "trong truong hop",
                  "above", "earlier", "you just said", "you said", "previous answer", "in case")
 _OVERVIEW = ("trong tai lieu co gi", "tai lieu co gi", "co nhung tai lieu nao", "co tai lieu nao", "kho co gi",
+             "co tai lieu gi", "dang co tai lieu", "co nhung file nao", "kho dang co", "tai lieu da tai",
+             "what files", "which files", "what do i have uploaded", "what have i uploaded",
              "kho tai lieu co gi", "danh sach tai lieu", "liet ke tai lieu", "tong quan kho", "tong quan tai lieu",
              "cac tai lieu da tai", "what documents", "which documents", "list documents", "list the documents",
              "what s in the documents", "what is in the documents", "what do the documents contain")
@@ -128,6 +130,27 @@ def _reply(intent: str, language: str) -> str:
     if intent == "about_system":
         return "I\u2019m a technical document assistant. Upload a document and ask me about its APIs or requirements."
     return 'I focus on technical documents. You could ask "How does this API authenticate?" or "What are the security requirements?"'
+
+
+def library_reply(intent: str, language: str, names: list[str]) -> str | None:
+    """Khi kho đã có tài liệu, câu chào/cảm ơn/tạm biệt/giới thiệu nói đúng số tài liệu thay vì bảo người dùng tải lên."""
+    if not names or intent not in {"greeting", "thanks", "farewell", "about_system"}:
+        return None
+    shown = ", ".join(names[:5]) + (", …" if len(names) > 5 else "")
+    n = len(names)
+    if language == "vi":
+        return {
+            "greeting": f"Chào bạn! Kho đang có {n} tài liệu ({shown}). Bạn muốn hỏi gì về nội dung trong đó?",
+            "thanks": f"Rất vui được hỗ trợ! Kho đang có {n} tài liệu ({shown}), bạn cứ hỏi thêm nhé.",
+            "farewell": f"Tạm biệt bạn! Kho vẫn giữ {n} tài liệu ({shown}) cho lần sau.",
+            "about_system": f"Tôi là trợ lý tài liệu kỹ thuật. Kho đang có {n} tài liệu ({shown}); hãy hỏi về API hoặc yêu cầu trong đó.",
+        }[intent]
+    return {
+        "greeting": f"Hello! The library has {n} document(s) ({shown}). What would you like to know about them?",
+        "thanks": f"You're welcome! The library has {n} document(s) ({shown}); ask away.",
+        "farewell": f"Goodbye! The library keeps {n} document(s) ({shown}) for next time.",
+        "about_system": f"I'm a technical document assistant. The library has {n} document(s) ({shown}); ask about their APIs or requirements.",
+    }[intent]
 
 
 _DEFINITION_STOP = {"la", "gi", "cai", "what", "is", "are", "s", "a", "an", "the", "define", "explain", "giai", "thich",

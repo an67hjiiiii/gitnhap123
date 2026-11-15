@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, ChevronDown, Clock, Coins, CornerDownRight, FileDown, FileText, FolderOpen, Inbox, ListChecks, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
+import { ArrowRight, ArrowUp, BookOpen, ChevronDown, CornerDownRight, FileDown, FileText, ShieldCheck, FolderOpen, Inbox, ListChecks, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
 import { ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions } from '../services/api';
 import { ExportButtons } from './analysis/exporters';
 import { AnswerFeedback, GroundingButton, GroundingPanel } from './AnswerTools';
+import { AnswerBar } from './AnswerBar';
 import { adaptRun, answerText, Cap1Run, CONDITION_LABEL } from '../services/adapt';
 import { Markdown } from '../utils/markdown';
 import { serverDate } from '../utils/time';
@@ -130,8 +131,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const [report, setReport] = useState<{ runId: string; data?: { title: string; markdown: string; tokens: number; ms: number }; error?: string } | null>(null);
   const [freshQ, setFreshQ] = useState<{ busy: boolean; error?: string; forId?: string }>({ busy: false });
   const recRef = useRef<any>(null);
-  const spokenAsk = useRef(false);
+  const wantMic = useRef(false);   // true cho tới khi Owner bấm dừng; trình duyệt tự ngắt khi im lặng thì khởi động lại
+  const draftRef = useRef('');
+  const [directSecs, setDirectSecs] = useState<Record<string, number>>({});
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  draftRef.current = draft;
   const fileRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const closedH = useRef(0);
@@ -174,7 +178,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     const synth = window.speechSynthesis; if (!synth) return;
     const check = () => setViVoice(synth.getVoices().some(v => /^vi/i.test(v.lang)));
     check(); synth.addEventListener?.('voiceschanged', check);
-    return () => { synth.removeEventListener?.('voiceschanged', check); synth.cancel(); recRef.current?.abort?.(); };
+    return () => { synth.removeEventListener?.('voiceschanged', check); synth.cancel(); wantMic.current = false; recRef.current?.abort?.(); };
   }, []);
 
   useEffect(() => {
@@ -221,7 +225,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     e?.preventDefault();
     const text = draft.trim();
     if (!text || pending) return;
-    const spoken = spokenAsk.current; spokenAsk.current = false;
+    const t0 = Date.now();
     setPending({ text, mode }); setDraft(''); setError(null);
     setState(mode === 'quick' ? 'searching' : 'decomposing');
     speak(mode === 'quick' ? 'Đang tìm trong tài liệu…' : 'Đang lập kế hoạch và chia việc cho các tác tử…');
@@ -229,6 +233,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
       const scope = only ? [only.id] : undefined;
       let run = mode === 'quick' ? await sendChat(text, conversationId, workspaceId, scope) : await sendAnalysis(text, mode, conversationId, workspaceId, scope);
       setRuns(prev => ({ ...prev, [run.run_id]: run }));
+      if (!run.run_id) setDirectSecs(prev => ({ ...prev, [String(run.answer)]: (Date.now() - t0) / 1000 }));  // tin trả lời trực tiếp không có run: đo ở phía giao diện
       // Kế hoạch bị bước kiểm tra của CAP1 từ chối (hành vi nghiên cứu, giữ nguyên): lượt thất bại vẫn lưu và hiện,
       // rồi trả lời lại bằng Hỏi nhanh trong cùng cuộc trò chuyện để người dùng không phải tự gửi lại.
       if (mode !== 'quick' && isPlanRejected(run)) {
@@ -245,29 +250,35 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
       if (run.status === 'FAILED') { setState('error'); speak('Lượt này không hoàn thành. Mình đã ghi lý do trong câu trả lời.'); }
       else {
         setState('completed'); speak(`Xong sau ${((run.metrics?.latency_ms ?? 0) / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} giây.`);
-        // Hỏi bằng giọng nói thì đọc to câu trả lời.
-        if (spoken && run.status !== 'NO_EVIDENCE') readAloud(run.run_id, answerText(run.answer as any));
       }
     } catch (err: any) {
       setError(err.message); setDraft(text); setState('error'); speak('Có lỗi khi gửi. Bạn thử lại nhé.');
     } finally { setPending(null); }
   };
 
+  const stopMic = () => { wantMic.current = false; recRef.current?.stop(); };
   const listen = () => {
-    if (listening) { recRef.current?.stop(); return; }
-    const rec = new Recognition();
-    rec.lang = 'vi-VN'; rec.interimResults = true; rec.continuous = false;
-    const base = draft.trim() ? `${draft.trim()} ` : '';
-    rec.onresult = (e: any) => { let t = ''; for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; setDraft(base + t); spokenAsk.current = true; };
-    rec.onerror = (e: any) => {
-      if (e.error === 'aborted') return;
-      setError(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Trình duyệt chưa được cấp quyền dùng micro.'
-        : e.error === 'no-speech' ? 'Chưa nghe thấy giọng nói. Bấm micro rồi nói lại.'
-        : e.error === 'network' ? 'Trình duyệt cần kết nối mạng để nhận dạng giọng nói; hãy gõ câu hỏi.' : `Không nhận dạng được giọng nói (${e.error}).`);
+    if (listening || wantMic.current) { stopMic(); return; }
+    wantMic.current = true; setError(null); setOpen(true);
+    const begin = () => {
+      const rec = new Recognition();
+      // continuous + tự khởi động lại: chỉ dừng khi Owner bấm dừng, không ngắt khi im lặng. Nội dung giữ trong ô nhập, không tự gửi.
+      rec.lang = 'vi-VN'; rec.interimResults = true; rec.continuous = true;
+      const base = draftRef.current.trim() ? `${draftRef.current.trim()} ` : '';
+      rec.onresult = (e: any) => { let t = ''; for (let k = 0; k < e.results.length; k++) t += e.results[k][0].transcript; setDraft(base + t); };
+      rec.onerror = (e: any) => {
+        if (e.error === 'aborted' || e.error === 'no-speech') return;  // im lặng: onend sẽ khởi động lại
+        wantMic.current = false;
+        setError(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Trình duyệt chưa được cấp quyền dùng micro.'
+          : e.error === 'network' ? 'Trình duyệt cần kết nối mạng để nhận dạng giọng nói; hãy gõ câu hỏi.' : `Không nhận dạng được giọng nói (${e.error}).`);
+      };
+      rec.onend = () => {
+        if (wantMic.current) { setTimeout(() => { if (wantMic.current) { try { begin(); } catch { wantMic.current = false; setListening(false); } } }, 200); return; }
+        setListening(false); inputRef.current?.focus();
+      };
+      recRef.current = rec; rec.start();
     };
-    rec.onend = () => { setListening(false); inputRef.current?.focus(); };
-    recRef.current = rec; setError(null); setOpen(true);
-    try { rec.start(); setListening(true); speak('Mình đang nghe, bạn nói câu hỏi nhé.'); } catch (err: any) { setError(err.message); }
+    try { begin(); setListening(true); } catch (err: any) { wantMic.current = false; setError(err.message); }
   };
   const readAloud = (id: string, text: string) => {
     const synth = window.speechSynthesis; if (!synth) return;
@@ -306,7 +317,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
           <Sparkles size={16} /><span>Hỏi C27 về tài liệu của bạn…</span><kbd>Nhấn để bắt đầu</kbd>
         </button>
       ) : <>
-        {listening && <div className="ws-only is-live"><Mic size={13} /><span>Đang nghe… nói câu hỏi rồi dừng lại. Giọng nói do trình duyệt nhận dạng.</span><button type="button" onClick={() => recRef.current?.stop()}>Xong</button></div>}
+        {listening && <div className="ws-only is-live"><Mic size={13} /><span>Đang ghi âm… bấm micro hoặc “Dừng” khi xong. Nội dung nhận dạng nằm trong ô nhập, chưa được gửi.</span><button type="button" onClick={stopMic}>Dừng</button></div>}
         {only && <div className="ws-only"><FileText size={13} /><span>Chỉ hỏi trong <b>{only.name}</b></span><button type="button" onClick={() => setOnly(null)} aria-label="Bỏ giới hạn tài liệu">Hỏi cả kho</button></div>}
         <textarea ref={inputRef} rows={fresh ? 3 : 1} value={draft} aria-label="Câu hỏi hoặc yêu cầu"
           placeholder={mode === 'quick' ? 'Hỏi bất kỳ điều gì trong kho tài liệu…' : 'Mô tả yêu cầu cần phân tích…'}
@@ -330,7 +341,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
             </div>
           </div>
           {Recognition && <button type="button" className={`ws-mic${listening ? ' is-on' : ''}`} onClick={listen} disabled={!!pending} aria-pressed={listening}
-            aria-label={listening ? 'Dừng nghe' : 'Hỏi bằng giọng nói'} title="Nói thay vì gõ (tiếng Việt). Trình duyệt nhận dạng giọng nói; Chrome và Edge có thể gửi âm thanh lên máy chủ của họ để nhận dạng."><Mic size={17} /></button>}
+            aria-label={listening ? 'Dừng ghi âm' : 'Hỏi bằng giọng nói'} title="Nói thay vì gõ (tiếng Việt). Trình duyệt nhận dạng giọng nói; Chrome và Edge có thể gửi âm thanh lên máy chủ của họ để nhận dạng.">{listening ? <Square size={15} fill="currentColor" /> : <Mic size={17} />}</button>}
           <button type="submit" className="send" disabled={!!pending || !draft.trim()} aria-label="Gửi">{pending ? <span className="spin" /> : <ArrowUp size={18} />}</button>
         </div>
       </>}
@@ -420,20 +431,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                   </header>
                   <div className="md"><Markdown text={failed ? explainFailure(m.content) : stripSources(answerText(m.content))} /></div>
                   <SourceChips run={run} />
-                  {run && <footer>
-                    <span className="ws-meta">
-                      <span title="Thời gian xử lý"><Clock size={13} />{fmtSeconds(run.metrics?.latency_ms ?? 0)}</span>
-                      <span title={`${((run.metrics?.input_tokens ?? 0) + (run.metrics?.output_tokens ?? 0)).toLocaleString('vi-VN')} token (vào ${(run.metrics?.input_tokens ?? 0).toLocaleString('vi-VN')} · ra ${(run.metrics?.output_tokens ?? 0).toLocaleString('vi-VN')})`}><Coins size={13} />{fmtTokens((run.metrics?.input_tokens ?? 0) + (run.metrics?.output_tokens ?? 0))}</span>
-                      {sourceCount(run) > 0 && <span title="Số đoạn tài liệu được trích"><FileText size={13} />{sourceCount(run)} nguồn</span>}
-                    </span>
-                    <button type="button" onClick={() => result && setTrace({ result, step: PIPELINE_STEPS[0] })}><ListChecks size={13} />8 bước</button>
-                    {hasAgents && <button type="button" aria-expanded={agentsOf === run.run_id} onClick={() => setAgentsOf(agentsOf === run.run_id ? null : run.run_id)}><Users size={13} />Theo agent</button>}
-                    {!failed && run.status !== 'NO_EVIDENCE' && <GroundingButton open={groundOf === run.run_id} onToggle={() => setGroundOf(groundOf === run.run_id ? null : run.run_id)} />}
-                    {!failed && <button type="button" onClick={() => readAloud(run.run_id, m.content)} aria-pressed={speaking === run.run_id}
-                      title={viVoice ? 'Đọc to câu trả lời' : 'Máy chưa cài giọng đọc tiếng Việt; trình duyệt sẽ đọc bằng giọng mặc định'}>{speaking === run.run_id ? <><Square size={12} />Dừng đọc</> : <><Volume2 size={13} />Đọc to</>}</button>}
-                    {!failed && run.status !== 'NO_EVIDENCE' && <button type="button" onClick={() => openReport(run.run_id)} title="Viết thành báo cáo hoàn chỉnh, tải Word hoặc PDF"><FileDown size={13} />Báo cáo</button>}
-                    {!failed && <AnswerFeedback key={run.run_id} runId={run.run_id} initial={ratings[run.run_id]} onSaved={r => setRatings(p => ({ ...p, [run.run_id]: r }))} />}
-                  </footer>}
+                  {(() => {
+                    const id = run?.run_id ?? m.message_id;
+                    const tok = (run?.metrics?.input_tokens ?? 0) + (run?.metrics?.output_tokens ?? 0);
+                    const secs = run ? (run.metrics?.latency_ms ?? 0) / 1000 : directSecs[m.content];
+                    const canCheck = !!run && !failed && run.status !== 'NO_EVIDENCE';
+                    const reading = speaking === id;
+                    return <AnswerBar secs={secs} tokens={run ? tok : undefined}
+                      tokensTitle={run ? `${tok.toLocaleString('vi-VN')} token (vào ${(run.metrics?.input_tokens ?? 0).toLocaleString('vi-VN')} · ra ${(run.metrics?.output_tokens ?? 0).toLocaleString('vi-VN')})` : undefined}
+                      sources={run ? sourceCount(run) : 0}
+                      actions={[
+                        { key: 'trace', label: 'Xem 8 bước xử lý', icon: <ListChecks size={14} />, show: !!run, onClick: () => result && setTrace({ result, step: PIPELINE_STEPS[0] }) },
+                        { key: 'agents', label: 'Xem theo từng agent', icon: <Users size={14} />, show: hasAgents, expanded: agentsOf === run?.run_id, onClick: () => setAgentsOf(agentsOf === run!.run_id ? null : run!.run_id) },
+                        { key: 'ground', label: 'Kiểm chứng với tài liệu', icon: <ShieldCheck size={14} />, show: canCheck, expanded: groundOf === run?.run_id, onClick: () => setGroundOf(groundOf === run!.run_id ? null : run!.run_id) },
+                        { key: 'read', label: reading ? 'Dừng đọc' : viVoice ? 'Đọc to câu trả lời' : 'Đọc to (máy chưa có giọng tiếng Việt, dùng giọng mặc định)',
+                          icon: reading ? <Square size={13} /> : <Volume2 size={14} />, show: !failed, pressed: reading, onClick: () => readAloud(id, m.content) },
+                        { key: 'report', label: 'Viết thành báo cáo (tải Word hoặc PDF)', icon: <FileDown size={14} />, show: canCheck, onClick: () => openReport(run!.run_id) },
+                      ]}>
+                      {run && !failed && <AnswerFeedback key={run.run_id} runId={run.run_id} initial={ratings[run.run_id]} onSaved={r => setRatings(p => ({ ...p, [run.run_id]: r }))} />}
+                    </AnswerBar>;
+                  })()}
                   {run && !failed && run.status !== 'NO_EVIDENCE' && groundOf === run.run_id && <GroundingPanel runId={run.run_id} cache={groundCache} setCache={setGroundCache} onShowChunk={showChunk} />}
                   {hasAgents && agentsOf === run!.run_id && <div className="ws-agents">
                     {result!.agent_results.map((a, i) => <section key={i}><h4>{a.agent_role.replace('Agent', '')} · {a.subtask_title}</h4><div className="md"><Markdown text={a.content} /></div></section>)}

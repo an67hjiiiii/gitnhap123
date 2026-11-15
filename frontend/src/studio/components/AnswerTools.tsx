@@ -25,8 +25,8 @@ export function AnswerFeedback({ runId, initial, onSaved }: { runId: string; ini
   };
   return <>
     <span className="af" role="group" aria-label="Câu trả lời có hữu ích không" title="Đánh giá giúp nhóm phát triển cải thiện; quản trị viên xem được câu hỏi và câu trả lời đã đánh giá.">
-      <button type="button" className={rating === 1 ? 'is-up' : ''} aria-pressed={rating === 1} onClick={() => vote(1)} title="Hữu ích"><ThumbsUp size={13} /></button>
-      <button type="button" className={rating === -1 ? 'is-down' : ''} aria-pressed={rating === -1} onClick={() => vote(-1)} title="Chưa đúng hoặc chưa đủ"><ThumbsDown size={13} /></button>
+      <button type="button" className={rating === 1 ? 'is-up' : ''} aria-pressed={rating === 1} onClick={() => vote(1)} title="Thích: câu trả lời hữu ích" aria-label="Thích câu trả lời"><ThumbsUp size={14} /></button>
+      <button type="button" className={rating === -1 ? 'is-down' : ''} aria-pressed={rating === -1} onClick={() => vote(-1)} title="Không thích: chưa đúng hoặc chưa đủ" aria-label="Không thích câu trả lời"><ThumbsDown size={14} /></button>
     </span>
     {asking && <form className="af-note" onSubmit={e => { e.preventDefault(); void save(-1, note.trim()); setAsking(false); }}>
       <input value={note} onChange={e => setNote(e.target.value)} maxLength={500} placeholder="Chưa đúng ở đâu? (không bắt buộc)" aria-label="Góp ý cho câu trả lời" autoFocus />
@@ -38,7 +38,7 @@ export function AnswerFeedback({ runId, initial, onSaved }: { runId: string; ini
 }
 
 export function GroundingButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  return <button type="button" aria-expanded={open} onClick={onToggle} title="Đối chiếu từng câu với tài liệu đã đọc"><ShieldCheck size={13} />Kiểm chứng</button>;
+  return <button type="button" aria-expanded={open} onClick={onToggle} title="Kiểm chứng: đối chiếu từng câu với tài liệu đã đọc" aria-label="Kiểm chứng với tài liệu"><ShieldCheck size={14} /></button>;
 }
 
 export function GroundingPanel({ runId, cache, setCache, onShowChunk }: {

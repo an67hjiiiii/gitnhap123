@@ -165,3 +165,9 @@ Ghi chú cho FE (BE đã đổi, chỉ thêm khoá):
 - Upload (App.tsx): `handleUpload` trả `true/false` (LeftPanel tải nhiều tệp); màn Workspace nhận wrapper ném lỗi để hiện thông báo.
 
 - Menu Studio: nhóm "Tiện ích mở rộng" (thu gọn mặc định) chứa Truy vết yêu cầu, Chất lượng yêu cầu (ISO 29148), Gói thiết kế, Rà soát bảo mật (ASVS/PII). Đọc to (TTS) vẫn là nút dưới mỗi câu trả lời, không phải mục menu.
+
+## s3/ui-polish (ngoại lệ FE do Owner duyệt)
+- **Mic** (`Workspace.tsx`): ghi âm liên tục (`continuous`), trình duyệt tự ngắt khi im lặng thì tự khởi động lại; chỉ dừng khi bấm lại nút mic hoặc "Dừng". Đang ghi: nút đỏ nhấp nháy, icon đổi thành ô vuông. Chữ nhận dạng ở lại trong ô nhập, không tự gửi.
+- **Đọc to**: bỏ hẳn cờ tự đọc sau câu hỏi bằng giọng nói (`spokenAsk`). Chỉ đọc khi bấm nút loa; bấm lại để dừng.
+- **Hàng nút dưới câu trả lời**: một component chung `AnswerBar.tsx` cho Hỏi nhanh, Phân tích, Trả lời trực tiếp. Một hàng không xuống dòng: số đo (giây, token, số nguồn; rê chuột xem đủ), rồi nút chỉ có icon theo thứ tự 8 bước, theo agent, kiểm chứng, đọc to, báo cáo, thích, không thích; mỗi nút có `title` và `aria-label` tiếng Việt. Tin trả lời trực tiếp hiện số giây (đo ở giao diện) và nút loa, ẩn nút không áp dụng. Logic mở panel không đổi. Ô góp ý "không thích" nổi bên dưới hàng để hàng luôn một dòng.
+- **Backend (định tuyến)**: "đang có những tài liệu nào / có tài liệu gì rồi" trả danh sách tên + số đoạn từ store (đường OVERVIEW, 0 lượt model, `run_id` null). Câu chào/cảm ơn/tạm biệt/giới thiệu khi kho đã có tài liệu nói "kho đang có N tài liệu" thay vì bảo tải lên. Test: `backend/tests/test_library_routing.py`.
