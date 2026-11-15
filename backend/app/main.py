@@ -19,6 +19,7 @@ from app.api.review import ReviewRuntime
 from app.api.review import build_router as _build_review_router
 from app.auth.store import AuthStore, InvalidSessionError
 from app.chat.memory import SummaryCache as _SummaryCache
+from app.chat.source_filter import filter_sources
 from app.chat.sources import number_sources
 from app.core.config import RuntimeConfig
 from app.core.text_clean import strip_placeholder_tags
@@ -764,6 +765,14 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             str(run.get("answer") or ""), store.chunk, extra_ids)
         if clean_answer:
             run["answer"] = strip_placeholder_tags(clean_answer)
+        if sources and run.get("status") in {"COMPLETE", "PARTIAL"}:
+            before = [x["doc_name"] for x in sources]
+            kept_answer, sources, dropped = filter_sources(
+                str(run.get("answer") or ""), sources, lambda cid: (store.chunk(cid) or {}).get("text", ""))
+            if dropped:
+                run["answer"] = kept_answer
+                run.setdefault("events", []).append({"stage": "sources_filtered", "before": before,
+                                                    "after": [x["doc_name"] for x in sources], "dropped": dropped})
         run["sources"] = sources
         run["grounding"] = "document"
         try:  # keep the numbered sources with the stored run so a reloaded conversation shows the same chips

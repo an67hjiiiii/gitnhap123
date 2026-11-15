@@ -172,3 +172,57 @@ def test_cross_language_numbers_checked_by_value_and_unit():
     bad = guard_answer("The minimum password length is 13 characters.", status="COMPLETE",
                        evidence_texts=[vi], cited_texts=[vi])
     assert bad.removed_claims
+
+
+VI_LOCK = "## Khóa tài khoản\nTài khoản bị khóa sau 5 lần đăng nhập sai liên tiếp. Tài khoản tự mở khóa sau 30 phút."
+VI_AUDIT = "## Nhật ký kiểm toán\nNhật ký kiểm toán được giữ 365 ngày và không được phép sửa đổi."
+EN_RATE = "## Rate limit\nEach API key may send at most 100 requests per minute. Exceeding the limit returns HTTP 429."
+
+
+def test_vi_sentence_kept_with_two_vi_chunks_and_one_en_chunk():
+    from app.chat.answer_guard import guard_answer
+
+    sentence = "Mỗi API key gửi tối đa 100 yêu cầu mỗi phút, theo tài liệu api_guide_en.md."
+    for texts in ([EN_RATE], [VI_LOCK, VI_AUDIT, EN_RATE]):
+        out = guard_answer(sentence, status="COMPLETE", evidence_texts=texts, cited_texts=texts)
+        assert out.removed_claims == [], texts
+
+
+def test_wrong_figure_still_cut_for_en_only_and_mixed_chunks():
+    from app.chat.answer_guard import guard_answer
+
+    for sentence in ("Mỗi API key gửi tối đa 101 yêu cầu mỗi phút.", "Mật khẩu tối thiểu 13 characters."):
+        for texts in ([EN_RATE], [VI_LOCK, VI_AUDIT, EN_RATE]):
+            out = guard_answer(sentence, status="COMPLETE", evidence_texts=texts, cited_texts=texts)
+            assert out.removed_claims, (sentence, texts)
+
+
+def test_source_filter_drops_unused_source_and_renumbers():
+    from app.chat.source_filter import filter_sources
+
+    chunks = {"a": VI_LOCK, "b": VI_AUDIT, "c": EN_RATE}
+    sources = [{"n": 1, "doc_name": "bm.md", "chunk_id": "a"}, {"n": 2, "doc_name": "sl.md", "chunk_id": "b"},
+               {"n": 3, "doc_name": "api.md", "chunk_id": "c"}]
+    answer = "Tài khoản bị khóa sau 5 lần đăng nhập sai. Nhật ký kiểm toán được giữ 365 ngày."
+    body, kept, dropped = filter_sources(answer, sources, chunks.get)
+    assert [s["doc_name"] for s in kept] == ["bm.md", "sl.md"] and dropped[0]["doc_name"] == "api.md"
+    body, kept, dropped = filter_sources(answer + " Mỗi API key gửi tối đa 100 yêu cầu mỗi phút.", sources, chunks.get)
+    assert len(kept) == 3 and dropped == []
+
+
+def test_source_filter_never_leaves_grounded_answer_without_source():
+    from app.chat.source_filter import filter_sources
+
+    sources = [{"n": 1, "doc_name": "x.md", "chunk_id": "a"}]
+    body, kept, dropped = filter_sources("Một câu hoàn toàn khác.", sources, {"a": VI_LOCK}.get)
+    assert kept == sources and dropped == []
+
+
+def test_source_filter_keeps_sources_cited_in_body_and_renumbers_markers():
+    from app.chat.source_filter import filter_sources
+
+    chunks = {"a": VI_LOCK, "b": VI_AUDIT, "c": EN_RATE}
+    sources = [{"n": 1, "doc_name": "a", "chunk_id": "a"}, {"n": 2, "doc_name": "b", "chunk_id": "b"},
+               {"n": 3, "doc_name": "c", "chunk_id": "c"}]
+    body, kept, _ = filter_sources("Tài khoản bị khóa sau 5 lần [1]. Khác hẳn [3].", sources, chunks.get)
+    assert [s["n"] for s in kept] == [1, 2] and "[2]" in body and "[3]" not in body

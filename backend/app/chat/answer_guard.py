@@ -135,11 +135,25 @@ def _number_check(sentence: str, texts: list[str]) -> tuple[list[str], list[str]
             window = source if i == 0 else sentences[i - 1] + " " + source
             if _related(sentence, window):
                 relevant.append(source)
-    if not relevant:
-        # Word overlap cannot relate an answer to a source written in another language; the figures themselves
-        # are still checked (value + unit) against the cited text, so a wrong number is still removed.
-        if all(_looks_english(text) != _looks_english(sentence) for text in texts):
-            relevant = [s for text in texts for s in split_sentences(text)]
+    if relevant:
+        return _check_figures(sentence, relevant, texts)
+    # Word overlap cannot relate a sentence to a source written in another language. Judge each such chunk on
+    # its own: the sentence is kept when at least one cited chunk of the other language carries the same figures
+    # (value + normalised unit). Chunks in the sentence's own language still need a related subject, and a wrong
+    # figure is not found in any chunk, so it is still removed.
+    best: tuple[list[str], list[str]] | None = None
+    for text in texts:
+        if _looks_english(text) == _looks_english(sentence):
+            continue
+        result = _check_figures(sentence, split_sentences(text), [text])
+        if not result[0]:
+            return result
+        if best is None or len(result[0]) < len(best[0]):
+            best = result
+    return best if best is not None else _check_figures(sentence, [], texts)
+
+
+def _check_figures(sentence: str, relevant: list[str], texts: list[str]) -> tuple[list[str], list[str]]:
     bad, derived = [], []
     for slot in numbers_in_answer_supported(sentence, relevant):
         if relevant and _derived(slot, sentence, texts):

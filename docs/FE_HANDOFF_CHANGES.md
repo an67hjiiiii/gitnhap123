@@ -147,3 +147,8 @@ Ghi chú cho FE (BE đã đổi, chỉ thêm khoá):
 - Run lưu trong CSDL nay có `sources` và `grounding`, nên mở lại cuộc trò chuyện cũ vẫn ra đúng chip (`GET /api/runs/{id}`).
 - Cụm "chunk [n]" / "đoạn [n]" trong `answer` đã bỏ ở BE, chỉ còn dấu [n].
 - Chưa làm: bấm [n] trong thân câu trả lời để nhảy tới chip (vẫn là đề xuất #11).
+
+## Guard chéo ngôn ngữ + bộ lọc nguồn B (BE, không đổi contract)
+- `backend/app/chat/answer_guard.py` (`_number_check`, thêm `_check_figures`, `_looks_english`): bỏ điều kiện "mọi chunk khác ngôn ngữ với câu". Khi không có câu nguồn nào liên quan theo chủ ngữ, từng chunk khác ngôn ngữ được xét riêng; câu được giữ nếu có ít nhất một chunk mà số + đơn vị chuẩn hóa khớp ("100 yêu cầu mỗi phút" khớp "100 requests per minute"). Chunk cùng ngôn ngữ vẫn cần chủ ngữ liên quan; số sai (101, 13 characters, 60 mục) vẫn bị cắt.
+- `backend/app/chat/source_filter.py` (MỚI) + `main.py`: sau guard chỉ giữ nguồn mà ít nhất một câu của câu trả lời giao cho người dùng khớp (đủ số của câu + từ khóa chung >=2, hoặc >=1 khi câu có số; từ khóa >=3 ký tự); nguồn đã được [n] trích trong thân luôn giữ; nếu lọc ra rỗng thì giữ nguyên danh sách gốc; [n] được đánh số lại. Khi có nguồn bị loại, `events` có `{"stage":"sources_filtered","before":[…],"after":[…],"dropped":[{n,doc_name,reason}]}`.
+- Test mới trong `tests/test_display_wl.py`; test cũ không sửa.
