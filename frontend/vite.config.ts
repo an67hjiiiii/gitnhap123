@@ -12,4 +12,10 @@ export default defineConfig({
       "/api": { target: process.env.API_TARGET || "http://127.0.0.1:8000", changeOrigin: false },
     },
   },
+  // Bản phát hành chạy bằng `npm run preview` (mã đã tối ưu) với cùng cách chuyển tiếp API.
+  preview: {
+    proxy: {
+      "/api": { target: process.env.API_TARGET || "http://127.0.0.1:8000", changeOrigin: false },
+    },
+  },
 })

@@ -19,6 +19,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from app.research.decomposer import detect_domains
+
 # Cột được phép xem trong trang quản trị; cột bí mật (password_hash, token_hash) không bao giờ trả về.
 ADMIN_TABLES: dict[str, tuple[str, ...]] = {
     "users": ("user_id", "email", "username", "display_name", "role", "status", "created_at", "last_login_at"),
@@ -35,6 +37,7 @@ class RetrievalTestRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=4, ge=1, le=20)
     source_ids: list[str] | None = None
+    domain: Literal["database", "api_architecture", "security"] | None = None
 
 
 class WorkspaceBody(BaseModel):
@@ -50,6 +53,7 @@ class WorkspaceItemBody(BaseModel):
 class CompareRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     conditions: list[str] = Field(default_factory=lambda: ["A", "B", "C"], min_length=1, max_length=6)
+    source_ids: list[str] | None = None  # tài liệu của không gian đang mở, như ô hỏi đáp
 
 
 def _loopback(url: str | None) -> bool | None:
@@ -84,9 +88,14 @@ def build_router(
         started = time.perf_counter()
         chunks = pipeline.source_store.chunks(body.source_ids)
         trace: dict = {}
+        # Lọc chuyên môn: lấy rộng hơn rồi giữ đoạn mà bộ nhận diện miền của planner gắn đúng chuyên môn.
         hits = pipeline._retrieve_candidates(  # dùng đúng đường truy xuất của pipeline
-            body.query, chunks, top_k=body.top_k, min_score=0.0, source_ids=body.source_ids, fallback_trace=trace,
+            body.query, chunks, top_k=min(body.top_k * 5, 50) if body.domain else body.top_k,
+            min_score=0.0, source_ids=body.source_ids, fallback_trace=trace,
         )
+        domains = {c.chunk_id: detect_domains(c.text) if c.text.strip() else [] for c in hits}
+        if body.domain:
+            hits = [c for c in hits if body.domain in domains[c.chunk_id]][: body.top_k]
         return {
             "query": body.query,
             "top_k": body.top_k,
@@ -96,7 +105,7 @@ def build_router(
             "fallback": trace or None,
             "results": [
                 {"chunk_id": c.chunk_id, "source_id": c.source_id, "source_name": c.source_name,
-                 "score": round(float(c.score), 4), "text": c.text}
+                 "score": round(float(c.score), 4), "text": c.text, "domains": domains[c.chunk_id]}
                 for c in hits
             ],
         }
@@ -140,10 +149,12 @@ def build_router(
             db.execute(text("INSERT INTO studio_workspaces (workspace_id, owner_user_id, name, description) VALUES (:w, :o, 'Kho chính', '')"), {"w": first, "o": owner})
         db.execute(text("""INSERT INTO studio_workspace_items (workspace_id, item_type, item_id)
             SELECT :w, 'source', s.source_id FROM knowledge_sources s
-            WHERE s.owner_user_id = :o AND NOT EXISTS (SELECT 1 FROM studio_workspace_items i WHERE i.item_type = 'source' AND i.item_id = s.source_id)"""), {"w": first, "o": owner})
+            WHERE s.owner_user_id = :o AND NOT EXISTS (SELECT 1 FROM studio_workspace_items i WHERE i.item_type = 'source' AND i.item_id = s.source_id)
+            ON CONFLICT (item_type, item_id) DO NOTHING"""), {"w": first, "o": owner})  # gán song song từ yêu cầu khác: giữ bản đã có
         db.execute(text("""INSERT INTO studio_workspace_items (workspace_id, item_type, item_id)
             SELECT :w, 'conversation', c.conversation_id FROM conversations c
-            WHERE c.owner_user_id = :o AND NOT EXISTS (SELECT 1 FROM studio_workspace_items i WHERE i.item_type = 'conversation' AND i.item_id = c.conversation_id)"""), {"w": first, "o": owner})
+            WHERE c.owner_user_id = :o AND NOT EXISTS (SELECT 1 FROM studio_workspace_items i WHERE i.item_type = 'conversation' AND i.item_id = c.conversation_id)
+            ON CONFLICT (item_type, item_id) DO NOTHING"""), {"w": first, "o": owner})  # gán song song từ yêu cầu khác: giữ bản đã có
 
     def _owned_workspace(db, owner: str, workspace_id: str) -> None:
         if db.execute(text("SELECT 1 FROM studio_workspaces WHERE workspace_id = :w AND owner_user_id = :o"), {"w": workspace_id, "o": owner}).scalar() is None:
@@ -234,7 +245,7 @@ def build_router(
         conditions = [c.strip().upper() for c in body.conditions]
         runs = []
         for condition in conditions:
-            run = await owner_pipeline(user).run(body.message.strip(), condition)
+            run = await owner_pipeline(user).run(body.message.strip(), condition, source_ids=body.source_ids)
             runs.append(run)
         return {"message": body.message.strip(), "conditions": conditions, "runs": runs,
                 "note": "Một lượt so sánh là số mô tả kỹ thuật, không phải kết quả thực nghiệm."}
@@ -247,17 +258,20 @@ def build_router(
         return {"tables": [{"name": t, "row_count": n} for t, n in counts.items()]}
 
     @router.get("/admin/table/{name}")
-    def admin_table(name: str, request: Request, limit: int = 50, offset: int = 0) -> dict:
+    def admin_table(name: str, request: Request, limit: int = 50, offset: int = 0, q: str = "") -> dict:
         require_admin(request)
         if name not in ADMIN_TABLES:
             raise HTTPException(404, "Bảng không có trong danh sách được xem.")
         cols = ADMIN_TABLES[name]
         limit, offset = max(1, min(limit, 200)), max(0, offset)
         order = "created_at DESC" if "created_at" in cols else f'"{cols[0]}"'
-        sql = text(f'SELECT {", ".join(chr(34) + c + chr(34) for c in cols)} FROM "{name}" ORDER BY {order} LIMIT :l OFFSET :o')
+        # Tìm trong các cột đã cho phép xem; từ khóa đi qua tham số, tên cột lấy từ danh sách cố định.
+        where = (" WHERE " + " OR ".join(f'CAST("{c}" AS TEXT) ILIKE :q' for c in cols)) if q.strip() else ""
+        params = {"l": limit, "o": offset, "q": f"%{q.strip()}%"}
+        sql = text(f'SELECT {", ".join(chr(34) + c + chr(34) for c in cols)} FROM "{name}"{where} ORDER BY {order} LIMIT :l OFFSET :o')
         with session_factory()() as db:
-            rows = db.execute(sql, {"l": limit, "o": offset}).mappings().all()
-            total = int(db.execute(text(f'SELECT COUNT(*) FROM "{name}"')).scalar() or 0)
+            rows = db.execute(sql, params).mappings().all()
+            total = int(db.execute(text(f'SELECT COUNT(*) FROM "{name}"{where}'), params).scalar() or 0)
         def cell(v):
             return v.isoformat() if isinstance(v, datetime) else v
         return {"name": name, "columns": list(cols), "total": total,

@@ -1,10 +1,12 @@
 import { metric, percent } from '../utils/measurement';
 import React, { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Search, Clock, X, AlertCircle } from 'lucide-react';
+import { AlertCircle, Clock, FlaskConical, RefreshCw, Search, X } from 'lucide-react';
 import { ModeExecutionResult, TelemetryRecord } from '../types';
 import { serverDate } from '../utils/time';
 import { getRuntimeConfig } from '../services/api';
 import { useRobotAssistant } from './robot/RobotContext';
+import { ToolHeader } from './analysis/shared';
+import './profile/tools.css';
 
 interface BenchmarkLabProps {
   resultsMap: Record<string, ModeExecutionResult>;
@@ -29,6 +31,7 @@ const PRESETS = [
 const MODE_KEY: Record<string, string> = { A: 'A', B: 'B', C: 'C', 'C-P': 'CP', 'C-N': 'CN', 'C-O': 'CO' };
 // Trạng thái CAP1: lượt bị từ chối vẫn có số đo nhưng không phải câu trả lời hoàn chỉnh.
 const STATUS_VI: Record<string, string> = { COMPLETE: 'Đủ bằng chứng', PARTIAL: 'Một phần', NO_EVIDENCE: 'Không có bằng chứng', FAILED: 'Thất bại' };
+const HEAD = ['Độ trễ', 'Tổng token', 'Độ phủ nhiệm vụ'];
 const num = (v: number | null | undefined, digits = 0) => v == null ? null : v.toLocaleString('vi-VN', { maximumFractionDigits: digits });
 
 export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetryLogs, onRefreshTelemetry, onRunAblation, isAblationRunning = false }) => {
@@ -73,7 +76,12 @@ export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetr
     { label: 'Tổng token', get: r => num(r.total_tokens) },
     { label: 'Token tiết kiệm', get: r => r.tokens_saved == null ? null : `${metric(r.tokens_saved)} (${percent(r.token_saving_ratio, 1)})`, only: 'proposed_adaptive' },
     { label: 'Độ phủ nhiệm vụ', get: r => r.task_coverage == null ? null : percent(r.task_coverage, 0) },
-    { label: 'CPU / ΔRAM', get: r => r.cpu_percent == null ? null : `${num(r.cpu_percent, 1)}% / ${num(r.ram_delta_mb, 1)} MB` },
+    { label: 'Lệnh gọi mô hình', get: r => num(r.raw?.metrics?.llm_calls) },
+    { label: 'Nhiệm vụ / tác tử', get: r => r.raw?.tasks?.length ? `${r.raw.tasks.length} · ${[...new Set(r.raw.tasks.map((t: any) => t.domain))].join(', ')}` : null },
+    { label: 'Token ngữ cảnh đưa vào', get: r => num(r.raw?.metrics?.context_tokens_est) },
+    { label: 'Đoạn truy xuất / giữ / loại', get: r => r.raw?.metrics ? `${num(r.raw.metrics.retrieved_chunks)} / ${num(r.raw.metrics.selected_chunks)} / ${num(r.raw.metrics.dropped_chunks)}` : null },
+    { label: 'CPU toàn máy', get: r => r.cpu_percent == null ? null : `${num(r.cpu_percent, 1)}%` },
+    { label: 'RAM backend / GPU', get: r => r.raw?.metrics?.peak_rss_mb == null && r.raw?.metrics?.gpu_memory_mb == null ? null : `${num(r.raw?.metrics?.peak_rss_mb, 0) ?? '—'} MB / ${num(r.raw?.metrics?.gpu_memory_mb, 0) ?? '—'} MB` },
   ];
   const bars: { label: string; key: 'total_tokens' | 'latency_ms'; fmt: (v: number) => string }[] = [
     { label: 'Tổng token', key: 'total_tokens', fmt: v => num(v)! },
@@ -81,12 +89,10 @@ export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetr
   ];
 
   return (
-    <main className="pg">
-      <div className="pg-col">
-        <header className="pg-head">
-          <div><h1>Thực nghiệm</h1><p>Cùng một câu hỏi, ba cách làm, đặt cạnh nhau.</p></div>
-          <button className="btn btn-ghost" onClick={onRefreshTelemetry}><RefreshCw size={15} />Làm mới</button>
-        </header>
+    <main className="pg tl tone-evaluation xp-page">
+      <div className="pg-col tv-col">
+        <ToolHeader Icon={FlaskConical} title="Thực nghiệm" desc="Cùng một câu hỏi, ba cách trả lời A, B, C chạy cạnh nhau: trạng thái, độ trễ, token, số lệnh gọi mô hình, tài nguyên máy. Xem cấu hình đang chạy và nhật ký mọi lượt."
+          right={<button className="btn btn-ghost" onClick={onRefreshTelemetry}><RefreshCw size={15} />Làm mới</button>} />
 
         <div className="tabs" role="tablist" aria-label="Mục thực nghiệm">
           <button role="tab" aria-selected={tab === 'ablation'} className={tab === 'ablation' ? 'is-on' : ''} onClick={() => setTab('ablation')}>Đối chiếu</button>
@@ -114,10 +120,15 @@ export const BenchmarkLab: React.FC<BenchmarkLabProps> = ({ resultsMap, telemetr
               return (
                 <section key={m.id} className={`cmp-col${m.key === 'C' ? ' is-a' : ''}`}>
                   <div className="cmp-head"><b className={`mode-key${m.key === 'C' ? ' is-a' : ''}`}>{m.key}</b><div><h3>{m.name}</h3><p>{m.desc}</p></div></div>
+                  <div className="xp-big">{rows.filter(row => HEAD.includes(row.label)).map(row => {
+                    const v = r ? row.get(r) : null;
+                    return <div key={row.label}><b className={v == null ? 'is-none' : ''}>{v ?? '—'}</b><span>{row.label}</span></div>;
+                  })}</div>
+                  {!r && <p className="xp-wait">{isAblationRunning ? 'Đang chạy…' : 'Chờ chạy'}</p>}
                   <dl>
-                    {rows.map(row => {
+                    {rows.filter(row => !HEAD.includes(row.label)).map(row => {
                       const v = row.only && row.only !== m.id ? '—' : r ? row.get(r) : null;
-                      return <div key={row.label}><dt>{row.label}</dt><dd className={v == null || v === '—' ? 'is-muted' : ''}>{v ?? (r ? 'Chưa đo' : 'Chờ chạy')}</dd></div>;
+                      return <div key={row.label}><dt>{row.label}</dt><dd className={v == null || v === '—' ? 'is-muted' : ''}>{v ?? (r ? 'Chưa đo' : '—')}</dd></div>;
                     })}
                   </dl>
                 </section>

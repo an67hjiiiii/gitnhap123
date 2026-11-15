@@ -15,6 +15,7 @@ SUPPORTED_TEXT_EXTENSIONS = {
     ".txt": "text/plain",
     ".md": "text/markdown",
     ".markdown": "text/markdown",
+    ".sql": "text/plain",  # lược đồ CSDL: giao diện Studio cho phép chọn .sql
 }
 SUPPORTED_DOCUMENT_EXTENSIONS = {
     **SUPPORTED_TEXT_EXTENSIONS,

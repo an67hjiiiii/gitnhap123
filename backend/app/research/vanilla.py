@@ -1,22 +1,14 @@
 from __future__ import annotations
-import json
-import re
 from app.core.citations import validate_citations
+from app.core.structured_output import is_placeholder_answer, parse_answer_json
 from app.core.types import RunMetrics, SourceChunk, TaskResult
 
 
 def _extract_json(text: str) -> dict:
-    text = text.strip()
-    try:
-        return json.loads(text)
-    except Exception:
-        m = re.search(r"\{.*\}", text, re.S)
-        if not m:
-            return {"status": "PARTIAL", "answer": text, "citations": [], "missing_information": []}
-        return json.loads(m.group(0))
+    return parse_answer_json(text)
 
 
-# Nhắc ngôn ngữ ở cuối prompt (mô hình nhỏ dễ trả lời theo ngôn ngữ của bằng chứng). Chỉ dùng cho chế độ sản phẩm.
+# Nhắc ngôn ngữ ở cuối prompt (mô hình nhỏ dễ trả lời theo ngôn ngữ của bằng chứng). Chỉ bật ở chế độ sản phẩm hoặc lượt Phân tích của Studio (reply_in_query_language); lượt nghiên cứu khác giữ prompt gốc.
 REPLY_LANGUAGE_HINT = {
     "vi": 'NGÔN NGỮ: Viết trường "answer" hoàn toàn bằng tiếng Việt, kể cả khi bằng chứng là tiếng Anh. Trả lời gọn, tối đa khoảng 150 từ. Giữ nguyên tên kỹ thuật, mã, giá trị và chunk ID.',
     "en": 'LANGUAGE: Write the "answer" field in English. Keep it concise, at most about 150 words. Keep technical names, code, values and chunk IDs unchanged.',
@@ -72,6 +64,11 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
     if status == "COMPLETE" and not valid:
         status = "PARTIAL"
         missing.append("answer has no valid citation")
+    if is_placeholder_answer(answer):
+        answer = ""
+        if status == "COMPLETE":
+            status = "PARTIAL"
+        missing.append("model returned an empty answer")
 
     if valid:
         answer = answer.rstrip() + "\n\nNguồn: " + ", ".join(f"[{cid}]" for cid in valid)

@@ -1,0 +1,107 @@
+/* OrchestrIQ Studio · Hệ thống thiết kế chung (nạp SAU studio-2026.css và studio-glass.css).
+   Rút ra từ trang Tổng quan đã duyệt, áp cho mọi trang công cụ để toàn hệ thống dùng một ngôn ngữ:
+   1. Một màu nhấn (--accent) cho mọi trang; trang khác nhau bằng biểu tượng và bố cục, không bằng bảng màu riêng.
+      Màu trạng thái (đủ/một phần/thiếu/lỗi) chỉ dùng cho trạng thái thật và luôn kèm chữ.
+   2. Nút chính: viên mực đậm (giống nhau mọi trang); nút phụ: viên trong suốt; mọi nút có phản hồi khi bấm.
+   3. Tiêu đề thẻ: biểu tượng tròn nền nhấn nhạt + chữ 15px đậm; thông tin phụ nằm phải.
+   4. Điều khiển chọn (tab, nhóm nút): dạng viên, mục đang chọn nền trắng nổi nhẹ.
+   5. Trạng thái: chấm màu + chữ (không khối màu đậm). Huy hiệu/đếm: viên nhạt.
+   6. Ô nhập: bo 12px, nền gần đặc, viền nhạt, vòng sáng nhấn khi đang nhập.
+   7. Chuyển động chỉ để phản hồi thao tác (bấm, chọn, hiện thêm); tôn trọng giảm chuyển động. */
+
+/* ---------- 1. Một màu nhấn cho mọi trang ---------- */
+.st-app .tl{--tool:var(--accent);--tool-soft:var(--accent-soft)}
+
+/* ---------- 2. Nút ---------- */
+.st-app .tl .tv-setup .btn-dark,.st-app .tl .btn-dark.is-sm{background:linear-gradient(180deg,#1c3048,#0f1b2b);border-color:transparent}
+.st-app[data-theme="dark"] .tl .tv-setup .btn-dark,.st-app[data-theme="dark"] .tl .btn-dark.is-sm{background:var(--grad)}
+.st-app .btn{transition:transform .12s var(--ease),box-shadow .2s var(--ease),background .2s,border-color .2s,color .2s}
+.st-app .btn:not(:disabled):active,.st-app .icon-btn:not(:disabled):active{transform:scale(.97)}
+.st-app .btn:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+.st-app .btn:focus-visible,.st-app .icon-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.st-app[data-motion="reduced"] .btn:active{transform:none}
+
+/* ---------- 3. Tiêu đề thẻ có biểu tượng tròn ---------- */
+.st-app .dz-card>header{align-items:center}
+.st-app .dz-card>header h3{display:inline-flex;align-items:center;gap:0;margin:0}
+.st-app .dz-card>header h3>svg:first-child{box-sizing:content-box;padding:6px;margin-right:9px;border-radius:50%;background:var(--accent-soft);color:var(--accent);flex:none}
+.st-app .dz-card>header>small,.st-app .dz-card>header>.is-muted{font-size:12.5px;color:var(--muted)}
+
+/* ---------- 4. Tab và nhóm nút dạng viên ---------- */
+.st-app .tl .tabs,.st-app .tl .tv-seg{display:inline-flex;align-items:center;gap:2px;padding:4px;border:0;border-radius:999px;background:rgba(15,27,43,.05);box-shadow:none;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.st-app[data-theme="dark"] .tl .tabs,.st-app[data-theme="dark"] .tl .tv-seg{background:rgba(255,255,255,.06)}
+.st-app .tl .tabs button,.st-app .tl .tv-seg button{margin:0;border:0;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;color:var(--muted);background:transparent;white-space:nowrap;transition:background .2s,color .2s,box-shadow .2s}
+.st-app .tl .tabs button:hover,.st-app .tl .tv-seg button:hover{color:var(--ink)}
+.st-app .tl .tabs button.is-on,.st-app .tl .tv-seg button.is-on,.st-app .tl .tv-seg button[aria-selected="true"]{background:var(--glass-strong,#fff);color:var(--ink);box-shadow:var(--sh-1);border-bottom-color:transparent}
+.st-app .tl .tabs button:focus-visible,.st-app .tl .tv-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+/* ---------- 5. Trạng thái: chấm + chữ ---------- */
+.st-app .tl .cht-status{display:inline-flex;align-items:center;gap:7px;padding:0;margin:0;background:none!important;font-size:12.5px;font-weight:600;white-space:nowrap}
+.st-app .tl .cht-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 16%,transparent);flex:none}
+.st-app .tl .cht-status.is-complete{color:#167a50}.st-app .tl .cht-status.is-partial{color:#a15c00}
+.st-app .tl .cht-status.is-no_evidence,.st-app .tl .cht-status.is-failed{color:#c03535}
+.st-app[data-theme="dark"] .tl .cht-status.is-complete{color:#5ee0a8}.st-app[data-theme="dark"] .tl .cht-status.is-partial{color:#f6c056}
+.st-app[data-theme="dark"] .tl .cht-status.is-no_evidence,.st-app[data-theme="dark"] .tl .cht-status.is-failed{color:#ff8a8d}
+
+/* ---------- 6. Ô nhập, nhãn trường ---------- */
+.st-app .tl .tv-field>span,.st-app .tl .tv-field>legend{font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:0}
+.st-app .tl :is(.tv-field input,.tv-field select,.tv-field textarea,.tv-table select,.tv-saved select){border:1px solid var(--line-2,rgba(15,27,43,.12));border-radius:12px;background:var(--glass-strong,#fff);color:var(--ink);font:inherit;font-size:13.5px;transition:border-color .15s,box-shadow .15s}
+.st-app .tl :is(.tv-field input,.tv-field select,.tv-field textarea):focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.st-app .tl .tv-field input::placeholder,.st-app .tl .tv-field textarea::placeholder{color:var(--faint);text-transform:none;letter-spacing:0}
+
+/* chọn tài liệu: viên có biểu tượng tệp, chọn thì hiện dấu tích; "Chọn tất cả / Bỏ chọn" */
+.st-app .tl .tv-picker{position:relative}
+.st-app .tl .tv-picker>legend{display:flex;align-items:center;gap:8px}
+.tv-count{font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-variant-numeric:tabular-nums}
+.tv-pick-all{position:absolute;top:-2px;right:0;display:inline-flex;gap:2px}
+.tv-pick-all button{border:0;background:transparent;font:inherit;font-size:12.5px;font-weight:600;color:var(--accent);padding:2px 8px;border-radius:8px;cursor:pointer}
+.tv-pick-all button:hover:not(:disabled){background:var(--accent-soft)}
+.tv-pick-all button:disabled{color:var(--faint);cursor:default}
+.tv-pick-all button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.st-app .tl .tv-docs{gap:6px}
+.st-app .tl .tv-docs .chip{position:relative;gap:7px;padding:6px 12px;border:1px solid var(--line-2,rgba(15,27,43,.1));border-radius:999px;background:var(--glass-strong,#fff);color:var(--text);font-size:13px;box-shadow:none;transition:background .15s,border-color .15s,color .15s}
+.st-app .tl .tv-docs .chip:hover{border-color:var(--accent)}
+.st-app .tl .tv-docs .chip>svg{color:var(--muted);flex:none}
+.st-app .tl .tv-docs .chip.is-on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent);box-shadow:none}
+.st-app .tl .tv-docs .chip.is-on>svg{color:var(--accent)}
+.st-app .tl .tv-docs .chip input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.st-app .tl .tv-docs .chip:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:560px){.tv-pick-all{position:static;margin:-2px 0 6px}}
+
+/* báo cáo đã lưu: viên có biểu tượng thư mục thay cho hộp chọn trơn */
+.st-app .tl .tv-saved{position:relative;display:inline-flex;align-items:center;height:38px;padding:0 0 0 13px;border:1px solid var(--glass-edge);border-radius:999px;background:var(--glass-strong,#fff);box-shadow:var(--sh-1);color:var(--muted);max-width:280px}
+.st-app .tl .tv-saved>svg{flex:none}
+.st-app .tl .tv-saved select{border:0!important;background:transparent!important;box-shadow:none!important;height:36px;padding:0 30px 0 8px;font-size:13px;font-weight:600;color:var(--ink);min-width:0;max-width:240px;cursor:pointer}
+.st-app .tl .tv-saved:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+@media (max-width:720px){.st-app .tl .tv-saved{max-width:100%;width:100%}.st-app .tl .tv-saved select{max-width:none;width:100%}}
+
+/* ---------- 7. Bảng ---------- */
+.st-app .tl .tbl table{font-size:13.5px}
+.st-app .tl .tbl th{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:0;text-transform:none}
+.st-app .tl .tbl tbody tr{transition:background .15s}
+.st-app .tl .tbl tbody tr:hover>td{background:var(--accent-soft)}
+
+/* ---------- 8. Các bước quy trình, trạng thái trống ---------- */
+.st-app .tl-rail li{transition:background .2s,color .2s}
+.st-app .tl-empty{border-style:dashed}
+.st-app .tl-empty h3,.st-app .tl-empty b{font-family:var(--display)}
+
+/* ---------- 9. Huy hiệu đếm trong tab ---------- */
+.st-app .tl .tabs .tab-n,.st-app .tl .tabs button>small,.st-app .tl .tabs button>b{min-width:20px;padding:0 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700;line-height:18px;text-align:center}
+
+/* ---------- 10. Nút trong thẻ không kéo dài hết bề ngang (căn trái theo nội dung) ---------- */
+.st-app .tl :is(.dz-card,.tv-setup)>.btn{justify-self:start;align-self:start;width:auto}
+
+/* ---------- 11. Chấm mù: mã đã gõ giãn chữ, chữ gợi ý bình thường; hai thẻ đầu đặt cạnh nhau trên màn rộng ---------- */
+.st-app .tl .br-join input{letter-spacing:0;border-radius:12px}
+.st-app .tl .br-join input:not(:placeholder-shown){letter-spacing:.14em;font-weight:700}
+@media (min-width:1100px){
+  .st-app .tl .dz-grid:has(> .dz-card .br-join){grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
+  .st-app .tl .dz-grid:has(> .dz-card .br-join)>.dz-card:nth-child(n+3){grid-column:1/-1}
+}
+.st-app .tl .br-join input{text-transform:none}
+.st-app .tl .btn{white-space:nowrap}
+
+/* ---------- 12. Thực nghiệm: thẻ C (phương pháp đề xuất) nổi bằng viền nhấn ở cả hai giao diện ---------- */
+.st-app .tl .cmp-col.is-a{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:linear-gradient(180deg,var(--accent-soft),transparent 45%),var(--glass-strong,#fff)}
+.st-app[data-theme="dark"] .tl .cmp-col.is-a{background:linear-gradient(180deg,var(--accent-soft),transparent 45%),rgba(18,28,46,.72)}

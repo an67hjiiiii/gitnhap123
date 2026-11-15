@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -94,9 +96,42 @@ def build_conversation_context(
     )
 
 
+# Câu hỏi tiếp nối ngắn ("Làm sao cho an toàn?", "Còn hoàn tiền thì sao?") thường không nhắc lại chủ đề.
+_FOLLOW_MARKERS = re.compile(
+    r"\b(nó|đó|đấy|kia|ở trên|nói trên|trước đó|vừa rồi|như vậy|như thế|thế còn|còn|vậy thì|thì sao|tiếp theo|chi tiết hơn|"
+    r"cụ thể hơn|ví dụ|it|its|they|them|that|this|those|what about|how about)\b",
+    re.IGNORECASE,
+)
+_FILLER = set("""gì nào sao làm thế bao nhiêu ai đâu hãy giúp tôi bạn ở là những cách có được không thì khi như cái các và của
+cho với trong về từ theo nếu này đó kia một mình nó vậy còn nữa thêm cần phải nên muốn biết hơn rõ cụ thể chi tiết ví dụ
+the what how why when which who is are do does a an of to in for on and or it this that""".split())
+
+
+def _fold(text: str) -> str:
+    text = unicodedata.normalize("NFD", text.casefold())
+    return "".join(c for c in text if unicodedata.category(c) != "Mn").replace("đ", "d")
+
+
+def resolve_follow_up(query: str, context: ConversationContext) -> str | None:
+    """Câu hỏi trước mà câu này đang hỏi tiếp, hoặc None nếu câu này tự đủ nghĩa.
+
+    Coi là hỏi tiếp khi có từ chỉ trỏ ("nó", "còn ... thì sao") hoặc câu chỉ còn tối đa hai chữ nội dung
+    sau khi bỏ hư từ. Lịch sử chỉ dùng để hiểu ý, không bao giờ là bằng chứng.
+    """
+    previous = (context.last_user_request or "").strip()
+    if not previous or _fold(previous) == _fold(query.strip()):
+        return None
+    filler = {_fold(w) for w in _FILLER}
+    content = [w for w in re.findall(r"\w+", _fold(query)) if w not in filler and not w.isdigit()]
+    if _FOLLOW_MARKERS.search(query) or len(content) <= 2:
+        return previous
+    return None
+
+
 __all__ = [
     "ConversationContext",
     "DEFAULT_MAX_CHARS",
     "DEFAULT_MAX_MESSAGES",
     "build_conversation_context",
+    "resolve_follow_up",
 ]

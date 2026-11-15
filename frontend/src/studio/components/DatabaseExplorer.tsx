@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Search, ShieldCheck, Stethoscope, Database, CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react';
+import { RefreshCw, Search, ShieldCheck, Stethoscope, Database, CheckCircle2, AlertTriangle, AlertCircle, ThumbsUp } from 'lucide-react';
 import { DatabaseOverviewResponse, TableDataResponse, SecurityAuditResponse, DbDiagnosticResponse } from '../types';
 import { getDatabaseOverview, getTableData, getSecurityAudit, getDbDiagnostic } from '../services/api';
 import { StudioModal } from './StudioModal';
+import { AdminFeedbackModal } from './AdminFeedbackModal';
+import { ToolHeader } from './analysis/shared';
+import './profile/tools.css';
 
 const TABLE_LABEL: Record<string, string> = {
   users: 'Người dùng', sessions: 'Phiên đăng nhập', knowledge_sources: 'Tài liệu', knowledge_chunks: 'Phân đoạn',
@@ -28,6 +31,7 @@ export const DatabaseExplorer: React.FC = () => {
   const [dbDiagnostic, setDbDiagnostic] = useState<DbDiagnosticResponse | null>(null);
   const [isLoadingDiagnostic, setIsLoadingDiagnostic] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const openSecurity = async () => {
     setSecurityOpen(true); setIsLoadingSecurity(true); setModalError(null);
@@ -62,16 +66,16 @@ export const DatabaseExplorer: React.FC = () => {
   const closeModal = (set: (v: boolean) => void) => () => { set(false); setModalError(null); };
 
   return (
-    <div className="pg">
-      <div className="pg-col">
-        <header className="pg-head">
-          <div><h1>Cơ sở dữ liệu</h1><p>{overview ? `${overview.tables.length} bảng · PostgreSQL` : "Đang tải…"}</p></div>
-          <button className="btn btn-ghost" onClick={() => { fetchOverview(); fetchTable(selectedTable, searchQuery); }} disabled={isRefreshing}><RefreshCw size={15} className={isRefreshing ? 'is-spinning' : ''} />Làm mới</button>
-        </header>
+    <div className="pg tl tone-overview db-page">
+      <div className="pg-col tv-col">
+        <ToolHeader Icon={Database} title="Cơ sở dữ liệu"
+          desc={`${overview ? `${overview.tables.length} bảng PostgreSQL. ` : ''}Xem dữ liệu từng bảng (không hiện mật khẩu, token), phản hồi người dùng, kiểm tra cấu hình bảo mật và chẩn đoán cấu trúc CSDL.`}
+          right={<button className="btn btn-ghost" onClick={() => { fetchOverview(); fetchTable(selectedTable, searchQuery); }} disabled={isRefreshing}><RefreshCw size={15} className={isRefreshing ? 'is-spinning' : ''} />Làm mới</button>} />
 
         {loadError && <div className="note is-error"><AlertCircle size={16} /><span>{loadError}</span></div>}
 
         <div className="db-tools">
+          <button onClick={() => setFeedbackOpen(true)}><ThumbsUp size={18} /><b>Phản hồi người dùng</b><span>Câu trả lời được chấm 👍/👎 và góp ý</span></button>
           <button onClick={openSecurity}><ShieldCheck size={18} /><b>Kiểm tra bảo mật</b><span>Rà soát cấu hình chạy cục bộ (NFR06)</span></button>
           <button onClick={openDiagnostic}><Stethoscope size={18} /><b>Chẩn đoán CSDL</b><span>Khóa ngoại và cấu trúc bảng</span></button>
         </div>
@@ -108,6 +112,7 @@ export const DatabaseExplorer: React.FC = () => {
 
       </div>
 
+      {feedbackOpen && <AdminFeedbackModal onClose={() => setFeedbackOpen(false)} />}
       {securityOpen && <StudioModal labelId="sec-title" size="md" icon={<ShieldCheck size={18} />} title="Kiểm tra bảo mật cục bộ" subtitle={securityAudit ? `Kết quả: ${securityAudit.audit_score}` : 'Rà soát cấu hình chạy cục bộ (NFR06)'} onClose={closeModal(setSecurityOpen)}
         footer={<><span className="mo-note">{securityAudit ? `Thời điểm kiểm tra: ${securityAudit.audit_timestamp}` : ''}</span><button className="btn btn-dark" onClick={closeModal(setSecurityOpen)}>Đóng</button></>}>
         {isLoadingSecurity ? <p className="muted-line is-center"><span className="spin is-dark" />Đang rà soát…</p>
