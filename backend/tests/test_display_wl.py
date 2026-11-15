@@ -149,3 +149,26 @@ def test_step_log_deltas_and_opt_in(tmp_path, monkeypatch):
     monkeypatch.setenv("STEP_LOG_DIR", str(tmp_path))
     write_step_log("run_x", "C", "q", "COMPLETE", marks, type("M", (), base)())
     assert (tmp_path / "run_x.json").exists()
+
+
+def test_extra_retrieval_query_adds_a_variant_and_defaults_to_none():
+    from app.research.pipeline import EXTRA_RETRIEVAL_QUERIES
+
+    assert EXTRA_RETRIEVAL_QUERIES.get() == ()
+    token = EXTRA_RETRIEVAL_QUERIES.set(("Nhật ký truy cập giữ bao lâu?",))
+    try:
+        assert EXTRA_RETRIEVAL_QUERIES.get() == ("Nhật ký truy cập giữ bao lâu?",)
+    finally:
+        EXTRA_RETRIEVAL_QUERIES.reset(token)
+
+
+def test_cross_language_numbers_checked_by_value_and_unit():
+    from app.chat.answer_guard import guard_answer
+
+    vi = "Mật khẩu phải có tối thiểu 12 ký tự. Mật khẩu hết hạn sau 90 ngày và phải được đổi."
+    ok = guard_answer("The minimum password length is 12 characters.", status="COMPLETE",
+                      evidence_texts=[vi], cited_texts=[vi])
+    assert ok.removed_claims == []
+    bad = guard_answer("The minimum password length is 13 characters.", status="COMPLETE",
+                       evidence_texts=[vi], cited_texts=[vi])
+    assert bad.removed_claims

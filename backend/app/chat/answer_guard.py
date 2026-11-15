@@ -118,6 +118,14 @@ def _derived(slot: Slot, sentence: str, texts: list[str]) -> bool:
     return False
 
 
+_EN_WORDS = frozenset("the is are was of in for and to as be it that this with by on from at an or not".split())
+
+
+def _looks_english(text: str) -> bool:
+    """Two or more common English function words: cheap and deterministic (quoted Vietnamese terms do not matter)."""
+    return sum(w in _EN_WORDS for w in re.findall(r"[a-z]+", (text or "").casefold())) >= 2
+
+
 def _number_check(sentence: str, texts: list[str]) -> tuple[list[str], list[str]]:
     relevant = []
     for text in texts:
@@ -127,6 +135,11 @@ def _number_check(sentence: str, texts: list[str]) -> tuple[list[str], list[str]
             window = source if i == 0 else sentences[i - 1] + " " + source
             if _related(sentence, window):
                 relevant.append(source)
+    if not relevant:
+        # Word overlap cannot relate an answer to a source written in another language; the figures themselves
+        # are still checked (value + unit) against the cited text, so a wrong number is still removed.
+        if all(_looks_english(text) != _looks_english(sentence) for text in texts):
+            relevant = [s for text in texts for s in split_sentences(text)]
     bad, derived = [], []
     for slot in numbers_in_answer_supported(sentence, relevant):
         if relevant and _derived(slot, sentence, texts):

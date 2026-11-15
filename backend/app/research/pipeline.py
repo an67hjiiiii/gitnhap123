@@ -7,6 +7,7 @@ import time
 import unicodedata
 import uuid
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import datetime, timezone
 
@@ -49,7 +50,7 @@ from app.research.product_retrieval import product_retrieve, run_budget_exceeded
 from app.research.vanilla import answer_vanilla
 from app.research.worker import execute_task
 from app.retrieval.index_identity import IndexingError
-from app.retrieval.multilingual import build_query_variants, detect_language
+from app.retrieval.multilingual import RetrievalQueryVariant, build_query_variants, detect_language
 from app.retrieval.text import apply_token_budget, estimate_tokens, retrieve, terms
 from app.storage.run_store import RunStore
 from app.storage.source_store import SourceStore
@@ -58,6 +59,10 @@ CONDITIONS = {"A", "B", "C", "C-P", "C-N", "C-O"}
 _LEXICAL_FALLBACK_FILLERS = frozenset(
     {"what", "which", "who", "where", "when", "why", "how", "doe", "do", "did", "use", "used", "dùng", "gì"}
 )
+
+# Set per request by the chat layer (a ContextVar so concurrent requests never see each other's value).
+EXTRA_RETRIEVAL_QUERIES: ContextVar[tuple[str, ...]] = ContextVar("EXTRA_RETRIEVAL_QUERIES", default=())
+
 
 class ResearchPipeline:
     def __init__(
@@ -84,6 +89,9 @@ class ResearchPipeline:
         fallback_trace: dict | None = None,
     ) -> list[SourceChunk]:
         variants = build_query_variants(query)
+        for extra in EXTRA_RETRIEVAL_QUERIES.get():  # translated question for a mixed-language corpus
+            if extra and all(extra != v.text for v in variants):
+                variants.append(RetrievalQueryVariant("translated_query", extra, detect_language(extra)))
         if self.candidate_index is None:
             if chunks is None:
                 chunks = self.source_store.chunks(source_ids)
@@ -98,12 +106,20 @@ class ResearchPipeline:
         # CandidateIndex applies owner/source filters in the vector query before top-k.
         # Hydrate only canonical chunks already scoped by the owner source store.
         matches_by_id = {}
+        guaranteed: set[str] = set()
         for variant in variants:
-            for match in self.candidate_index.candidates(variant.text, limit=top_k, source_ids=source_ids):
+            found = self.candidate_index.candidates(variant.text, limit=top_k, source_ids=source_ids)
+            if variant.label == "translated_query":
+                # scores of different languages are not comparable (same-language pairs score higher), so the
+                # translated query keeps its own best hits instead of being crowded out by the original's
+                guaranteed.update(str(m.payload.get("chunk_id") or "") for m in found[:3])
+            for match in found:
                 existing = matches_by_id.get(str(match.payload.get("chunk_id") or ""))
                 if existing is None or match.score > existing.score:
                     matches_by_id[str(match.payload.get("chunk_id") or "")] = match
-        matches = sorted(matches_by_id.values(), key=lambda match: match.score, reverse=True)[:top_k]
+        ranked = sorted(matches_by_id.values(), key=lambda match: match.score, reverse=True)
+        must = [m for m in ranked if str(m.payload.get("chunk_id") or "") in guaranteed]
+        matches = (must + [m for m in ranked if m not in must])[:top_k]
         hydrate = getattr(self.source_store, "chunks_by_ids", None)
         if callable(hydrate):
             matched_chunks = hydrate([str(m.payload.get("chunk_id") or "") for m in matches], source_ids=source_ids)

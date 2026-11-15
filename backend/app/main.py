@@ -30,7 +30,7 @@ from app.ingestion.documents import (
     extract_document,
 )
 from app.providers.ollama import OllamaProvider
-from app.research.pipeline import ResearchPipeline
+from app.research.pipeline import EXTRA_RETRIEVAL_QUERIES, ResearchPipeline
 from app.retrieval.candidate_index import CandidateIndex, IndexingError
 from app.retrieval.index_identity import IndexState
 from app.retrieval.reindex import ReindexManager, index_state
@@ -699,8 +699,18 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         except Exception:
             sample = []
         doc_language = document_language(sample)
+        other_languages = sorted(source_languages - {asker_language})
         if asker_language in source_languages:  # mixed corpus: some documents already match the question's language
             doc_language = None
+        cross_language_query = None
+        if asker_language in source_languages and len(other_languages) == 1 and                 os.getenv("CROSS_LANGUAGE_RETRIEVAL", "1") != "0":
+            # translate once to the other language; retrieval then runs both versions and merges the results
+            say("translating", "Kho có tài liệu ở ngôn ngữ khác, mình tìm cả hai cách diễn đạt…")
+            t_x = time.perf_counter()
+            cross_language_query = await translate_query(provider, query, other_languages[0])
+            timings["cross_language_ms"] = int((time.perf_counter() - t_x) * 1000)
+            if cross_language_query == query:
+                cross_language_query = None
         timings["language_ms"] = int((time.perf_counter() - t_start) * 1000) - timings["intent_ms"]
         if doc_language and doc_language != asker_language:
             say("translating", "Đang chuyển câu hỏi sang ngôn ngữ của tài liệu…")
@@ -734,6 +744,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         if route is not None:
             route["executed"] = "C" if force_plan else ("C_MULTI" if multi_retrieval else "B")
         conversations.add_message(conversation_id, "USER", message)
+        EXTRA_RETRIEVAL_QUERIES.set((cross_language_query,) if cross_language_query else ())
         run = await owner_pipeline(user, conversation_id).run(
             query,
             condition,
