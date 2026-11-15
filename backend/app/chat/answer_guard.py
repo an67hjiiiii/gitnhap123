@@ -119,8 +119,14 @@ def _derived(slot: Slot, sentence: str, texts: list[str]) -> bool:
 
 
 def _number_check(sentence: str, texts: list[str]) -> tuple[list[str], list[str]]:
-    relevant = [source for text in texts for source in split_sentences(text)
-                if _related(sentence, source)]
+    relevant = []
+    for text in texts:
+        sentences = split_sentences(text)
+        for i, source in enumerate(sentences):
+            # the subject may be named in the previous sentence ("Requests use a Bearer token. A token expires ...")
+            window = source if i == 0 else sentences[i - 1] + " " + source
+            if _related(sentence, window):
+                relevant.append(source)
     bad, derived = [], []
     for slot in numbers_in_answer_supported(sentence, relevant):
         if relevant and _derived(slot, sentence, texts):
