@@ -115,3 +115,20 @@ def test_summary_that_repeats_the_body_is_dropped():
     two = [_result("t1", "security", long_text), _result("t2", "database", long_text)]
     out = asyncio.run(synthesize(Summarizer(), "q", two, RunMetrics()))
     assert "Tóm tắt" not in out
+
+
+def test_cross_sentence_subject_number_is_supported():
+    from app.chat.answer_guard import guard_answer
+
+    src = "Requests use a Bearer token. A token expires after 24 hours."
+    out = guard_answer("Bearer token hết hạn sau 24 giờ, theo tài liệu api_guide_en.md.", status="COMPLETE",
+                       evidence_texts=[src], cited_texts=[src])
+    assert out.removed_claims == [] and "24" in out.answer
+
+
+def test_wrong_subject_number_is_still_flagged():
+    from app.chat.answer_guard import guard_answer
+
+    a, b = "Mật khẩu hết hạn sau 90 ngày.", "Nhật ký truy cập giữ 90 ngày."
+    out = guard_answer("Mật khẩu hết hạn sau 90 ngày.", status="COMPLETE", evidence_texts=[a, b], cited_texts=[b])
+    assert out.removed_claims

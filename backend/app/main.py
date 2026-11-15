@@ -686,15 +686,21 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         # the answer still follows the asker's language.
         asker_language = text_language(message)
         reply_hint = None
+        source_languages: set[str] = set()
         try:  # a few chunks of a few sources are enough to guess the documents' language
             sample = []
-            for entry in store.list_sources()[:5]:
+            for entry in store.list_sources()[:8]:
                 if selected_source_ids is not None and entry["source_id"] not in selected_source_ids:
                     continue
-                sample += [c.get("text", "") for c in (store.source(entry["source_id"]) or {}).get("chunks", [])[:6]]
+                texts = [c.get("text", "") for c in (store.source(entry["source_id"]) or {}).get("chunks", [])[:6]]
+                sample += texts
+                if texts:
+                    source_languages.add(text_language(" ".join(texts)))
         except Exception:
             sample = []
         doc_language = document_language(sample)
+        if asker_language in source_languages:  # mixed corpus: some documents already match the question's language
+            doc_language = None
         timings["language_ms"] = int((time.perf_counter() - t_start) * 1000) - timings["intent_ms"]
         if doc_language and doc_language != asker_language:
             say("translating", "Đang chuyển câu hỏi sang ngôn ngữ của tài liệu…")
