@@ -10,30 +10,39 @@ import type {
   SourceImportResult,
   SourcesResponse,
 } from "../types/api";
+import { contextOfPath, friendlyMessage } from "./errorMessage";
 
 export class ApiError extends Error {
   readonly status: number;
+  readonly detail?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, detail?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    credentials: init?.credentials ?? "same-origin",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, {
+      ...init,
+      credentials: init?.credentials ?? "same-origin",
+    });
+  } catch (error) {
+    const timeout = error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError");
+    throw new ApiError(friendlyMessage(timeout ? { timeout: true } : { network: error instanceof TypeError }), 0, error instanceof Error ? error.message : undefined);
+  }
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
     const detail =
       payload && typeof payload === "object" && "detail" in payload
         ? String(payload.detail)
-        : `Request failed with HTTP ${response.status}`;
-    throw new ApiError(detail, response.status);
+        : "";
+    throw new ApiError(friendlyMessage({ status: response.status, detail, context: contextOfPath(path) }), response.status, detail);
   }
 
   return payload as T;

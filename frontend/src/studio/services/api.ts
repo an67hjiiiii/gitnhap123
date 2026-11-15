@@ -6,20 +6,33 @@ import {
   RetrievalTestResponse, RunDetail, SecurityAuditResponse, TableDataResponse, TelemetryRecord, User, Workspace,
 } from '../types';
 import { adaptRun, Cap1Run, MODE_TO_CONDITION, modeOf } from './adapt';
+import { contextOfPath, friendlyMessage } from '../../lib/errorMessage';
 
 const API = '/api';
 export const NOT_SUPPORTED = 'Chức năng này chưa có trong backend CAP1.';
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    credentials: 'same-origin',
-    ...init,
-    headers: init.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json', ...(init.headers || {}) } : init.headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, {
+      credentials: 'same-origin',
+      ...init,
+      headers: init.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json', ...(init.headers || {}) } : init.headers,
+    });
+  } catch (error) {
+    const timedOut = error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError');
+    const failure = new Error(friendlyMessage(timedOut ? { timeout: true } : { network: error instanceof TypeError }));
+    (failure as any).detail = error instanceof Error ? error.message : '';
+    throw failure;
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const detail = typeof body?.detail === 'string' ? body.detail : Array.isArray(body?.detail) ? body.detail.map((d: any) => d.msg).join('; ') : '';
-    throw new Error(viError(detail) || `Lỗi máy chủ (HTTP ${res.status})`);
+    const translated = viError(detail);
+    const failure = new Error(friendlyMessage({ status: res.status, detail: translated !== detail ? translated : detail, context: contextOfPath(path) }));
+    (failure as any).status = res.status;
+    (failure as any).detail = detail;
+    throw failure;
   }
   return res.json();
 }
