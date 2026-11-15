@@ -1,4 +1,8 @@
 {
+    "reindex": {
+        "running": "Đang cập nhật chỉ mục tài liệu ({done}/{total}), thử lại sau ít phút.",
+        "failed": "Cập nhật chỉ mục tài liệu gặp lỗi ở một số nguồn; quản trị viên cần kiểm tra nhật ký."
+    },
     "route_reason": {
         "SINGLE_IDEA": "Yêu cầu có một ý chính nên được xử lý trực tiếp.",
         "MULTI_IDEA": "Yêu cầu có nhiều ý nên cần lập kế hoạch xử lý.",

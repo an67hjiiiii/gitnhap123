@@ -82,6 +82,14 @@ class CandidateIndex:
                 self.vector_store._index_legacy_warned = True
         return state
 
+    def begin_rebuild(self) -> None:
+        """Adopt the current identity for the whole collection before re-embedding source by source.
+
+        Nothing is deleted: vectors are overwritten in place (same record ids) by `index_source`. Until a source
+        is re-embedded its old vectors are invisible to search (payload_complete -> embedding_version filter).
+        """
+        self._write_manifest(IndexManifest(self.identity, empty=False, payload_complete=True))
+
     def index_source(self, source_id: str, *, workspace_id: str | None = None) -> dict[str, Any]:
         source = self.source_store.source(source_id)
         if source is None:
