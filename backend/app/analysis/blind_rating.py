@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import random
 import secrets
 import string
@@ -40,12 +41,23 @@ def build_items(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     return items, failed
 
 
+_HEADING_LINE = re.compile(r"^\s*(?:\*\*[^*\n]{1,80}\*\*:?|__[^_\n]{1,80}__:?|tóm tắt:?)\s*$", re.IGNORECASE)
+
+
+def normalize_answer_for_rater(text: str) -> str:
+    """Bỏ dấu vết trình bày riêng của từng điều kiện (tiêu đề in đậm theo miền, nhãn "Tóm tắt", `**`) để người chấm
+    không đoán được điều kiện. Chỉ đổi cách trình bày: mọi chữ trong nội dung câu trả lời được giữ nguyên."""
+    lines = [ln for ln in str(text or "").replace("\r\n", "\n").split("\n") if not _HEADING_LINE.match(ln)]
+    out = re.sub(r"\*\*|__", "", "\n".join(lines))
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
 def rater_view(items: list[dict], rater_id: str, study_id: str) -> list[dict]:
     """Mục cho người chấm: bỏ điều kiện, mã lượt chạy, điểm tự động; xáo thứ tự theo người chấm."""
     seed = int(hashlib.sha256(f"{study_id}:{rater_id}".encode()).hexdigest()[:12], 16)
     order = list(items)
     random.Random(seed).shuffle(order)
-    return [{"item_id": it["item_id"], "question": it["question"], "answer": it["answer"], "key_points": it["key_points"]} for it in order]
+    return [{"item_id": it["item_id"], "question": it["question"], "answer": normalize_answer_for_rater(it["answer"]), "key_points": it["key_points"]} for it in order]
 
 
 def validate_score(score: dict, n_points: int) -> dict:

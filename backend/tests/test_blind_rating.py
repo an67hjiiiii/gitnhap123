@@ -59,3 +59,24 @@ def test_api_requires_postgres_and_validates():
     c = TestClient(app)
     assert c.get("/api/studio/rating/join/ABCDEF").status_code == 503
     assert c.post("/api/studio/rating/studies", json={"title": "x", "items": []}).status_code == 422
+
+
+def test_rater_view_answer_formatting_does_not_leak_condition():
+    a = "Mật khẩu tối thiểu 12 ký tự [c1]. Hết hạn sau 90 ngày [c2]."
+    c = "**Bảo mật**\nMật khẩu tối thiểu 12 ký tự [c1].\n\nHết hạn sau 90 ngày [c2].\n\n**Tóm tắt**\nMật khẩu tối thiểu **12 ký tự**."
+    items = [
+        {"item_id": "a", "question": "Q", "answer": a, "key_points": ["x"]},
+        {"item_id": "c", "question": "Q", "answer": c, "key_points": ["x"]},
+    ]
+    shown = {v["item_id"]: v["answer"] for v in br.rater_view(items, "u1", "s1")}
+    for text in shown.values():
+        assert "**" not in text and "Tóm tắt" not in text and "Bảo mật" not in text
+        assert "\n\n\n" not in text and text == text.strip()
+    assert "Mật khẩu tối thiểu 12 ký tự [c1]" in shown["c"] and "Hết hạn sau 90 ngày [c2]" in shown["c"]
+    assert shown["a"] == a  # câu trả lời không có định dạng riêng thì giữ nguyên
+
+
+def test_normalize_keeps_content_words():
+    text = "**Cơ sở dữ liệu**\nDùng PostgreSQL 16.\n\n**Tóm tắt**\nPostgreSQL 16."
+    out = br.normalize_answer_for_rater(text)
+    assert "Dùng PostgreSQL 16." in out and out.split("\n")[-1] == "PostgreSQL 16."
