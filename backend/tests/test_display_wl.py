@@ -132,3 +132,20 @@ def test_wrong_subject_number_is_still_flagged():
     a, b = "Mật khẩu hết hạn sau 90 ngày.", "Nhật ký truy cập giữ 90 ngày."
     out = guard_answer("Mật khẩu hết hạn sau 90 ngày.", status="COMPLETE", evidence_texts=[a, b], cited_texts=[b])
     assert out.removed_claims
+
+
+def test_step_log_deltas_and_opt_in(tmp_path, monkeypatch):
+    from app.research.step_log import steps_from_marks, write_step_log
+
+    base = {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0, "failed_llm_attempts": 0,
+            "retrieved_chunks": 0, "selected_chunks": 0}
+    marks = [{"stage": "a", "t": 1.0, **base},
+             {"stage": "b", "t": 3.5, **{**base, "input_tokens": 100, "llm_calls": 1, "failed_llm_attempts": 1}}]
+    steps = steps_from_marks(marks)
+    assert steps[1]["seconds"] == 2.5 and steps[1]["input_tokens"] == 100 and steps[1]["retry_or_degrade"]
+    monkeypatch.delenv("STEP_LOG_DIR", raising=False)
+    write_step_log("run_x", "C", "q", "COMPLETE", marks, type("M", (), base)())
+    assert not list(tmp_path.iterdir())
+    monkeypatch.setenv("STEP_LOG_DIR", str(tmp_path))
+    write_step_log("run_x", "C", "q", "COMPLETE", marks, type("M", (), base)())
+    assert (tmp_path / "run_x.json").exists()

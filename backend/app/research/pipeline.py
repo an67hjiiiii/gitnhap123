@@ -11,6 +11,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from app.core.config import RuntimeConfig
+from app.research.step_log import write_step_log
 from app.core.graph import topological_order, validate_tasks
 from app.core.telemetry import gpu_memory_mb, process_rss_mb
 from app.core.types import RunMetrics, SourceChunk, Task, TaskPlan, TaskResult
@@ -178,6 +179,7 @@ class ResearchPipeline:
         started = time.perf_counter()
         metrics = RunMetrics(peak_rss_mb=process_rss_mb(), gpu_memory_mb=gpu_memory_mb())
         events: list[dict] = []
+        step_marks: list[dict] = []  # per-step measurement only (env STEP_LOG_DIR); never read by the pipeline
         run_id = "run_" + uuid.uuid4().hex[:12]
         created_at = datetime.now(timezone.utc).isoformat()
         flags = self._flags(condition)
@@ -223,6 +225,11 @@ class ResearchPipeline:
                 )})
             item = {"stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **data}
             events.append(item)
+            step_marks.append({
+                "stage": stage, "t": time.perf_counter() - started, "input_tokens": metrics.input_tokens,
+                "output_tokens": metrics.output_tokens, "llm_calls": metrics.llm_calls,
+                "failed_llm_attempts": metrics.failed_llm_attempts, "retrieved_chunks": metrics.retrieved_chunks,
+                "selected_chunks": metrics.selected_chunks})
             if on_event is not None:
                 try:
                     on_event(item.copy())
@@ -266,6 +273,7 @@ class ResearchPipeline:
             lifecycle_status = "FAILED" if status == "FAILED" else "COMPLETED"
             run = make_run(status, answer, tasks, task_results)
             self.run_store.save(run)
+            write_step_log(run_id, condition, query, status, step_marks, metrics)
             return run
 
         persist_lifecycle("PENDING")
