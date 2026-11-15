@@ -70,7 +70,7 @@ def test_document_answer_has_numbered_sources_and_no_chunk_ids(chat_http):  # no
     assert body["grounding"] == "document" and isinstance(body["sources"], list)
     assert "src_" not in body["answer"] and "Nguồn:" not in body["answer"]
     for s in body["sources"]:
-        assert set(s) == {"n", "doc_name", "section", "snippet", "chunk_id"}
+        assert set(s) == {"n", "doc_name", "section", "snippet", "chunk_id", "chunk_no"}
     assert body["task_results"]  # old fields untouched
 
 

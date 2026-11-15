@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, ChevronDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Microscope, Sparkles, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
+import { ArrowRight, ArrowUp, BookOpen, ChevronDown, Clock, Coins, FileText, FolderOpen, Inbox, ListChecks, MessageSquareText, Microscope, Sparkles, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
 import { ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure } from '../services/api';
 import { adaptRun, answerText, Cap1Run, CONDITION_LABEL } from '../services/adapt';
 import { Markdown } from '../utils/markdown';
@@ -8,6 +8,7 @@ import { useRobotAssistant } from './robot/RobotContext';
 import { RobotState } from './robot/robotEngine';
 import { PIPELINE_STEPS, PipelineStep } from './ExecutionFlowGraph';
 import { NodeTraceModal } from './NodeTraceModal';
+import { SourceChips } from './SourceChips';
 import { StudioModal } from './StudioModal';
 import { ModeExecutionResult } from '../types';
 
@@ -34,6 +35,15 @@ const PRESETS = [
 const stripSources = (t: string) => t.replace(/\n?\s*Nguồn:\s*(\[[^\]]+\][,\s]*)+$/u, '').trim();
 const isQuick = (run?: Cap1Run) => !!run?.events?.some((e: any) => e.stage === 'product_request_routing');
 const citationsOf = (run?: Cap1Run) => [...new Set((run?.task_results || []).flatMap((r: any) => r.citations || []))] as string[];
+// Dòng chỉ số: "8,4 giây" / "1 phút 3 giây"; token rút gọn "5,4k" (số đầy đủ nằm trong tooltip).
+const fmtSeconds = (ms: number) => {
+  const total = ms / 1000;
+  if (total < 60) return `${total.toLocaleString('vi-VN', { maximumFractionDigits: 1 })} giây`;
+  const m = Math.floor(total / 60), sec = Math.round(total - m * 60);
+  return sec === 60 ? `${m + 1} phút` : `${m} phút ${sec} giây`;
+};
+const fmtTokens = (n: number) => n >= 1000 ? `${(n / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}k` : String(n);
+const sourceCount = (run?: Cap1Run) => Array.isArray(run?.sources) && run!.sources.length ? run!.sources.length : citationsOf(run).length;
 const firstName = (name?: string) => name?.trim().split(/\s+/).slice(-1)[0];
 const busy = (s: RobotState) => !['idle', 'happy', 'completed', 'error', 'sleeping', 'speaking'].includes(s);
 
@@ -257,7 +267,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
               if (m.role === 'USER') return <div key={m.message_id} className="ws-msg is-user"><p>{m.content}</p></div>;
               const run = m.run_id ? runs[m.run_id] : undefined;
               const quick = isQuick(run);
-              const cites = citationsOf(run);
               const failed = run?.status === 'FAILED';
               const hasAgents = !quick && (run?.task_results?.length ?? 0) > 0;
               const result = run ? adaptRun(run) : null;
@@ -268,11 +277,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                     {run?.status && <span className={`cht-status is-${String(run.status).toLowerCase()}`}>{STATUS_LABEL[run.status] ?? run.status}</span>}
                   </header>
                   <div className="md"><Markdown text={failed ? explainFailure(m.content) : stripSources(answerText(m.content))} /></div>
-                  {cites.length > 0 && <div className="cht-cites"><BookOpen size={13} />{cites.map(c => <button key={c} onClick={() => showChunk(c)} title="Xem đoạn tài liệu">{c.split('_').slice(-2).join('_')}</button>)}</div>}
+                  <SourceChips run={run} />
                   {run && <footer>
-                    <span className="ws-meta">{((run.metrics?.input_tokens ?? 0) + (run.metrics?.output_tokens ?? 0)).toLocaleString('vi-VN')} token · {((run.metrics?.latency_ms ?? 0) / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} giây</span>
-                    <button type="button" onClick={() => result && setTrace({ result, step: PIPELINE_STEPS[0] })}><Footprints size={13} />8 bước</button>
-                    {hasAgents && <button type="button" aria-expanded={agentsOf === run.run_id} onClick={() => setAgentsOf(agentsOf === run.run_id ? null : run.run_id)}><Users size={13} />Theo tác tử</button>}
+                    <span className="ws-meta">
+                      <span title="Thời gian xử lý"><Clock size={13} />{fmtSeconds(run.metrics?.latency_ms ?? 0)}</span>
+                      <span title={`${((run.metrics?.input_tokens ?? 0) + (run.metrics?.output_tokens ?? 0)).toLocaleString('vi-VN')} token (vào ${(run.metrics?.input_tokens ?? 0).toLocaleString('vi-VN')} · ra ${(run.metrics?.output_tokens ?? 0).toLocaleString('vi-VN')})`}><Coins size={13} />{fmtTokens((run.metrics?.input_tokens ?? 0) + (run.metrics?.output_tokens ?? 0))}</span>
+                      {sourceCount(run) > 0 && <span title="Số đoạn tài liệu được trích"><FileText size={13} />{sourceCount(run)} nguồn</span>}
+                    </span>
+                    <button type="button" onClick={() => result && setTrace({ result, step: PIPELINE_STEPS[0] })}><ListChecks size={13} />8 bước</button>
+                    {hasAgents && <button type="button" aria-expanded={agentsOf === run.run_id} onClick={() => setAgentsOf(agentsOf === run.run_id ? null : run.run_id)}><Users size={13} />Theo agent</button>}
                   </footer>}
                   {hasAgents && agentsOf === run!.run_id && <div className="ws-agents">
                     {result!.agent_results.map((a, i) => <section key={i}><h4>{a.agent_role.replace('Agent', '')} · {a.subtask_title}</h4><div className="md"><Markdown text={a.content} /></div></section>)}

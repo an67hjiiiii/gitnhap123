@@ -136,3 +136,14 @@ Chỉ chạm `frontend/src/studio/components/LeftPanel.tsx` và `handleUpload` t
 - Ô chọn tệp có `multiple`; kéo-thả nhận nhiều tệp và cả thư mục (khi trình duyệt có `webkitGetAsEntry`). Danh sách loại tệp giữ nguyên (`.pdf,.md,.markdown,.sql,.txt`); loại khác bị bỏ qua và báo rõ.
 - Tải tối đa 2 tệp song song bằng `uploadDocument` có sẵn; hiện "Đang tải i/n…"; một tệp lỗi chỉ báo riêng tệp đó; cuối cùng "Đã tải x/y · lỗi: … · bỏ qua vì đã có: …". Tệp trùng tên đã có (hoặc trùng trong cùng lượt) bị bỏ qua và nói rõ.
 - `handleUpload` nay trả `true/false` (không ném lỗi) và đếm số lượt đang tải để cờ `isUploading` không tắt sớm. `Workspace.onUploadFile` vẫn gọi được như cũ.
+
+## Ngoại lệ FE thứ hai do Owner cho phép — chỉnh hiển thị (chỉ phần nhìn thấy, không đổi logic/contract)
+File FE đã đổi:
+- `frontend/src/studio/components/Workspace.tsx`: dòng chỉ số dưới câu trả lời (Clock + thời gian, Coins + token, FileText + số nguồn; "1 phút 3 giây" từ 60 giây trở lên, "8,4 giây" dưới 60; token "5,4k" kèm tooltip số đầy đủ vào/ra); nút "8 bước" có icon ListChecks, nút "Theo tác tử" đổi thành "Theo agent" (icon Users); thay hàng mã chunk cũ bằng `<SourceChips />`.
+- `frontend/src/studio/components/SourceChips.tsx` (MỚI): chip theo tài liệu (FileText + tên file rút giữa giữ đuôi + "· N đoạn", kèm số [n]); tối đa 3 chip, còn lại "+N nguồn"; bấm chip mở khung đoạn trích ("[n] đoạn N · mục"). Không hiện mã chunk ở đâu cả. Lượt trả lời cũ chưa có `sources` thì lấy tên file qua `getChunk`.
+- `frontend/src/studio/styles/studio-2026.css`: kiểu cho `.ws-meta`, `.cht-chip`, `.cht-src-pop`.
+Ghi chú cho FE (BE đã đổi, chỉ thêm khoá):
+- `sources[i]` có thêm `chunk_no` (số thứ tự đoạn trong tài liệu, bắt đầu từ 1) để hiện "đoạn N".
+- Run lưu trong CSDL nay có `sources` và `grounding`, nên mở lại cuộc trò chuyện cũ vẫn ra đúng chip (`GET /api/runs/{id}`).
+- Cụm "chunk [n]" / "đoạn [n]" trong `answer` đã bỏ ở BE, chỉ còn dấu [n].
+- Chưa làm: bấm [n] trong thân câu trả lời để nhảy tới chip (vẫn là đề xuất #11).

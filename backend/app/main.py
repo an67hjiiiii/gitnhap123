@@ -766,6 +766,10 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             run["answer"] = strip_placeholder_tags(clean_answer)
         run["sources"] = sources
         run["grounding"] = "document"
+        try:  # keep the numbered sources with the stored run so a reloaded conversation shows the same chips
+            owner_run_store(user, conversation_id).save(run)
+        except Exception:
+            logging.getLogger(__name__).exception("could not store sources with the run")
         conversations.add_message(
             conversation_id,
             "ASSISTANT",

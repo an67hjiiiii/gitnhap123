@@ -7,6 +7,7 @@ _CHUNK_ID = r"src_[A-Za-z0-9]+_c\d+"
 _FOOTER_LINE = re.compile(r"(?im)^[ \t]*Ngu[ồo]n[ \t]*:.*$")
 _WRAPPED = re.compile(rf"[\[<(]\s*({_CHUNK_ID})\s*[\]>)]")
 _BARE = re.compile(rf"(?<![\w\[<(])({_CHUNK_ID})(?![\w\]>)])")
+_SOURCE_WORD = re.compile(r"(?i)\b(?:chunk|đoạn)(?:[ \t]+id)?[ \t]*(?=\[\d+\])")  # "chunk [1]" -> "[1]"
 _SNIPPET_CHARS = 200
 
 
@@ -45,11 +46,13 @@ def number_sources(answer: str, lookup, extra_ids=()) -> tuple[str, list[dict]]:
         provenance = chunk.get("provenance") or {}
         sources.append({
             "n": numbers[cid], "doc_name": chunk.get("source_name") or "", "chunk_id": cid,
+            "chunk_no": int(cid.rsplit("_c", 1)[1]) + 1,
             "section": provenance.get("section_path") or "", "snippet": _snippet(chunk.get("text", "")),
         })
     body = _FOOTER_LINE.sub("", text)
     body = _WRAPPED.sub(lambda m: f"[{numbers[m.group(1)]}]" if m.group(1) in numbers else "", body)
     body = _BARE.sub(lambda m: f"[{numbers[m.group(1)]}]" if m.group(1) in numbers else "", body)
+    body = _SOURCE_WORD.sub("", body)  # the model sometimes writes "in chunk [1]"; keep only the [n] marker
     body = re.sub(r"\[(\d+)\](?:\s*\[\1\])+", r"[\1]", body)  # same source twice in a row
     body = re.sub(r"[ \t]+\n", "\n", re.sub(r"\n{3,}", "\n\n", body)).strip()
     return body, sources
