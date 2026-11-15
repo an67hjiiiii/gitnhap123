@@ -427,7 +427,9 @@ def load_migration(filename="20261114_05_review_cases.py"):
 
 def test_migration_has_exactly_one_head_and_expected_predecessor():
     scripts = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
-    assert scripts.get_heads() == ["20261114_06"]
+    # Giai đoạn tích hợp gitnhap123: revision gộp rỗng 20261115_08 nối chuỗi review (06) và chuỗi studio (07).
+    assert scripts.get_heads() == ["20261115_08"]
+    assert set(scripts.get_revision("20261115_08").down_revision) == {"20261114_06", "20261114_07"}
     assert scripts.get_revision("20261114_05").down_revision == "20261111_04"
     assert scripts.get_revision("20261114_06").down_revision == "20261114_05"
 

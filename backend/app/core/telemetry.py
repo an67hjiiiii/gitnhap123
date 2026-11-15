@@ -1,6 +1,8 @@
 from __future__ import annotations
 import os
 import subprocess
+import threading
+import time
 
 
 def process_rss_mb() -> float | None:
@@ -34,18 +36,42 @@ def cpu_busy_percent(start) -> float | None:
         return None
 
 
-def model_rss_mb() -> float | None:
-    """RAM của tiến trình mô hình cục bộ (mọi tiến trình tên bắt đầu bằng "ollama"); None nếu không thấy."""
+_MODEL_RSS = {"value": None, "at": 0.0, "busy": False}
+_MODEL_RSS_TTL_S = 60.0
+
+
+def _scan_model_rss() -> float | None:
     try:
         import psutil  # type: ignore
+        # Chỉ đọc bộ nhớ của tiến trình ollama; duyệt toàn bộ tiến trình mất 1-3 giây trên Windows.
         total = 0
-        for proc in psutil.process_iter(["name", "memory_info"]):
-            name = (proc.info.get("name") or "").lower()
-            if name.startswith("ollama") and proc.info.get("memory_info"):
-                total += proc.info["memory_info"].rss
+        for proc in psutil.process_iter(["name"]):
+            if (proc.info.get("name") or "").lower().startswith("ollama"):
+                try:
+                    total += proc.memory_info().rss
+                except Exception:
+                    continue
         return round(total / (1024 * 1024), 2) if total else None
     except Exception:
         return None
+
+
+def _refresh_model_rss() -> None:
+    try:
+        _MODEL_RSS["value"] = _scan_model_rss()
+        _MODEL_RSS["at"] = time.monotonic()
+    finally:
+        _MODEL_RSS["busy"] = False
+
+
+def model_rss_mb() -> float | None:
+    """RAM của tiến trình mô hình cục bộ (mọi tiến trình tên bắt đầu bằng "ollama"); None nếu chưa đo được.
+    Không chặn lượt hỏi: trả số đo gần nhất (tối đa ~60 giây trước) và làm mới ở luồng nền; lần đầu có thể là None."""
+    if time.monotonic() - float(_MODEL_RSS["at"]) > _MODEL_RSS_TTL_S and not _MODEL_RSS["busy"]:
+        _MODEL_RSS["busy"] = True
+        threading.Thread(target=_refresh_model_rss, name="model-rss", daemon=True).start()
+    value = _MODEL_RSS["value"]
+    return value if isinstance(value, (int, float)) else None
 
 
 def gpu_memory_mb() -> float | None:

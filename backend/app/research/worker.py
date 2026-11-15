@@ -89,8 +89,8 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
             status = "PARTIAL"
         missing.append("worker returned an empty answer")
     task_metrics.update(
-        input_tokens=result.usage.input_tokens,
-        output_tokens=result.usage.output_tokens,
+        input_tokens=int(getattr(getattr(result, "usage", None), "input_tokens", 0) or 0),
+        output_tokens=int(getattr(getattr(result, "usage", None), "output_tokens", 0) or 0),
         latency_ms=int((time.perf_counter() - started) * 1000),
         valid_citations=len(valid), invalid_citations=len(invalid),
     )

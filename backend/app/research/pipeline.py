@@ -864,7 +864,12 @@ class ResearchPipeline:
                     )
                     g0 = time.perf_counter()
                     upstream = [completed[d] for d in task.depends_on if d in completed]
-                    result = await execute_task(provider, task, selected, metrics, reply_language=answer_language, upstream=upstream)
+                    task_kwargs = {}
+                    if answer_language:
+                        task_kwargs["reply_language"] = answer_language
+                    if upstream:
+                        task_kwargs["upstream"] = upstream
+                    result = await execute_task(provider, task, selected, metrics, **task_kwargs)
                     result.metrics["retrieved_chunks"] = len(candidates)
                     metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                     completed[task.task_id] = result
@@ -879,7 +884,7 @@ class ResearchPipeline:
                 answer = await synthesize(
                     provider, query,
                     [results_by_id[task.task_id] for task in tasks if task.task_id in results_by_id],
-                    metrics, reply_language=answer_language,
+                    metrics, **({"reply_language": answer_language} if answer_language else {}),
                 )
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
 
