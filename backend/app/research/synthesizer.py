@@ -25,7 +25,13 @@ def _mostly_in(summary: str, body: str) -> bool:
     return sum(w in pool for w in words) / len(words) >= 0.85
 
 
-async def synthesize(provider, query: str, results: list[TaskResult], metrics: RunMetrics) -> str:
+SYNTH_LANGUAGE_HINT = {
+    "vi": "NGÔN NGỮ: Viết bản tóm tắt bằng tiếng Việt, kể cả khi kết quả tác tử là tiếng Anh.",
+    "en": "LANGUAGE: Write the summary in English.",
+}
+
+
+async def synthesize(provider, query: str, results: list[TaskResult], metrics: RunMetrics, reply_language: str | None = None) -> str:
     """Assemble immutable task answers; the model supplies only an optional summary."""
     grouped: dict[str, list[str]] = {}
     compact = []
@@ -66,6 +72,8 @@ async def synthesize(provider, query: str, results: list[TaskResult], metrics: R
         "Chỉ tóm tắt TASK RESULTS; không viết lại các câu trả lời, không thêm tiêu đề."
     )
     user = f"USER REQUEST:\n{query}\n\nTASK RESULTS:\n" + "\n\n".join(compact)
+    if reply_language in SYNTH_LANGUAGE_HINT:
+        user += "\n\n" + SYNTH_LANGUAGE_HINT[reply_language]
     try:
         result = await provider.generate(system=system, user=user)
     except Exception as exc:

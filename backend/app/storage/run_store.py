@@ -50,6 +50,7 @@ class RunStore:
                         "query",
                         "status",
                         "lifecycle_status",
+                        "metrics",
                     )
                 })
             except Exception:

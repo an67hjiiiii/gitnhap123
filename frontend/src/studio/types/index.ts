@@ -224,7 +224,7 @@ export interface HealthResponse {
 }
 
 export type ExecutionMode = 'proposed_adaptive' | 'naive_multi_agent' | 'vanilla_rag' | 'ablation_comparison';
-export type NavigationTab = 'orchestration' | 'chat' | 'benchmarks' | 'db_explorer';
+export type NavigationTab = 'orchestration' | 'chat' | 'overview' | 'documents' | 'traceability' | 'req_quality' | 'design' | 'security' | 'consistency' | 'evaluation' | 'benchmarks' | 'rating' | 'users' | 'db_explorer';
 
 // Phase 6: Security Audit & Diagnostics Types
 export interface SecurityCheckpointItem {

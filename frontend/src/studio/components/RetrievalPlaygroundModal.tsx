@@ -38,13 +38,13 @@ export const RetrievalPlaygroundModal: React.FC<RetrievalPlaygroundModalProps> =
   React.useEffect(() => { if (initialQuery) setQuery(initialQuery); }, [initialQuery]);
   if (!isOpen) return null;
 
-  const run = async (overrideQuery?: string, overrideDomain?: string) => {
+  const run = async (overrideQuery?: string, overrideDomain?: string, overrideK?: number) => {
     const q = (overrideQuery || query).trim();
     if (!q) { setError('Vui lòng nhập câu truy vấn thử nghiệm.'); return; }
     setIsLoading(true); setError(null); onSearchingState?.(true, q);
     try {
       const dom = overrideDomain !== undefined ? overrideDomain : domain;
-      const res = await testRetrieval({ query: q, top_k: topK, workspace_id: workspaceId, domain_tag: dom === 'all' ? undefined : dom });
+      const res = await testRetrieval({ query: q, top_k: overrideK ?? topK, workspace_id: workspaceId, domain_tag: dom === 'all' ? undefined : dom });
       setResult(res);
       const maxSim = res.results.length > 0 ? res.results[0].similarity_percentage : 0;
       onSearchingState?.(false, q, `Đã tìm thấy ${res.results.length} phân đoạn (khớp cao nhất ${maxSim}%) trong ${res.latency_ms} ms.`);
@@ -74,10 +74,10 @@ export const RetrievalPlaygroundModal: React.FC<RetrievalPlaygroundModalProps> =
             <button key={p.title} type="button" className="chip" onClick={() => { setQuery(p.query); setDomain(p.domain); run(p.query, p.domain); }}>{p.title}</button>
           ))}</div>
           <div className="pg-opt"><span className="pg-label">Số đoạn</span><div className="seg" role="group" aria-label="Số phân đoạn lấy về">{[2, 3, 4, 6, 8].map(k => (
-            <button key={k} type="button" className={topK === k ? 'is-on' : ''} aria-pressed={topK === k} onClick={() => setTopK(k)}>{k}</button>
+            <button key={k} type="button" className={topK === k ? 'is-on' : ''} aria-pressed={topK === k} onClick={() => { setTopK(k); if (result) void run(undefined, undefined, k); }}>{k}</button>
           ))}</div></div>
           <div className="pg-opt"><span className="pg-label">Chuyên môn</span><div className="seg" role="group" aria-label="Lọc theo chuyên môn">{DOMAINS.map(d => (
-            <button key={d.id} type="button" className={domain === d.id ? 'is-on' : ''} aria-pressed={domain === d.id} onClick={() => setDomain(d.id)}>{d.dot && <i className={`dot is-${d.dot}`} />}{d.label}</button>
+            <button key={d.id} type="button" className={domain === d.id ? 'is-on' : ''} aria-pressed={domain === d.id} onClick={() => { setDomain(d.id); if (result) void run(undefined, d.id); }}>{d.dot && <i className={`dot is-${d.dot}`} />}{d.label}</button>
           ))}</div></div>
         </div>
       </div>}

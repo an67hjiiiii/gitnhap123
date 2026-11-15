@@ -152,3 +152,14 @@ Ghi chú cho FE (BE đã đổi, chỉ thêm khoá):
 - `backend/app/chat/answer_guard.py` (`_number_check`, thêm `_check_figures`, `_looks_english`): bỏ điều kiện "mọi chunk khác ngôn ngữ với câu". Khi không có câu nguồn nào liên quan theo chủ ngữ, từng chunk khác ngôn ngữ được xét riêng; câu được giữ nếu có ít nhất một chunk mà số + đơn vị chuẩn hóa khớp ("100 yêu cầu mỗi phút" khớp "100 requests per minute"). Chunk cùng ngôn ngữ vẫn cần chủ ngữ liên quan; số sai (101, 13 characters, 60 mục) vẫn bị cắt.
 - `backend/app/chat/source_filter.py` (MỚI) + `main.py`: sau guard chỉ giữ nguồn mà ít nhất một câu của câu trả lời giao cho người dùng khớp (đủ số của câu + từ khóa chung >=2, hoặc >=1 khi câu có số; từ khóa >=3 ký tự); nguồn đã được [n] trích trong thân luôn giữ; nếu lọc ra rỗng thì giữ nguyên danh sách gốc; [n] được đánh số lại. Khi có nguồn bị loại, `events` có `{"stage":"sources_filtered","before":[…],"after":[…],"dropped":[{n,doc_name,reason}]}`.
 - Test mới trong `tests/test_display_wl.py`; test cũ không sửa.
+
+## Giai đoạn nền tích hợp gitnhap123 (nhánh s3/integrate-gitnhap)
+
+- `POST /api/chat`: thêm `reply_in_query_language` (bool, mặc định `false`). Nếu `true` và BE không tự suy ra `reply_language_hint`, câu trả lời theo ngôn ngữ của câu hỏi (`reply_language_of`).
+- Nhánh trả lời trực tiếp (chào hỏi, lời cảm ơn, ngoài phạm vi, giới thiệu hệ thống) nay luôn có `sources: []`. Các nhánh trực tiếp khác đã có từ trước.
+- `run_id` vẫn là `null` ở mọi nhánh trực tiếp (DIRECT, HISTORY, EMPTY_STORE, chào hỏi). FE ẩn Feedback, Grounding, Báo cáo khi không có run (Workspace.tsx chỉ vẽ chân bài khi có `run`).
+- Status lạ (PARTIAL, VERIFY_FAILED...) hiển thị bằng `STATUS_LABEL[status] ?? status`.
+- Cookie phiên: chấp nhận cả `SESSION_COOKIE_SECURE` và `COOKIE_SECURE`.
+- Thêm 3 router: `/api/studio/*` (phân tích), `/api/users/*` (ADMIN), `/api/admin/*` (ADMIN), và middleware nhật ký hoạt động (không ghi nội dung câu hỏi/tài liệu).
+- Alembic: thêm revision gộp rỗng `20261115_08` (down_revision = `20261114_07`, `20261114_06`); không đổi lược đồ.
+- Upload (App.tsx): `handleUpload` trả `true/false` (LeftPanel tải nhiều tệp); màn Workspace nhận wrapper ném lỗi để hiện thông báo.

@@ -1,0 +1,12 @@
+# Cho Ollama trong Docker dùng GPU NVIDIA (máy chủ cần driver NVIDIA và NVIDIA Container Toolkit; Windows: Docker Desktop + WSL2).
+# Không có GPU, mô hình chạy bằng CPU chậm hơn nhiều lần. Dùng kèm:
+#   docker compose -f docker-compose.server.yml -f docker-compose.gpu.yml --profile ollama up -d
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

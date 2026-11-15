@@ -25,11 +25,12 @@ const DOMAIN_LABEL: Record<Domain, string> = { all: 'Tất cả', database: 'D�
 
 // Suy ra miền chính của tài liệu từ tên tệp và nhãn (giữ quy tắc cũ).
 function domainOf(doc: DocumentInfo): Exclude<Domain, 'all'> | null {
-  const fn = doc.source_file.toLowerCase();
+  // Bỏ dấu và dấu nối để tên tiếng Việt ("Thiết kế CSDL", "chinh_sach_bao_mat") cũng nhận ra được.
+  const fn = ' ' + doc.source_file.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, ' ') + ' ';
   const tags = doc.domain_tags.map(t => t.toLowerCase());
-  if (fn.includes('api')) return 'api';
-  if (fn.includes('schema') || fn.includes('sql') || fn.includes('ledger') || fn.includes('db')) return 'database';
-  if (fn.includes('security') || fn.includes('auth') || fn.includes('policy')) return 'security';
+  if (/ (api|endpoint|webhook) /.test(fn)) return 'api';
+  if (/ (schema|sql|ledger|db|database|csdl)| co so du lieu /.test(fn)) return 'database';
+  if (/ (security|auth|policy)| bao mat | phan quyen | xac thuc /.test(fn)) return 'security';
   if (tags.some(t => t.includes('api'))) return 'api';
   if (tags.some(t => t.includes('database') || t.includes('csdl'))) return 'database';
   if (tags.some(t => t.includes('security') || t.includes('bảo mật'))) return 'security';

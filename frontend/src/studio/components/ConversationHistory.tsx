@@ -10,15 +10,16 @@ interface Props {
   onNew: () => void;
 }
 
+// tạo bộ định dạng một lần: toLocale*String tạo mới mỗi lần gọi, chạy cho mọi dòng mỗi lần thanh bên vẽ lại (chuyển trang)
+const TIME = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' });
+const DAY = new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' });
 function when(s: string) {
   const d = serverDate(s), now = new Date();
-  return d.toDateString() === now.toDateString()
-    ? d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
-    : d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+  return d.toDateString() === now.toDateString() ? TIME.format(d) : DAY.format(d);
 }
 
 // Lịch sử thống nhất ở thanh bên: mỗi cuộc trò chuyện chứa cả câu hỏi nhanh lẫn lượt phân tích sâu.
-export const ConversationHistory: React.FC<Props> = ({ conversations, activeId, onOpen, onNew }) => {
+export const ConversationHistory: React.FC<Props> = React.memo(function ConversationHistory({ conversations, activeId, onOpen, onNew }) {
   const [q, setQ] = useState('');
   const shown = q.trim() ? conversations.filter(c => (c.title || '').toLowerCase().includes(q.trim().toLowerCase())) : conversations;
   return (
@@ -44,4 +45,4 @@ export const ConversationHistory: React.FC<Props> = ({ conversations, activeId, 
       </ul>
     </section>
   );
-};
+});

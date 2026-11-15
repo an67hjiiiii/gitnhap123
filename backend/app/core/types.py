@@ -112,6 +112,8 @@ class RunMetrics:
     latency_ms: int = 0
     peak_rss_mb: float | None = None
     gpu_memory_mb: float | None = None
+    cpu_percent: float | None = None  # CPU toàn máy trung bình trong lượt chạy
+    model_rss_mb: float | None = None  # RAM tiến trình Ollama lúc kết thúc lượt
 
     def add_usage(self, usage: Usage) -> None:
         self.llm_calls += 1
