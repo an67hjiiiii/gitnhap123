@@ -1,7 +1,7 @@
 // Phòng đánh giá thực nghiệm: bộ câu hỏi có ý chính, chạy A/B/C, chấm mù, thống kê cặp theo câu hỏi.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, BarChart3, CheckCircle2, ClipboardCheck, ChevronLeft, ChevronRight, Download, EyeOff, FlaskConical, ListOrdered, Plus, Save, Square, Trash2, X } from 'lucide-react';
-import { Described, evalRun, EvalRunResult, evalStats, getReport, PairedComparison, saveReport, updateReport } from '../services/api';
+import { Described, evalRun, EvalRunResult, evalStats, getReport, getRuntimeConfig, PairedComparison, saveReport, updateReport } from '../services/api';
 import './profile/tools.css';
 import { csvCell, Doc, DocPicker, docId, download, SavedReportsSelect, ToolHeader, useAnalysisData } from './analysis/shared';
 
@@ -65,6 +65,15 @@ export const EvaluationView: React.FC<{ docs: Doc[] }> = ({ docs }) => {
   const [stats, setStats] = useState<Record<string, { conditions: Record<string, Described>; comparisons: PairedComparison[] }>>({});
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // Điều kiện C-P/C-N/C-O chỉ chạy được ở profile m2 hoặc dev; profile thấp hơn trả 400 nên chặn ngay ở giao diện.
+  const [allowed, setAllowed] = useState<string[] | null>(null);
+  const [profile, setProfile] = useState<string>('');
+  useEffect(() => {
+    let alive = true;
+    getRuntimeConfig().then(c => { if (!alive) return; setAllowed(Array.isArray(c.allowed_conditions) ? c.allowed_conditions : null); setProfile(String(c.implementation_profile ?? '')); }).catch(() => { /* không đọc được cấu hình: giữ nguyên, server vẫn từ chối điều kiện không hợp lệ */ });
+    return () => { alive = false; };
+  }, []);
+  const condOk = (c: string) => allowed === null || allowed.includes(c);
   const stop = useRef(false);
   const runRef = useRef<RunState | null>(null);
   runRef.current = run;
@@ -99,7 +108,7 @@ export const EvaluationView: React.FC<{ docs: Doc[] }> = ({ docs }) => {
   const start = async (resume: boolean) => {
     setError(null); setNote(null);
     if (!evalSet.questions.length) { setError('Chưa có câu hỏi. Hãy soạn hoặc nạp bộ câu hỏi ở tab "Bộ câu hỏi".'); return; }
-    const st: RunState = resume && run ? run : { set: { ...evalSet, questions: renumber(evalSet.questions) }, conditions: CONDITIONS.filter(c => conds.has(c)), repeats, sourceIds: [...scope], items: {}, grades: {}, started: new Date().toISOString() };
+    const st: RunState = resume && run ? run : { set: { ...evalSet, questions: renumber(evalSet.questions) }, conditions: CONDITIONS.filter(c => conds.has(c) && condOk(c)), repeats, sourceIds: [...scope], items: {}, grades: {}, started: new Date().toISOString() };
     if (!st.conditions.length) { setError('Chọn ít nhất một điều kiện.'); return; }
     if (!resume) setRunIdBoth(null);
     setRun(st); stop.current = false; setRunning(true);
@@ -236,7 +245,7 @@ export const EvaluationView: React.FC<{ docs: Doc[] }> = ({ docs }) => {
           <p className="muted-line"><FlaskConical size={15} />Bộ câu hỏi: <b>{(run?.set ?? evalSet).name || 'chưa đặt tên'}</b> · {(run?.set ?? evalSet).questions.length} câu</p>
           <fieldset className="tv-field" disabled={running}><legend>Điều kiện so sánh</legend>
             <div className="tv-docs">{CONDITIONS.map(c => (
-              <label key={c} className={`chip${conds.has(c) ? ' is-on' : ''}`}><input type="checkbox" checked={conds.has(c)} onChange={e => setConds(prev => { const n = new Set(prev); e.target.checked ? n.add(c) : n.delete(c); return n; })} />{COND_VI[c]}</label>
+              <label key={c} className={`chip${conds.has(c) && condOk(c) ? ' is-on' : ''}`} title={condOk(c) ? undefined : `Cần profile m2 hoặc dev (đang là ${profile || 'thấp hơn'}). Đặt IMPLEMENTATION_PROFILE=m2 ở backend.`}><input type="checkbox" disabled={!condOk(c)} checked={conds.has(c) && condOk(c)} onChange={e => setConds(prev => { const n = new Set(prev); e.target.checked ? n.add(c) : n.delete(c); return n; })} />{COND_VI[c]}{condOk(c) ? '' : ' · cần profile m2'}</label>
             ))}</div>
           </fieldset>
           <label className="tv-field ev-narrow"><span>Số lần lặp mỗi cặp</span>

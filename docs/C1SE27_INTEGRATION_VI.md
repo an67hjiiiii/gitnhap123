@@ -120,3 +120,17 @@ Truy xuất bằng chứng của module này dùng BM25 (cặp âm tiết) trư�
 - Câu trả lời của mô hình đôi khi là JSON bị cụt; Studio lấy phần trả lời đọc được và ghi chú "bị cắt", không sửa nội dung.
 - Dữ liệu 60 lượt pilot R4 của C1SE.27 **không mang sang**: đo trên backend cũ, không tái lập trên pipeline CAP1.
 - Chưa có kết luận chất lượng nào. Mọi số là số mô tả kỹ thuật.
+
+## Điều kiện thực nghiệm và profile backend
+
+Điều kiện nào chạy được do `IMPLEMENTATION_PROFILE` của backend quyết định (xem `GET /api/config` → `allowed_conditions`):
+
+| Profile | Điều kiện chạy được |
+| --- | --- |
+| `m0` (mặc định) | A |
+| `m1` | A, B, C |
+| `m2` hoặc `dev` | A, B, C, C-P, C-N, C-O |
+
+- Muốn chạy **C-P / C-N / C-O** trong Phòng đánh giá: khởi động backend với `IMPLEMENTATION_PROFILE=m2` (hoặc `dev` khi chỉ kiểm thử kỹ thuật), ví dụ `$env:IMPLEMENTATION_PROFILE="m2"` rồi chạy `start-backend.ps1`.
+- Giao diện đọc `allowed_conditions` và khoá các điều kiện chưa được phép, kèm nhãn "cần profile m2", để bấm vào không còn ra lỗi 400.
+- `dev` chỉ dành cho kiểm thử kỹ thuật, không dùng để công bố kết quả mốc.

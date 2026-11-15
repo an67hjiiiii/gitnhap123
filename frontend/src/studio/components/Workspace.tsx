@@ -414,7 +414,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
               return (
                 <article key={m.message_id} className="ws-msg is-bot">
                   <header>
-                    <span className="ws-tag">{quick ? <><Zap size={12} />Hỏi nhanh</> : <><Microscope size={12} />{CONDITION_LABEL[run?.condition] ?? 'Phân tích'}</>}</span>
+                    <span className="ws-tag">{!run ? <><Zap size={12} />Trả lời trực tiếp</> : quick ? <><Zap size={12} />Hỏi nhanh</> : <><Microscope size={12} />{CONDITION_LABEL[run.condition] ?? 'Phân tích'}</>}</span>
                     {run?.status && <span className={`cht-status is-${String(run.status).toLowerCase()}`}>{STATUS_LABEL[run.status] ?? run.status}</span>}
                     {(() => { const fu = run?.events?.find((e: any) => e.stage === 'follow_up_resolved'); return fu ? <span className="ws-fu" title="Câu hỏi ngắn được hiểu theo câu hỏi trước trong cuộc trò chuyện (chỉ để hiểu ý, không phải nguồn)"><CornerDownRight size={12} />Hiểu tiếp theo: “{String(fu.previous_request).slice(0, 70)}”</span> : null; })()}
                   </header>
