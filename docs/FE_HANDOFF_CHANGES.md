@@ -163,3 +163,5 @@ Ghi chú cho FE (BE đã đổi, chỉ thêm khoá):
 - Thêm 3 router: `/api/studio/*` (phân tích), `/api/users/*` (ADMIN), `/api/admin/*` (ADMIN), và middleware nhật ký hoạt động (không ghi nội dung câu hỏi/tài liệu).
 - Alembic: thêm revision gộp rỗng `20261115_08` (down_revision = `20261114_07`, `20261114_06`); không đổi lược đồ.
 - Upload (App.tsx): `handleUpload` trả `true/false` (LeftPanel tải nhiều tệp); màn Workspace nhận wrapper ném lỗi để hiện thông báo.
+
+- Menu Studio: nhóm "Tiện ích mở rộng" (thu gọn mặc định) chứa Truy vết yêu cầu, Chất lượng yêu cầu (ISO 29148), Gói thiết kế, Rà soát bảo mật (ASVS/PII). Đọc to (TTS) vẫn là nút dưới mỗi câu trả lời, không phải mục menu.
