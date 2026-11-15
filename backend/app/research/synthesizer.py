@@ -1,17 +1,28 @@
 ﻿from __future__ import annotations
 
+import os
 import re
 
 from app.core.config import RuntimeConfig
+from app.core.text_clean import strip_placeholder_tags
 from app.core.types import RunMetrics, TaskResult
 
 
+_MIN_BODY_FOR_SUMMARY = 600
 DOMAIN_LABELS = {
     "security": "Bảo mật",
     "database": "Cơ sở dữ liệu",
     "api_architecture": "API / Kiến trúc",
     "general": "Tổng quan",
 }
+
+
+def _mostly_in(summary: str, body: str) -> bool:
+    words = [w for w in re.findall(r"\w+", summary.casefold()) if len(w) > 2]
+    if not words:
+        return True
+    pool = set(re.findall(r"\w+", body.casefold()))
+    return sum(w in pool for w in words) / len(words) >= 0.85
 
 
 async def synthesize(provider, query: str, results: list[TaskResult], metrics: RunMetrics) -> str:
@@ -40,6 +51,10 @@ async def synthesize(provider, query: str, results: list[TaskResult], metrics: R
         f"**{DOMAIN_LABELS.get(domain, domain)}**\n" + "\n\n".join(parts)
         for domain, parts in grouped.items()
     )
+    body = strip_placeholder_tags(body)
+    min_body = int(os.getenv("SYNTH_MIN_BODY_CHARS", str(_MIN_BODY_FOR_SUMMARY)))
+    if min_body > 0 and (len(grouped) < 2 or len(body) < min_body):  # a summary of a short answer only repeats it
+        return body
     cfg = RuntimeConfig.from_env()
     remaining = cfg.max_run_tokens - metrics.input_tokens - metrics.output_tokens
     summary_budget = min(160, cfg.max_output_tokens, remaining)
@@ -71,4 +86,7 @@ async def synthesize(provider, query: str, results: list[TaskResult], metrics: R
         or len(text.split()) > 60
     ):
         return body
-    return body + ("\n\n**Tóm tắt**\n" + text if text else "")
+    text = strip_placeholder_tags(text)
+    if not text or _mostly_in(text, body):
+        return body
+    return body + "\n\n**Tóm tắt**\n" + text

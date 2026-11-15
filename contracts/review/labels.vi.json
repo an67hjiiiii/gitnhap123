@@ -1,4 +1,10 @@
 {
+    "overview": {
+        "header": "Kho hiện có {n} tài liệu:",
+        "sections": "mục",
+        "no_sections": "chưa có tiêu đề mục",
+        "empty": "Hiện chưa có tài liệu nào trong kho. Hãy tải tài liệu lên để mình tra cứu."
+    },
     "reindex": {
         "running": "Đang cập nhật chỉ mục tài liệu ({done}/{total}), thử lại sau ít phút.",
         "failed": "Cập nhật chỉ mục tài liệu gặp lỗi ở một số nguồn; quản trị viên cần kiểm tra nhật ký."

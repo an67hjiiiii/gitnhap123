@@ -26,6 +26,7 @@ INTENTS = (
     "document_question",
     "general_knowledge",
     "history_answer",
+    "corpus_overview",
     "follow_up",
     "ambiguous",
 )
@@ -37,6 +38,10 @@ _DEFINITION_EN = re.compile(r"^(?:what is|what are|what s|define|explain)(?: an?
 _DOC_WORDS = ("tai lieu", "document", "file", "yeu cau", "requirement", "ho so", "he thong cua", "du an")
 _HISTORY_CUES = ("o tren", "vua roi", "luc nay", "ban nay", "truoc do", "ban vua", "o truong hop", "trong truong hop",
                  "above", "earlier", "you just said", "you said", "previous answer", "in case")
+_OVERVIEW = ("trong tai lieu co gi", "tai lieu co gi", "co nhung tai lieu nao", "co tai lieu nao", "kho co gi",
+             "kho tai lieu co gi", "danh sach tai lieu", "liet ke tai lieu", "tong quan kho", "tong quan tai lieu",
+             "cac tai lieu da tai", "what documents", "which documents", "list documents", "list the documents",
+             "what s in the documents", "what is in the documents", "what do the documents contain")
 _NO_DOCS = ("kien thuc chung", "khong can tai lieu", "khong dung tai lieu", "khong can xem tai lieu",
             "general knowledge", "without the documents", "without documents", "no documents needed")
 _GREETINGS = ("xin chao", "chao ban", "chao", "hello", "hi", "hey", "alo")
@@ -165,6 +170,8 @@ def classify_intent(message: str, *, has_history: bool = False, has_sources: boo
         return decision("about_system", "ABOUT_SYSTEM")
     if not any(term in normalized for term in _TECH_TERMS) and any(phrase in normalized for phrase in _OUT_OF_SCOPE):
         return decision("out_of_scope", "OUT_OF_SCOPE")
+    if len(words) <= 12 and any(phrase in normalized for phrase in _OVERVIEW):
+        return decision("corpus_overview", "OVERVIEW_RULE")
     mentions_docs = any(term in normalized for term in ("tai lieu", "document", "file"))
     if any(phrase in normalized for phrase in _NO_DOCS) or (
         _ARITHMETIC.search(message) and not mentions_docs

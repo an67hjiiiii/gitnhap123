@@ -215,3 +215,11 @@ def test_planner_existing_exception_handler_accepts_typed_truncation():
     result = asyncio.run(decompose_plan(CountingFake(fail_stage="TASK_PLAN_BUILDER"), "Review API architecture"))
     assert result.plan is None
     assert result.warnings
+
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _always_summarise(monkeypatch):
+    """These tests count/truncate the summary call; production skips it for short/single-domain bodies."""
+    monkeypatch.setenv("SYNTH_MIN_BODY_CHARS", "0")

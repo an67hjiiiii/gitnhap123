@@ -88,3 +88,11 @@ def test_grounded_generation_schema_limits_citations_to_allowed_ids(monkeypatch)
     citation_schema = captured["schema"]["properties"]["citations"]
     assert citation_schema["items"]["enum"] == ["e1", "e2"]
     assert "e3" not in citation_schema["items"]["enum"]
+
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _always_summarise(monkeypatch):
+    """These tests exercise the summary call itself; production skips it for short/single-domain bodies."""
+    monkeypatch.setenv("SYNTH_MIN_BODY_CHARS", "0")
