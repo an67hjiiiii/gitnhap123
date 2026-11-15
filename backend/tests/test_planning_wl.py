@@ -213,3 +213,11 @@ def test_summary_uses_standard_generate_signature_even_with_structured_token_sup
     answer = asyncio.run(synthesize(StandardProvider(), "question", [
         TaskResult("T1", "database", "COMPLETE", "Answer")], RunMetrics()))
     assert answer.endswith("**Tóm tắt**\nShort summary")
+
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _always_summarise(monkeypatch):
+    """These tests exercise the summary call itself; production skips it for short/single-domain bodies."""
+    monkeypatch.setenv("SYNTH_MIN_BODY_CHARS", "0")

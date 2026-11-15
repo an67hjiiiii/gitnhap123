@@ -139,7 +139,7 @@ def test_definition_without_documents_answers_directly_with_note(chat_http):  # 
     body = chat_http.post("/api/chat", json={"message": "REST là gì?", "product_mode": True}).json()
     assert body["status"] == "COMPLETE" and body["run_id"] is None
     assert body["events"][0]["path"] == "DIRECT" and body["events"][0]["grounded"] is False
-    assert "Không dựa trên tài liệu của bạn" in body["answer"]
+    assert "Không dựa trên tài liệu của bạn" not in body["answer"] and body["grounding"] == "none"
 
 
 def test_definition_that_matches_documents_goes_to_documents(chat_http):  # noqa: F811

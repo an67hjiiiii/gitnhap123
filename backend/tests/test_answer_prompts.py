@@ -155,3 +155,11 @@ def test_synthesizer_prompt_preserves_order_missing_parts_and_footer():
         "Mình chưa tìm thấy giới hạn tải tệp. Bạn hãy tải thêm tài liệu liên quan đến phần này.\n\n"
         "**Tóm tắt**\nBản tổng hợp."
     )
+
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _always_summarise(monkeypatch):
+    """These tests exercise the summary call itself; production skips it for short/single-domain bodies."""
+    monkeypatch.setenv("SYNTH_MIN_BODY_CHARS", "0")

@@ -19,6 +19,7 @@ from app.api.review import ReviewRuntime
 from app.api.review import build_router as _build_review_router
 from app.auth.store import AuthStore, InvalidSessionError
 from app.chat.memory import SummaryCache as _SummaryCache
+from app.chat.sources import number_sources
 from app.core.config import RuntimeConfig
 from app.core.text_clean import strip_placeholder_tags
 from app.core.observability import RequestIdMiddleware, SecurityHeadersMiddleware, TTLCache, configure_logging
@@ -198,6 +199,27 @@ def start_background_reindex():
 def index_status(request: Request):
     current_user(request)
     return _REINDEX.status()
+
+
+def _corpus_overview(store, selected_source_ids, language: str) -> str:
+    """Document list + section titles of the workspace, built by code (no model)."""
+    labels = load_labels().get("overview", {})
+    entries = [s for s in store.list_sources()
+               if s.get("status", "READY") == "READY"
+               and (selected_source_ids is None or s["source_id"] in selected_source_ids)]
+    if not entries:
+        return labels.get("empty", "")
+    lines = [labels.get("header", "").format(n=len(entries))]
+    for entry in entries:
+        detail = store.source(entry["source_id"]) or {}
+        sections = []
+        for chunk in detail.get("chunks", []):
+            title = (chunk.get("provenance") or {}).get("section_path")
+            if title and title not in sections:
+                sections.append(title)
+        tail = (labels.get("sections", "") + ": " + "; ".join(sections[:8])) if sections else labels.get("no_sections", "")
+        lines.append(f"- **{entry.get('source_name')}**: {tail}")
+    return "\n".join(lines)
 
 
 def owner_source_store(user: dict):
@@ -544,6 +566,17 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
         timings = {"intent_ms": int((time.perf_counter() - t_start) * 1000)}
         store = owner_source_store(user)
         direct_path = None
+        if decision.intent == "corpus_overview":  # built by code from the workspace's own document list
+            overview = _corpus_overview(store, selected_source_ids, decision.language)
+            conversations.add_message(conversation_id, "USER", message)
+            conversations.add_message(conversation_id, "ASSISTANT", overview)
+            return {
+                "run_id": None, "status": "COMPLETE", "answer": overview, "citations": [], "task_results": [],
+                "sources": [], "grounding": "document",
+                "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "OVERVIEW",
+                            "grounded": True}, {"stage": "timings", **timings}],
+                "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
+            }
         if decision.intent == "history_answer" and has_history:  # answer already in the recent conversation
             h0 = time.perf_counter()
             recent = "\n".join(f"{m.get('role')}: {m.get('content')}" for m in (conversation.get("messages") or [])[-6:])
@@ -593,15 +626,14 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             timings["answer_ms"] = int((time.perf_counter() - g0) * 1000)
             direct_path = "DIRECT"
             direct_text = strip_placeholder_tags(str(getattr(result, "text", result)).strip())
-            direct_note = "" if decision.reason == "SELF_CONTAINED" else (
-                "\n\n_(Không dựa trên tài liệu của bạn.)_" if decision.language == "vi"
-                else "\n\n_(Not based on your documents.)_")
+            direct_note = ""
         if direct_path is not None:
             answer = direct_text + direct_note
             conversations.add_message(conversation_id, "USER", message)
             conversations.add_message(conversation_id, "ASSISTANT", answer)
             return {
                 "run_id": None, "status": "COMPLETE", "answer": answer, "citations": [], "task_results": [],
+                "sources": [], "grounding": "none",
                 "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": direct_path,
                             "grounded": False},
                            {"stage": "timings", **timings}],
@@ -620,6 +652,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             conversations.add_message(conversation_id, "ASSISTANT", reply)
             return {
                 "run_id": None, "status": "NO_EVIDENCE", "answer": reply, "citations": [], "task_results": [],
+                "sources": [], "grounding": "none",
                 "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "EMPTY_STORE"},
                            {"stage": "timings", **timings}],
                 "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
@@ -634,6 +667,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             conversations.add_message(conversation_id, "ASSISTANT", waiting["text"])
             return {
                 "run_id": None, "status": "NO_EVIDENCE", "answer": waiting["text"], "citations": [], "task_results": [],
+                "sources": [], "grounding": "document",
                 "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "REINDEXING"},
                            {"stage": "reindex_progress", **waiting["state"]}, {"stage": "timings", **timings}],
                 "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
@@ -708,6 +742,13 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             multi_retrieval=multi_retrieval,
             answer_checker=AnswerChecker(),
         )
+        extra_ids = [c for r in (run.get("task_results") or []) for c in (r.get("citations") or [])]
+        clean_answer, sources = number_sources(
+            str(run.get("answer") or ""), store.chunk, extra_ids)
+        if clean_answer:
+            run["answer"] = strip_placeholder_tags(clean_answer)
+        run["sources"] = sources
+        run["grounding"] = "document"
         conversations.add_message(
             conversation_id,
             "ASSISTANT",
@@ -715,8 +756,6 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             run_id=run["run_id"],
         )
         timings["total_ms"] = int((time.perf_counter() - t_start) * 1000)
-        if isinstance(run.get("answer"), str):
-            run["answer"] = strip_placeholder_tags(run["answer"])
         events = list(run.get("events") or [])
         if route is not None:
             events.append({"stage": "route_chosen", **route})
