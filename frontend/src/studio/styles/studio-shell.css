@@ -151,3 +151,6 @@
   .st-app .sb.is-rail .sb-ws:hover .sb-ws-mark{transform:scale(1.1)}
 }
 .st-app .sb-section .kb{grid-template-columns:minmax(0,1fr)}
+
+.st-app .sb-group-btn{display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer}
+.st-app .sb-group-btn:hover{color:var(--ink)}

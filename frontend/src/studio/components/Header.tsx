@@ -162,17 +162,21 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'orchestration', label: 'Không gian làm việc', Icon: MessagesSquare, show: true },
     { id: 'overview', label: 'Tổng quan', Icon: BarChart3, show: true },
     { id: 'documents', label: 'Hồ sơ tài liệu', Icon: FileSearch, show: true },
+    { id: 'consistency', label: 'Kiểm tra mâu thuẫn', Icon: GitCompareArrows, show: true },
+    { id: 'evaluation', label: 'Phòng đánh giá', Icon: ClipboardCheck, show: true },
+    // Tiện ích mở rộng (mã giữ nguyên, chỉ gom menu): truy vết, ISO 29148, gói thiết kế, ASVS/PII
     { id: 'traceability', label: 'Truy vết yêu cầu', Icon: ListChecks, show: true },
     { id: 'req_quality', label: 'Chất lượng yêu cầu', Icon: SpellCheck, show: true },
     { id: 'design', label: 'Gói thiết kế', Icon: PencilRuler, show: true },
     { id: 'security', label: 'Rà soát bảo mật', Icon: ShieldCheck, show: true },
-    { id: 'consistency', label: 'Kiểm tra mâu thuẫn', Icon: GitCompareArrows, show: true },
-    { id: 'evaluation', label: 'Phòng đánh giá', Icon: ClipboardCheck, show: true },
     { id: 'benchmarks', label: 'Thực nghiệm', Icon: FlaskConical, show: true },
     { id: 'rating', label: 'Chấm mù', Icon: EyeOff, show: true },
     { id: 'users', label: 'Người dùng', Icon: Users, show: user?.role === 'admin' },
     { id: 'db_explorer', label: 'Cơ sở dữ liệu', Icon: Database, show: user?.role === 'admin' },
   ];
+  const EXT: NavigationTab[] = ['traceability', 'req_quality', 'design', 'security'];
+  const [extOpen, setExtOpen] = React.useState(false);
+  const extVisible = extOpen || EXT.includes(activeTab);
   const go = (id: NavigationTab) => { onTabChange(id); if (isMobileDrawerOpen) onToggleMobileDrawer?.(); };
 
   return (
@@ -244,9 +248,11 @@ export const Header: React.FC<HeaderProps> = ({
           {onOpenPalette && <button type="button" className="sb-search" onClick={onOpenPalette} title={rail ? "Tìm nhanh (Ctrl K)" : undefined}><Search size={15} /><span>Tìm nhanh</span><kbd>Ctrl K</kbd></button>}
           <nav className="sb-nav" aria-label="Chức năng chính" ref={navRef}>
             <span className="sb-glide" ref={glideRef} aria-hidden="true" />
-            {nav.filter(n => n.show).map(({ id, label, Icon }) => (
+            {nav.filter(n => n.show && (extVisible || !EXT.includes(n.id))).map(({ id, label, Icon }) => (
               <React.Fragment key={id}>
                 {id === 'documents' && <p className="sb-group">Công cụ phân tích</p>}
+                {id === 'traceability' && <button type="button" className="sb-group sb-group-btn" aria-expanded={extVisible} onClick={() => setExtOpen(o => !o)}>Tiện ích mở rộng ▾</button>}
+                {id === 'benchmarks' && !extVisible && <button type="button" className="sb-group sb-group-btn" aria-expanded={false} onClick={() => setExtOpen(true)}>Tiện ích mở rộng ▸</button>}
                 {id === 'benchmarks' && <p className="sb-group">Nghiên cứu</p>}
                 {id === 'users' && <p className="sb-group">Quản trị</p>}
                 <button onClick={() => go(id)} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} className={`sb-link${activeTab === id ? ' is-on' : ''}`} title={rail ? label : undefined}>
