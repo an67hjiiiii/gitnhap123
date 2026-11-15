@@ -1,0 +1,59 @@
+# Chạy OrchestrIQ Studio trên máy chủ công ty (Linux hoặc Windows có Docker): giao diện + backend + PostgreSQL.
+# Chuẩn bị: chép docker/server.env.example thành docker/.env và đặt mật khẩu CSDL. Rồi trong thư mục docker:
+#   docker compose -f docker-compose.server.yml up -d --build
+# Mở http://<máy chủ>:8080 . Mô hình chạy bằng Ollama: mặc định dùng Ollama cài sẵn trên máy chủ (OLLAMA_BASE_URL);
+# hoặc thêm --profile ollama để chạy Ollama trong Docker (rồi tải mô hình: docker compose -f docker-compose.server.yml exec ollama ollama pull qwen3:4b
+# và ... ollama pull nomic-embed-text).
+name: orchestriq
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: orchestriq
+      POSTGRES_USER: orchestriq
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Chưa đặt POSTGRES_PASSWORD trong docker/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestriq -d orchestriq"]
+      interval: 5s
+      retries: 20
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://orchestriq:${POSTGRES_PASSWORD}@postgres:5432/orchestriq
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - vectors:/data
+
+  web:
+    build: ../frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+  ollama:
+    image: ollama/ollama:0.6.8
+    profiles: ["ollama"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_CONTEXT_LENGTH: "4096"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  pgdata:
+  vectors:
+  ollama:

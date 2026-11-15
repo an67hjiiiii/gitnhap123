@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -93,9 +95,38 @@ def build_conversation_context(
     )
 
 
+# Câu hỏi tiếp nối ngắn ("Làm sao cho an toàn?", "Còn hoàn tiền thì sao?") thường không nhắc lại chủ đề.
+_FOLLOW_MARKERS = re.compile(
+    r"\b(nó|đó|đấy|kia|ở trên|nói trên|trước đó|vừa rồi|như vậy|như thế|thế còn|còn|vậy thì|thì sao|tiếp theo|chi tiết hơn|"
+    r"cụ thể hơn|ví dụ|it|its|they|them|that|this|those|what about|how about)\b",
+    re.IGNORECASE,
+)
+
+
+
+def _fold(text: str) -> str:
+    text = unicodedata.normalize("NFD", text.casefold())
+    return "".join(c for c in text if unicodedata.category(c) != "Mn").replace("đ", "d")
+
+
+def resolve_follow_up(query: str, context: ConversationContext) -> str | None:
+    """Câu hỏi trước mà câu này đang hỏi tiếp, hoặc None nếu câu này tự đủ nghĩa.
+
+    Chỉ coi là hỏi tiếp khi có tham chiếu chưa được giải ("nó", "còn ... thì sao", "it", "what about"); câu ngắn
+    nhưng tự đủ nghĩa (vd "What is PostgreSQL?") KHÔNG bị ghép với câu trước. Lịch sử chỉ dùng để hiểu ý, không bao giờ là bằng chứng.
+    """
+    previous = (context.last_user_request or "").strip()
+    if not previous or _fold(previous) == _fold(query.strip()):
+        return None
+    if _FOLLOW_MARKERS.search(query):
+        return previous
+    return None
+
+
 __all__ = [
     "ConversationContext",
     "DEFAULT_MAX_CHARS",
     "DEFAULT_MAX_MESSAGES",
     "build_conversation_context",
+    "resolve_follow_up",
 ]

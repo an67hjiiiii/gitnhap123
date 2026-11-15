@@ -14,11 +14,12 @@ from datetime import datetime, timezone
 from app.core.config import RuntimeConfig
 from app.research.step_log import write_step_log
 from app.core.graph import topological_order, validate_tasks
-from app.core.telemetry import gpu_memory_mb, process_rss_mb
+from app.core.telemetry import cpu_busy_percent, cpu_times, gpu_memory_mb, model_rss_mb, process_rss_mb
 from app.core.types import RunMetrics, SourceChunk, Task, TaskPlan, TaskResult
 from app.providers.factory import get_provider
 from app.research.context_controller import ContextController
-from app.research.conversation_context import ConversationContext
+from app.research.conversation_context import ConversationContext, resolve_follow_up
+from app.research.plan_anchoring import anchor_and_verify
 from app.research.decomposer import (
     PLANNER_SEMANTICS_VERSION,
     TASK_PLAN_PROMPT_VERSION,
@@ -62,6 +63,11 @@ _LEXICAL_FALLBACK_FILLERS = frozenset(
 
 # Set per request by the chat layer (a ContextVar so concurrent requests never see each other's value).
 EXTRA_RETRIEVAL_QUERIES: ContextVar[tuple[str, ...]] = ContextVar("EXTRA_RETRIEVAL_QUERIES", default=())
+
+def reply_language_of(query: str) -> str:
+    """Có dấu tiếng Việt thì trả lời tiếng Việt (detect_language bỏ sót chữ như "ệ", "ề")."""
+    has_vi_marks = any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", query)) or "đ" in query.lower()
+    return "vi" if has_vi_marks or detect_language(query) != "en" else "en"
 
 
 class ResearchPipeline:
@@ -176,8 +182,11 @@ class ResearchPipeline:
         reply_language_hint: str | None = None,
         multi_retrieval: bool = False,
         answer_checker=None,
+        reply_in_query_language: bool = False,
     ) -> dict:
         condition = condition.upper()
+        answer_language = reply_language_hint or (
+            reply_language_of(query) if (product_mode or reply_in_query_language) else None)
         if condition not in CONDITIONS:
             raise ValueError(f"Unknown condition {condition}")
         if isinstance(conversation_context, str):
@@ -194,6 +203,7 @@ class ResearchPipeline:
         provider = get_provider(provider_name)
         started = time.perf_counter()
         metrics = RunMetrics(peak_rss_mb=process_rss_mb(), gpu_memory_mb=gpu_memory_mb())
+        cpu_start = cpu_times()
         events: list[dict] = []
         step_marks: list[dict] = []  # per-step measurement only (env STEP_LOG_DIR); never read by the pipeline
         run_id = "run_" + uuid.uuid4().hex[:12]
@@ -286,6 +296,8 @@ class ResearchPipeline:
             metrics.latency_ms = int((time.perf_counter() - started) * 1000)
             metrics.peak_rss_mb = max(filter(lambda x: x is not None, [metrics.peak_rss_mb, process_rss_mb()]), default=None)
             metrics.gpu_memory_mb = gpu_memory_mb()
+            metrics.cpu_percent = cpu_busy_percent(cpu_start)
+            metrics.model_rss_mb = model_rss_mb()
             lifecycle_status = "FAILED" if status == "FAILED" else "COMPLETED"
             run = make_run(status, answer, tasks, task_results)
             self.run_store.save(run)
@@ -296,6 +308,7 @@ class ResearchPipeline:
         event(
             "run_started",
             lifecycle_status=lifecycle_status,
+            answer_language=answer_language,
             condition=condition,
             provider=provider.name,
             model=provider.model,
@@ -328,6 +341,14 @@ class ResearchPipeline:
                 return finalize("COMPLETE", answer, [task], [result])
 
             understanding = understand_request(query) if product_mode else None
+            # Chỉ ở chế độ sản phẩm: câu hỏi tiếp nối ngắn được hiểu theo câu hỏi trước (không phải bằng chứng).
+            follow_up = resolve_follow_up(query, conversation_context) if product_mode else None
+            if follow_up:
+                event("follow_up_resolved", previous_request=follow_up, is_rag_evidence=False)
+            simple_retrieval_query = (
+                "\n".join((query, follow_up)) if follow_up
+                else _retrieval_query_with_conversation_context(query, conversation_context)
+            )
             simple_product_request = bool(
                 product_mode
                 and condition != "A"
@@ -359,7 +380,7 @@ class ResearchPipeline:
             if condition == "A" or simple_product_request:
                 r0 = time.perf_counter()
                 retrieval_trace: dict = {}
-                retrieval_query_text = _retrieval_query_with_conversation_context(query, conversation_context)
+                retrieval_query_text = simple_retrieval_query  # includes the resolved follow-up when there is one
                 if product_mode:
                     candidates = await product_retrieve(
                         self, provider, metrics, query=query, retrieval_query=retrieval_query_text,
@@ -389,16 +410,15 @@ class ResearchPipeline:
                     candidates=[c.chunk_id for c in candidates],
                     selected=[c.chunk_id for c in selected],
                     dropped=budget_dropped,
-                    query_variants=[{"label": v.label, "language": v.language} for v in build_query_variants(_retrieval_query_with_conversation_context(query, conversation_context))],
+                    query_variants=[{"label": v.label, "language": v.language} for v in build_query_variants(simple_retrieval_query)],
                 )
                 task = Task(task_id="T1", goal=query, domain="general")
                 g0 = time.perf_counter()
-                reply_language = None
-                if product_mode:
-                    # Có dấu tiếng Việt thì trả lời tiếng Việt (detect_language bỏ sót chữ như "ệ", "ề").
-                    has_vi_marks = any(unicodedata.combining(ch) for ch in unicodedata.normalize("NFD", query)) or "đ" in query.lower()
-                    reply_language = reply_language_hint or (
-                        "vi" if has_vi_marks or detect_language(query) != "en" else "en")
+                reply_language = answer_language
+                answer_query = (
+                    "\n\n".join((query, f"(Câu hỏi tiếp nối. Câu hỏi trước của người dùng: {follow_up})"))
+                    if follow_up else query
+                )
                 if product_mode and run_budget_exceeded(metrics, cfg, event, "answer"):
                     result = TaskResult(
                         task_id="T1", domain="general", status="NO_EVIDENCE",
@@ -413,7 +433,7 @@ class ResearchPipeline:
                     )
                     try:
                         result = await answer_vanilla(
-                            checked_provider, query, selected, metrics, reply_language=reply_language,
+                            checked_provider, answer_query, selected, metrics, reply_language=reply_language,
                             **({"checker": checker} if checker is not None else {}))
                     except Exception:
                         if not product_mode:
@@ -442,7 +462,11 @@ class ResearchPipeline:
                 async def degrade_planning(reason: str, errors: list[str]) -> dict:
                     event("planning_degraded", reason=reason, errors=errors, fallback="C_MULTI")
                     task = Task(task_id="T1", goal=query, domain="general")
-                    retrieval_query = _retrieval_query_with_conversation_context(query, conversation_context)
+                    retrieval_query = simple_retrieval_query  # includes the resolved follow-up when there is one
+                    degraded_query = (
+                        "\n\n".join((query, f"(Câu hỏi tiếp nối. Câu hỏi trước của người dùng: {follow_up})"))
+                        if follow_up else query
+                    )
                     r0 = time.perf_counter()
                     trace: dict = {}
                     try:
@@ -474,8 +498,8 @@ class ResearchPipeline:
                             result = await answer_vanilla(provider, query, [], metrics)
                         else:
                             result = await answer_vanilla(
-                                provider, query, selected, metrics,
-                                reply_language=reply_language_hint or "vi",
+                                provider, degraded_query, selected, metrics,
+                                reply_language=answer_language or "vi",
                             )
                     except Exception:
                         metrics.failed_llm_attempts += 1
@@ -497,8 +521,10 @@ class ResearchPipeline:
                     event("run_finished", status="PARTIAL", lifecycle_status="COMPLETED")
                     return finalize("PARTIAL", result.answer, [task], [result])
 
-                planning_request = _planning_request_with_conversation_context(
-                    query, conversation_context
+                planning_request = (
+                    "\n\n".join((f"CURRENT USER REQUEST:\n{query}",
+                                 f"PREVIOUS USER REQUEST (reference only; not source evidence):\n{follow_up}"))
+                    if follow_up else _planning_request_with_conversation_context(query, conversation_context)
                 )
                 if understanding is None:
                     understanding = understand_request(query)
@@ -731,15 +757,28 @@ class ResearchPipeline:
                         ),
                     )
                     if not repair_accepted:
-                        event(
-                            "planning_rejected",
-                            reason="task_plan_failed_verification_after_repair",
-                        )
-                        return await degrade_planning(
-                            "task_plan_failed_verification_after_repair",
-                            list(repaired_verification.errors) if repaired_verification is not None
-                            else [repair_error_message or "TaskPlan repair failed"],
-                        )
+                        # Bước sửa tất định: chép nguyên văn nghĩa vụ vào nhiệm vụ rồi kiểm tra lại bằng đúng bộ kiểm tra.
+                        anchored, anchored_verification, anchor_changes = anchor_and_verify(repaired_plan or plan)
+                        event("plan_anchoring", source=("repaired" if repaired_plan else "initial"), accepted=anchored_verification.valid,
+                              changes=anchor_changes, errors=list(anchored_verification.errors), task_coverage=anchored_verification.task_coverage,
+                              tasks=[asdict(t) for t in anchored.tasks])
+                        if not anchored_verification.valid:
+                            event(
+                                "planning_rejected",
+                                reason="task_plan_failed_verification_after_repair",
+                            )
+                            return await degrade_planning(
+                                "task_plan_failed_verification_after_repair",
+                                list(anchored_verification.errors),
+                            )
+                        if repaired_plan is not None:
+                            preserved = validate_repaired_plan(plan, anchored)
+                            if not preserved.valid:
+                                event("planning_rejected", reason="anchored_repair_not_preserving_plan")
+                                return await degrade_planning(
+                                    "anchored_repair_not_preserving_plan", list(preserved.errors),
+                                )
+                        repaired_plan, repaired_verification = anchored, anchored_verification
                     plan = repaired_plan
                     verification = repaired_verification
                     if flags["N"]:
@@ -749,15 +788,20 @@ class ResearchPipeline:
                                 "normalization_invalidated_task_plan", list(verification.errors),
                             )
                 elif repair_decision.action == "REJECT":
-                    event(
-                        "planning_rejected",
-                        reason="task_plan_verification_failed",
-                        errors=list(verification.errors),
-                    )
-                    return await degrade_planning(
-                        "normalization_invalidated_task_plan" if normalization_failed
-                        else "task_plan_verification_failed", list(verification.errors),
-                    )
+                    anchored, anchored_verification, anchor_changes = anchor_and_verify(plan)
+                    event("plan_anchoring", source="initial", accepted=anchored_verification.valid,
+                          changes=anchor_changes, errors=list(anchored_verification.errors), task_coverage=anchored_verification.task_coverage)
+                    if not anchored_verification.valid:
+                        event(
+                            "planning_rejected",
+                            reason="task_plan_verification_failed",
+                            errors=list(verification.errors),
+                        )
+                        return await degrade_planning(
+                            "normalization_invalidated_task_plan" if normalization_failed
+                            else "task_plan_verification_failed", list(verification.errors),
+                        )
+                    plan, verification = anchored, anchored_verification
 
                 tasks = list(plan.tasks)
                 event("decomposition", tasks=[asdict(t) for t in tasks])
@@ -831,7 +875,13 @@ class ResearchPipeline:
                         dropped=dropped,
                     )
                     g0 = time.perf_counter()
-                    result = await execute_task(provider, task, selected, metrics)
+                    upstream = [completed[d] for d in task.depends_on if d in completed]
+                    task_kwargs = {}
+                    if answer_language:
+                        task_kwargs["reply_language"] = answer_language
+                    if upstream:
+                        task_kwargs["upstream"] = upstream
+                    result = await execute_task(provider, task, selected, metrics, **task_kwargs)
                     result.metrics["retrieved_chunks"] = len(candidates)
                     metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                     completed[task.task_id] = result
@@ -846,7 +896,7 @@ class ResearchPipeline:
                 answer = await synthesize(
                     provider, query,
                     [results_by_id[task.task_id] for task in tasks if task.task_id in results_by_id],
-                    metrics,
+                    metrics, **({"reply_language": answer_language} if answer_language else {}),
                 )
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
 

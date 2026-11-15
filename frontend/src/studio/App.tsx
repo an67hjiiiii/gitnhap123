@@ -1,5 +1,16 @@
+import { motionAllowed } from './utils/motion';
+import { flushSync } from 'react-dom';
 import { percent } from './utils/measurement';
 import './styles/studio-2026.css';
+import '@fontsource-variable/inter-tight';
+import './styles/studio-glass.css';
+import './styles/studio-system.css';
+import { StudioBackdrop, useStudioMotion } from './components/StudioMotion';
+import { Command, CommandPalette } from './components/CommandPalette';
+import { shouldPlayIntro, StudioIntro } from './components/StudioIntro';
+import { PageGuide } from './components/PageGuide';
+import gsap from 'gsap';
+import { SpellCheck, Users, BarChart3, ClipboardCheck, Database, EyeOff, FileSearch, FlaskConical, GitCompareArrows, ListChecks, MessageSquarePlus, MessagesSquare, PencilRuler, ShieldCheck, Sparkles } from 'lucide-react';
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Menu } from 'lucide-react';
@@ -11,6 +22,16 @@ import { BenchmarkLab } from './components/BenchmarkLab';
 import { DatabaseExplorer } from './components/DatabaseExplorer';
 import { DocumentChunksModal } from './components/DocumentChunksModal';
 import { RetrievalPlaygroundModal } from './components/RetrievalPlaygroundModal';
+import { ChecklistView } from './components/ChecklistView';
+import { DesignView } from './components/DesignView';
+import { EvaluationView } from './components/EvaluationView';
+import { BlindRatingView } from './components/BlindRatingView';
+import { UsersAdminView } from './components/UsersAdminView';
+import { AdminPortal } from './components/admin/AdminPortal';
+import { ReqQualityView } from './components/ReqQualityView';
+import { ConsistencyView } from './components/ConsistencyView';
+import { DocumentProfileView } from './components/DocumentProfileView';
+import { OverviewView } from './components/OverviewView';
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({default: module.LandingPage}))); 
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -31,7 +52,8 @@ import {
   getWorkspaces,
   createWorkspace,
   getMe,
-  logout
+  logout,
+  libraryQuality,
 } from './services/api';
 import { 
   DocumentInfo, 
@@ -56,8 +78,13 @@ function DashboardWorkspace({
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryRecord[]>([]);
   const [mode, setMode] = useState<ExecutionMode>('proposed_adaptive');
   const [activeTab, setActiveTab] = useState<NavigationTab>('orchestration');
+  const [portal, setPortal] = useState<'research' | 'admin'>(() => { try { return localStorage.getItem('orchestriq-portal') === 'admin' ? 'admin' : 'research'; } catch { return 'research'; } });
+  const adminMode = user?.role === 'admin' && portal === 'admin';
+  const switchPortal = (p: 'research' | 'admin') => { setPortal(p); try { localStorage.setItem('orchestriq-portal', p); } catch { /* chế độ riêng tư */ } };
+  const [prefill, setPrefill] = useState<{ text: string; key: number; sourceId?: string; sourceName?: string } | null>(null);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
-  const [toast, setToast] = useState<{ text: string; tone: 'error' | 'ok' } | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone: 'error' | 'ok' | 'warn' } | null>(null);
+  const [freshDoc, setFreshDoc] = useState<{ id: string; name: string } | null>(null);
   useEffect(() => {
     if (!toast) return;
     const t = window.setTimeout(() => setToast(null), 6000);
@@ -118,6 +145,34 @@ function DashboardWorkspace({
   // Nhật ký lượt chạy chỉ cần ở trang Thực nghiệm.
   const refreshTelemetry = () => getTelemetry(currentWorkspaceId).then(setTelemetryLogs).catch(() => undefined);
   useEffect(() => { if (activeTab === 'benchmarks') void refreshTelemetry(); }, [activeTab]);
+  const [intro, setIntro] = useState(shouldPlayIntro);
+  useStudioMotion(activeTab, !intro);
+  const endIntro = () => {
+    setIntro(false);
+    if (!!motionAllowed())
+      gsap.fromTo('.st-app > .sb', { x: -36, opacity: 0 }, { x: 0, opacity: 1, duration: 0.7, ease: 'power3.out', clearProps: 'transform,opacity' });
+  };
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // chế độ sáng/tối: tiện ích riêng của người xem, lưu trong trình duyệt (lỗi thì về sáng)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => { try { return localStorage.getItem('studio-theme') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
+  // đổi sáng/tối: giao diện mới lan ra thành vòng tròn từ đúng chỗ bấm (View Transitions API); trình duyệt không hỗ trợ thì đổi ngay
+  const changeTheme = (t: 'light' | 'dark', at?: { x: number; y: number }) => {
+    const apply = () => { flushSync(() => setTheme(t)); try { localStorage.setItem('studio-theme', t); } catch { /* bỏ qua */ } };
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } };
+    if (t === theme || !doc.startViewTransition || !motionAllowed()) { apply(); return; }
+    const x = at?.x ?? window.innerWidth - 40, y = at?.y ?? window.innerHeight - 40;
+    const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+    const vt = doc.startViewTransition(apply);
+    vt.ready.then(() => document.documentElement.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+      { duration: 700, easing: 'cubic-bezier(.16,1,.3,1)', pseudoElement: '::view-transition-new(root)' } as KeyframeAnimationOptions,
+    )).catch(() => { /* bỏ qua */ });
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Execution Handlers
   const handleRunAblation = async (query: string) => {
@@ -150,20 +205,31 @@ function DashboardWorkspace({
 
   // Trả true/false thay vì ném lỗi để LeftPanel tải nhiều tệp và báo riêng từng tệp lỗi (tối đa 2 tệp song song).
   const uploadsInFlight = useRef(0);
+  const lastUploadError = useRef('');
   const handleUpload = async (file: File): Promise<boolean> => {
     uploadsInFlight.current += 1;
     setIsUploading(true);
     setRobotState('searching');
     robotSpeak(`Đang phân đoạn và lưu trữ bản sao ${file.name} vào CSDL & Vector DB...`);
     try {
-      await uploadDocument(file, currentWorkspaceId);
+      const up = await uploadDocument(file, currentWorkspaceId);
       await refreshState();
       setRobotState('happy');
       robotSpeak(`Đã chỉ mục thành công tài liệu ${file.name}!`);
+      if (up.source_id) {
+        const id = up.source_id;
+        setFreshDoc({ id, name: file.name });
+        // Kiểm tra chất lượng ngay sau khi nạp: báo tài liệu trùng, quá ngắn, không đọc được chữ, lỗi mã hóa.
+        libraryQuality().then(q => {
+          const bad = q.docs.find(d => d.source_id === id)?.issues.filter(i => i.level !== 'low') || [];
+          if (bad.length) setToast({ text: `${file.name}: ${bad.map(i => i.message).join(' ')}`, tone: 'warn' });
+        }).catch(() => {});
+      }
       return true;
     } catch (err: any) {
       setRobotState('error');
       robotSpeak(`Lỗi tải tệp ${file.name}: ${err.message}`);
+      lastUploadError.current = String(err?.message || 'Không tải được tệp');
       return false;
     } finally {
       uploadsInFlight.current -= 1;
@@ -174,7 +240,7 @@ function DashboardWorkspace({
   const handleSeedDocs = async () => {
     setIsSeeding(true);
     setRobotState('working');
-    robotSpeak('Đang tự động nạp 3 bộ tài liệu mẫu chuẩn hóa của Đồ án Tốt nghiệp C1SE.27...');
+    robotSpeak('Đang nạp bộ tài liệu mẫu...');
     try {
       await seedSampleDocs(currentWorkspaceId);
       await refreshState();
@@ -229,10 +295,15 @@ function DashboardWorkspace({
     if (window.confirm('Bạn có chắc chắn muốn xóa toàn bộ tài liệu trong workspace hiện tại?')) {
       setRobotState('working');
       robotSpeak('Đang xóa tài liệu và vector thuộc workspace hiện tại...');
-      await clearDocuments(currentWorkspaceId);
+      try {
+        await clearDocuments(currentWorkspaceId);
+        setRobotState('idle');
+        robotSpeak('Đã làm trống cơ sở dữ liệu tri thức.');
+      } catch (err: any) {
+        setRobotState('error');
+        setToast({ text: `Lỗi xóa tài liệu: ${err.message}`, tone: 'error' });
+      }
       await refreshState();
-      setRobotState('idle');
-      robotSpeak('Đã làm trống cơ sở dữ liệu tri thức.');
     }
   };
 
@@ -276,8 +347,30 @@ function DashboardWorkspace({
     }
   };
 
+  // Admin Portal: quản trị viên chuyển sang giao diện quản trị riêng (không robot, không chat); lựa chọn được nhớ.
+  if (adminMode && user) return (
+    <div className="st-app is-admin" data-theme={theme} data-motion={motionAllowed() ? 'full' : 'reduced'}>
+      <AdminPortal user={user} theme={theme} onThemeChange={changeTheme} onLogout={onLogout} onExit={() => switchPortal('research')} />
+      {toast && <div className={`st-toast is-${toast.tone}`} role="alert"><span>{toast.text}</span><button onClick={() => setToast(null)} aria-label="Đóng thông báo">×</button></div>}
+    </div>
+  );
+
   return (
-    <div className="st-app">
+    <div className="st-app" data-theme={theme} data-motion={motionAllowed() ? 'full' : 'reduced'}>
+      <StudioBackdrop />
+      {intro && user && <StudioIntro name={user.full_name?.trim().split(/\s+/).slice(-1)[0]} onDone={endIntro} />}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={[
+        ...([
+          ['orchestration', 'Không gian làm việc', MessagesSquare], ['overview', 'Tổng quan', BarChart3], ['documents', 'Hồ sơ tài liệu', FileSearch],
+          ['traceability', 'Truy vết yêu cầu', ListChecks], ['req_quality', 'Chất lượng yêu cầu', SpellCheck], ['design', 'Gói thiết kế', PencilRuler], ['security', 'Rà soát bảo mật', ShieldCheck],
+          ['consistency', 'Kiểm tra mâu thuẫn', GitCompareArrows], ['evaluation', 'Phòng đánh giá', ClipboardCheck], ['benchmarks', 'Thực nghiệm', FlaskConical],
+          ['rating', 'Chấm mù', EyeOff], ...(user?.role === 'admin' ? [['users', 'Người dùng', Users], ['db_explorer', 'Cơ sở dữ liệu', Database]] : []),
+        ] as [NavigationTab, string, Command['Icon']][]).map(([id, label, Icon]) => ({ id: `go-${id}`, label, group: 'Đi đến', Icon, run: () => setActiveTab(id) })),
+        { id: 'new-chat', label: 'Cuộc trò chuyện mới', group: 'Thao tác', Icon: MessageSquarePlus, run: () => { setActiveConversationId(null); setActiveTab('orchestration'); } },
+        { id: 'seed', label: 'Nạp bộ tài liệu mẫu PayNhanh', group: 'Thao tác', Icon: Sparkles, run: () => { void handleSeedDocs(); } },
+        ...conversations.slice(0, 12).map(c => ({ id: `conv-${c.conversation_id}`, label: c.title || 'Không tên', group: 'Cuộc trò chuyện gần đây', Icon: MessagesSquare,
+          run: () => { setActiveConversationId(c.conversation_id); setActiveTab('orchestration'); } })),
+      ]} />
       <Header
         health={health}
         onSeedDocs={handleSeedDocs}
@@ -293,6 +386,10 @@ function DashboardWorkspace({
         onLogout={onLogout}
         isMobileDrawerOpen={isMobileDrawerOpen}
         onToggleMobileDrawer={() => setIsMobileDrawerOpen(prev => !prev)}
+        onOpenPalette={() => { setIsMobileDrawerOpen(false); setPaletteOpen(true); }}
+        theme={theme}
+        onThemeChange={changeTheme}
+        onOpenAdmin={user?.role === 'admin' ? () => switchPortal('admin') : undefined}
       >
         <LeftPanel
           documents={documents}
@@ -312,9 +409,10 @@ function DashboardWorkspace({
       </Header>
 
       <div className="st-main">
+        {!intro && <PageGuide page={activeTab} />}
         <div className="st-mobilebar">
           <button className="icon-btn" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Mở thanh bên" aria-expanded={isMobileDrawerOpen}><Menu size={20} /></button>
-          <b>{activeTab === 'orchestration' ? 'Không gian làm việc' : activeTab === 'benchmarks' ? 'Thực nghiệm' : 'Cơ sở dữ liệu'}</b>
+          <b>{activeTab === 'orchestration' ? 'Không gian làm việc' : activeTab === 'overview' ? 'Tổng quan' : activeTab === 'documents' ? 'Hồ sơ tài liệu' : activeTab === 'traceability' ? 'Truy vết yêu cầu' : activeTab === 'req_quality' ? 'Chất lượng yêu cầu' : activeTab === 'design' ? 'Gói thiết kế' : activeTab === 'security' ? 'Rà soát bảo mật' : activeTab === 'evaluation' ? 'Phòng đánh giá' : activeTab === 'consistency' ? 'Kiểm tra mâu thuẫn' : activeTab === 'benchmarks' ? 'Thực nghiệm' : activeTab === 'rating' ? 'Chấm mù' : activeTab === 'users' ? 'Người dùng' : 'Cơ sở dữ liệu'}</b>
         </div>
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
         {!user && (
@@ -326,7 +424,18 @@ function DashboardWorkspace({
         {activeTab === 'orchestration' && <WorkspaceView workspaceId={currentWorkspaceId} conversationId={activeConversationId} onConversation={setActiveConversationId} onChanged={refreshConversations} userName={user?.full_name}
           docCount={documents.length} chunkCount={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)} modelOk={health?.ollama_status === 'CONNECTED'}
           workspaceName={workspaces.find(w => w.id === currentWorkspaceId)?.name} recent={conversations}
-          onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} />}
+          onSeed={handleSeedDocs} onUploadFile={async (f: File) => { if (!(await handleUpload(f))) throw new Error(lastUploadError.current || 'Không tải được tệp'); }} docs={documents} prefill={prefill} freshDoc={freshDoc} />}
+        {activeTab === 'overview' && <OverviewView health={health} userName={user?.full_name} />}
+        {activeTab === 'documents' && <DocumentProfileView key={`doc-${currentWorkspaceId}`} docs={documents}
+          onAsk={(q, sourceId, sourceName) => { setActiveConversationId(null); setPrefill({ text: q, key: Date.now(), sourceId, sourceName }); setActiveTab('orchestration'); }} />}
+        {activeTab === 'req_quality' && <ReqQualityView key={`rq-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
+        {activeTab === 'traceability' && <ChecklistView key={`trace-${currentWorkspaceId}`} mode="traceability" workspaceId={currentWorkspaceId} docs={documents} />}
+        {activeTab === 'security' && <ChecklistView key={`sec-${currentWorkspaceId}`} mode="security" workspaceId={currentWorkspaceId} docs={documents} />}
+        {activeTab === 'consistency' && <ConsistencyView key={`cons-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
+        {activeTab === 'rating' && <BlindRatingView />}
+        {activeTab === 'users' && user?.role === 'admin' && <UsersAdminView currentUserId={String(user.id)} />}
+        {activeTab === 'evaluation' && <EvaluationView key={`eval-${currentWorkspaceId}`} docs={documents} />}
+        {activeTab === 'design' && <DesignView key={String(currentWorkspaceId)} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'benchmarks' && <div className="st-legacy"><BenchmarkLab resultsMap={resultsMap} telemetryLogs={telemetryLogs} onRefreshTelemetry={refreshTelemetry} onRunAblation={handleRunAblation} isAblationRunning={isAblationRunning} /></div>}
         {activeTab === 'db_explorer' && user?.role === 'admin' && <div className="st-legacy"><DatabaseExplorer /></div>}
       </div>

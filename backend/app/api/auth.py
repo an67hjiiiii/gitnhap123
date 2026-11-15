@@ -102,7 +102,8 @@ def login(
         "session_token",
         token,
         httponly=True,
-        secure=os.getenv("SESSION_COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes"},
+        # COOKIE_SECURE=true khi chạy sau HTTPS (máy chủ công ty); chấp nhận cả SESSION_COOKIE_SECURE
+        secure=(os.getenv("SESSION_COOKIE_SECURE") or os.getenv("COOKIE_SECURE") or "false").strip().lower() in {"1", "true", "yes"},
         samesite="lax",
         path="/",
     )

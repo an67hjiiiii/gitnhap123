@@ -11,3 +11,9 @@ frontend/dist/
 runtime-logs/
 data/postgres/volumes/
 data/qdrant/.lock
+
+# Bản phát hành do scripts/dev/build-release.ps1 tạo
+release/
+
+# bản sao lưu dữ liệu khách (scripts/dev/backup.ps1)
+backups/

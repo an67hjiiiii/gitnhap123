@@ -127,7 +127,9 @@ export const AssistantRobot: React.FC<AssistantRobotProps> = ({
 
       // Cập nhật toán tử vật lý & góc nhìn
       controller.pointer = relativePointer.current;
-      const updateResult = controller.update(dt);
+      // chia nhỏ bước vật lý (≤ 1/60 giây): khi máy chậm (vài khung hình/giây) một bước lớn làm lò xo dao động "nổ" số, robot vẽ sai hoặc biến mất
+      let updateResult: ReturnType<RobotController['update']> = null;
+      for (let rest = dt; rest > 0; rest -= 1 / 60) updateResult = controller.update(Math.min(rest, 1 / 60));
       if (updateResult) {
         drawRobotHeadCanvas(
           ctx,

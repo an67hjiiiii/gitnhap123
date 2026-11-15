@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import cast, delete, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -277,6 +278,101 @@ class PostgresAuthStore:
                 )) or 0),
                 "session_ttl_seconds": self.session_ttl_seconds,
             }
+
+    # ---- Quản trị tài khoản (trang Quản lý người dùng, chỉ ADMIN gọi) ----
+
+    def admin_users(self, *, query: str = "") -> list[dict[str, Any]]:
+        """Mọi tài khoản kèm số phiên đang mở, số tài liệu và số lượt hỏi (không trả mật khẩu băm)."""
+        now = _now()
+        sessions = (select(SessionRecord.user_id, func.count().label("n"))
+                    .where(SessionRecord.revoked_at.is_(None), SessionRecord.expires_at > now)
+                    .group_by(SessionRecord.user_id).subquery())
+        sources = (select(KnowledgeSourceRecord.owner_user_id.label("uid"), func.count().label("n"))
+                   .group_by(KnowledgeSourceRecord.owner_user_id).subquery())
+        runs = (select(RunRecord.owner_user_id.label("uid"), func.count().label("n"))
+                .group_by(RunRecord.owner_user_id).subquery())
+        stmt = (select(UserRecord, sessions.c.n, sources.c.n, runs.c.n)
+                .outerjoin(sessions, sessions.c.user_id == UserRecord.user_id)
+                .outerjoin(sources, sources.c.uid == UserRecord.user_id)
+                .outerjoin(runs, runs.c.uid == UserRecord.user_id)
+                .order_by(UserRecord.created_at.desc(), UserRecord.user_id.desc()))
+        q = str(query or "").strip().lower()
+        if q:
+            like = f"%{q}%"
+            stmt = stmt.where(or_(func.lower(UserRecord.email).like(like), func.lower(UserRecord.username).like(like),
+                                  func.lower(UserRecord.display_name).like(like)))
+        with self.session_factory() as db:
+            return [{**_public_user(u), "active_sessions": int(s or 0), "source_count": int(c or 0), "run_count": int(r or 0)}
+                    for u, s, c, r in db.execute(stmt.limit(1000)).all()]
+
+    @staticmethod
+    def _other_active_admins(db: Session, user_id: str) -> int:
+        return int(db.scalar(select(func.count()).select_from(UserRecord).where(
+            UserRecord.role == "ADMIN", UserRecord.status == "ACTIVE", UserRecord.user_id != user_id)) or 0)
+
+    @staticmethod
+    def _revoke_all(db: Session, user_id: str) -> int:
+        open_sessions = db.scalars(select(SessionRecord).where(
+            SessionRecord.user_id == user_id, SessionRecord.revoked_at.is_(None))).all()
+        now = _now()
+        for record in open_sessions:
+            record.revoked_at = now
+        return len(open_sessions)
+
+    def admin_update_user(self, user_id: str, *, actor_id: str, role: str | None = None,
+                          status: str | None = None, display_name: str | None = None) -> dict[str, Any]:
+        """Đổi vai trò / trạng thái / tên hiển thị. Khóa tài khoản thì thu hồi mọi phiên của tài khoản đó ngay.
+
+        Rào chắn: không tự đổi vai trò hay tự khóa chính mình; không hạ quyền hay khóa ADMIN đang hoạt động cuối cùng.
+        """
+        with self.session_factory.begin() as db:
+            user = db.get(UserRecord, user_id)
+            if user is None:
+                raise KeyError(user_id)
+            new_role = None if role is None else str(role).strip().upper()
+            new_status = None if status is None else str(status).strip().upper()
+            if new_role is not None and new_role not in USER_ROLES:
+                raise ValueError("role must be USER or ADMIN")
+            if new_status is not None and new_status not in ("ACTIVE", "DISABLED"):
+                raise ValueError("status must be ACTIVE or DISABLED")
+            if user_id == actor_id and ((new_role and new_role != user.role) or (new_status and new_status != user.status)):
+                raise PermissionError("Không thể tự đổi vai trò hoặc tự khóa tài khoản của chính mình.")
+            loses_admin = user.role == "ADMIN" and user.status == "ACTIVE" and (new_role == "USER" or new_status == "DISABLED")
+            if loses_admin and self._other_active_admins(db, user_id) == 0:
+                raise PermissionError("Phải còn ít nhất một quản trị viên đang hoạt động.")
+            if display_name is not None:
+                name = str(display_name).strip()
+                if not name or len(name) > 128:
+                    raise ValueError("display_name must be 1-128 characters")
+                user.display_name = name
+            if new_role:
+                user.role = new_role
+            if new_status:
+                user.status = new_status
+                if new_status == "DISABLED":
+                    self._revoke_all(db, user_id)
+            user.updated_at = _now()
+            db.flush()
+            return _public_user(user)
+
+    def admin_reset_password(self, user_id: str) -> tuple[dict[str, Any], str]:
+        """Đặt mật khẩu tạm ngẫu nhiên (trả về đúng một lần để admin đưa cho người dùng) và đăng xuất mọi phiên cũ."""
+        temporary = secrets.token_urlsafe(12)
+        with self.session_factory.begin() as db:
+            user = db.get(UserRecord, user_id)
+            if user is None:
+                raise KeyError(user_id)
+            user.password_hash = _password_hash(temporary)
+            user.updated_at = _now()
+            self._revoke_all(db, user_id)
+            db.flush()
+            return _public_user(user), temporary
+
+    def admin_revoke_sessions(self, user_id: str) -> int:
+        with self.session_factory.begin() as db:
+            if db.get(UserRecord, user_id) is None:
+                raise KeyError(user_id)
+            return self._revoke_all(db, user_id)
 
 
 class PostgresSourceStore:
@@ -634,7 +730,29 @@ class PostgresRunStore:
                 RunRecord.owner_user_id == self.owner_user_id
             ).order_by(RunRecord.created_at.desc(), RunRecord.run_id.desc()).limit(limit)).all()
             return [{key: row.extra_data.get(key) for key in
-                     ("run_id", "created_at", "condition", "query", "status", "lifecycle_status")} for row in rows]
+                     ("run_id", "created_at", "condition", "query", "status", "lifecycle_status", "metrics")} for row in rows]
+
+    # ---- Bản gọn cho trang Tổng quan: cùng kết quả với list()/get() nhưng không tải các cột JSON lớn của từng lượt.
+    def list_light(self, limit: int = 30) -> list[dict[str, Any]]:
+        """Như list(), nhưng đọc các cột đã lưu sẵn khi ghi (save() ghi cùng giá trị vào cột và extra_data); chỉ created_at
+        (chuỗi gốc) và lifecycle_status (không có cột riêng) lấy từ extra_data. Nhanh hơn ~3-4 lần với vài trăm lượt."""
+        with self.session_factory() as db:
+            rows = db.execute(select(
+                RunRecord.run_id, RunRecord.extra_data["created_at"], RunRecord.condition, RunRecord.query,
+                RunRecord.status, RunRecord.extra_data["lifecycle_status"], RunRecord.metrics,
+            ).where(RunRecord.owner_user_id == self.owner_user_id)
+             .order_by(RunRecord.created_at.desc(), RunRecord.run_id.desc()).limit(limit)).all()
+            keys = ("run_id", "created_at", "condition", "query", "status", "lifecycle_status", "metrics")
+            return [dict(zip(keys, row)) for row in rows]
+
+    def recent_citations(self, limit: int = 120) -> list[str]:
+        """Mọi mã đoạn được trích dẫn trong `limit` lượt gần nhất, gom bằng MỘT truy vấn
+        (thay cho gọi get() từng lượt rồi đọc task_results[*].citations[*])."""
+        path = func.jsonb_path_query_array(cast(RunRecord.extra_data, JSONB), cast(literal("$.task_results[*].citations[*]"), JSONPATH))
+        with self.session_factory() as db:
+            arrays = db.execute(select(path).where(RunRecord.owner_user_id == self.owner_user_id)
+                                .order_by(RunRecord.created_at.desc(), RunRecord.run_id.desc()).limit(limit)).scalars().all()
+        return [str(c) for arr in arrays for c in (arr or [])]
 
 
 class PostgresConversationStore:

@@ -18,7 +18,7 @@ class FakePipeline:
     def _retrieve_candidates(self, query, chunks, *, top_k, min_score, source_ids, fallback_trace):
         return [SourceChunk(c.chunk_id, c.source_id, c.source_name, c.text, c.index, 0.73) for c in chunks][:top_k]
 
-    async def run(self, message, condition):
+    async def run(self, message, condition, source_ids=None):
         return {"run_id": f"run_{condition}", "condition": condition, "status": "COMPLETE"}
 
 
@@ -102,3 +102,65 @@ def test_delete_source_of_someone_else_is_404():
     vectors, log = FakeVectors(), []
     assert delete_client({}, vectors, log).delete("/api/studio/sources/khac").status_code == 404
     assert vectors.deleted == [] and log == []
+
+
+class RecordingDb:
+    """Phiên CSDL giả: ghi câu SQL và tham số, trả về bảng rỗng."""
+    def __init__(self):
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.calls.append((str(sql), params or {}))
+        return self
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return []
+
+    def scalar(self):
+        return 0
+
+
+def test_admin_table_search_filters_with_bound_parameter():
+    db = RecordingDb()
+    r = client(role="ADMIN", session=lambda: db).get("/api/studio/admin/table/users?q=chung'--")
+    assert r.status_code == 200
+    select_sql, params = db.calls[0]
+    count_sql, count_params = db.calls[1]
+    assert "ILIKE :q" in select_sql and "ILIKE :q" in count_sql
+    assert params["q"] == "%chung'--%" and count_params["q"] == "%chung'--%"
+    assert "chung" not in select_sql
+
+
+def test_admin_table_without_search_has_no_filter():
+    db = RecordingDb()
+    client(role="ADMIN", session=lambda: db).get("/api/studio/admin/table/users")
+    assert "WHERE" not in db.calls[0][0]
+
+
+class DomainPipeline(FakePipeline):
+    class Store:
+        def chunks(self, source_ids=None):
+            return [SourceChunk("c1", "s1", "a.md", "Bảng payments có khóa chính và chỉ mục database", 0, 0.0),
+                    SourceChunk("c2", "s1", "a.md", "Cookie phiên và xác thực đăng nhập authentication", 1, 0.0)]
+    source_store = Store()
+
+
+def test_retrieval_test_filters_by_domain_and_tags_hits():
+    app = FastAPI()
+    app.include_router(build_router(current_user=lambda r: {"user_id": "u1", "role": "USER"},
+                                    owner_pipeline=lambda user, *a: DomainPipeline(), session_factory=lambda: None))
+    c = TestClient(app)
+    all_hits = c.post("/api/studio/retrieval-test", json={"query": "x", "top_k": 5}).json()["results"]
+    assert {h["chunk_id"]: h["domains"] for h in all_hits} == {"c1": ["database"], "c2": ["security"]}
+    sec = c.post("/api/studio/retrieval-test", json={"query": "x", "top_k": 5, "domain": "security"}).json()["results"]
+    assert [h["chunk_id"] for h in sec] == ["c2"]
+    assert c.post("/api/studio/retrieval-test", json={"query": "x", "domain": "nope"}).status_code == 422

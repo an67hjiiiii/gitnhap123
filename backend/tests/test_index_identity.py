@@ -250,6 +250,8 @@ def http_main(monkeypatch):
     sources = SimpleNamespace(
         snapshot_id=lambda: "test-snapshot",
         chunks=lambda ids=None: [SourceChunk("chunk", "source", "source.txt", "stable API error", 0)],
+        chunk=lambda chunk_id: None,  # /api/chat numbers the cited sources through store.chunk
+        chunks_by_ids=lambda ids, **kw: [SourceChunk("chunk", "source", "source.txt", "stable API error", 0)],  # lazy hydration
     )
     monkeypatch.setattr(auth_module, "AuthStore", lambda *a: object())
     monkeypatch.setattr(source_module, "SourceStore", lambda *a: sources)
@@ -294,5 +296,13 @@ def test_real_pipeline_propagates_index_refusal(http_main, monkeypatch, strict):
         store._index_manifest = IndexManifest(replace(IDENTITY, model_name="different"))
     monkeypatch.setattr(http_main, "_configured_vector_store", lambda: store)
     response = TestClient(http_main.app).post("/api/chat", json={"message": "API", "provider": "fake"})
-    assert response.status_code == 503
-    assert response.json()["code"] == ("INDEX_LEGACY_UNVERIFIED" if strict else "INDEX_INCOMPATIBLE")
+    if strict:
+        assert response.status_code == 503
+        assert response.json()["code"] == "INDEX_LEGACY_UNVERIFIED"
+        return
+    # Non-strict: an index built by another embedder is rebuilt in the background (91ff2d9); the user gets a normal
+    # answer or the friendly "index is updating" reply, never a 5xx and never the raw refusal code.
+    assert response.status_code == 200
+    body = response.json()
+    assert "code" not in body
+    assert body["status"] in {"COMPLETE", "PARTIAL", "NO_EVIDENCE"}, str(body)[:1500]

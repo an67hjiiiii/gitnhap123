@@ -352,6 +352,18 @@ export class RobotController {
 /**
  * Vẽ khung mặt LED Matrix 22x14
  */
+let ledCanvasEl: HTMLCanvasElement | null = null;
+let ledCtx: CanvasRenderingContext2D | null = null;
+function ledCanvas(): HTMLCanvasElement {
+  if (!ledCanvasEl) {
+    ledCanvasEl = document.createElement('canvas');
+    ledCanvasEl.width = 176;
+    ledCanvasEl.height = 112;
+    ledCtx = ledCanvasEl.getContext('2d');
+  }
+  return ledCanvasEl;
+}
+
 export function drawLEDMatrix(
   ctx: CanvasRenderingContext2D,
   face: RobotFaceData,
@@ -566,8 +578,10 @@ export function drawRobotHeadCanvas(
 
   // 1. Bóng đổ sàn (Floor Soft Shadow)
   const shadowY = height - 14;
-  const shadowRadiusX = 52 * scale * pose.sx * (1 - Math.max(0, pose.lift) * 0.6);
-  const shadowRadiusY = 12 * scale * (1 - Math.max(0, pose.lift) * 0.6);
+  // nhảy cao (lift > 1,67, gặp khi máy chậm làm bước vật lý lớn) thì bóng co về 0, không âm: bán kính âm làm canvas báo lỗi và dừng vẽ
+  const shadowK = Math.max(0, 1 - Math.max(0, pose.lift) * 0.6);
+  const shadowRadiusX = Math.max(0, 52 * scale * pose.sx * shadowK);
+  const shadowRadiusY = 12 * scale * shadowK;
 
   const shadowGrad = ctx.createRadialGradient(cx, shadowY, 0, cx, shadowY, shadowRadiusX);
   shadowGrad.addColorStop(0, 'rgba(15, 23, 42, 0.28)');
@@ -707,11 +721,10 @@ export function drawRobotHeadCanvas(
   ctx.roundRect(screenX, screenY, screenW, screenH, screenR);
   ctx.clip();
 
-  // Tạo một canvas ảo để vẽ LED ma trận và ánh xạ vào
-  const offscreen = document.createElement('canvas');
-  offscreen.width = 176;
-  offscreen.height = 112;
-  const offCtx = offscreen.getContext('2d');
+  // Canvas ảo để vẽ LED ma trận rồi ánh xạ vào: dùng lại một cái cho mọi robot và mọi khung hình
+  // (tạo mới mỗi khung hình khiến trình duyệt dọn rác liên tục, gây giật khi chuyển trang; drawLEDMatrix tự xóa nền trước khi vẽ)
+  const offscreen = ledCanvas();
+  const offCtx = ledCtx;
   if (offCtx) {
     drawLEDMatrix(offCtx, face, state, colors.screen, offscreen.width, offscreen.height);
     ctx.drawImage(offscreen, screenX, screenY, screenW, screenH);

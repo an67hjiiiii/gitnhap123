@@ -335,6 +335,8 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     source_ids: list[str] | None = None
     product_mode: bool = False
+    # Studio: trả lời theo ngôn ngữ câu hỏi ở lượt phân tích; trang Thực nghiệm không bật để giữ prompt nghiên cứu.
+    reply_in_query_language: bool = False
 
 class SourceTextRequest(BaseModel):
     source_name: str
@@ -410,6 +412,7 @@ def import_text(body: SourceTextRequest, request: Request):
     if not body.text.strip():
         raise HTTPException(400, "EMPTY_TEXT")
     user = current_user(request)
+    request.state.audit_target = body.source_name
     store = owner_source_store(user)
     try:
         imported = store.import_text(
@@ -450,6 +453,7 @@ async def import_file(request: Request, file: UploadFile = File(...)):
     data = b"".join(chunks)
 
     source_name = file.filename or "upload.txt"
+    request.state.audit_target = source_name
     try:
         document = extract_document(
             data,
@@ -559,7 +563,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             conversations.add_message(conversation_id, "USER", message)
             conversations.add_message(conversation_id, "ASSISTANT", decision.reply)
             return {
-                "run_id": None, "status": "COMPLETE", "answer": decision.reply, "citations": [],
+                "run_id": None, "status": "COMPLETE", "answer": decision.reply, "citations": [], "sources": [],
                 "task_results": [], "events": [{"stage": "intent_routed", **intent_info, "retrieval": False}],
                 "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
             }
@@ -759,6 +763,7 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
             reply_language_hint=reply_hint,
             multi_retrieval=multi_retrieval,
             answer_checker=AnswerChecker(),
+            reply_in_query_language=body.reply_in_query_language,
         )
         extra_ids = [c for r in (run.get("task_results") or []) for c in (r.get("citations") or [])]
         clean_answer, sources = number_sources(
@@ -920,3 +925,85 @@ async def structured_http_errors(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code,
                         content={"code": code, "message": "Request could not be completed"},
                         headers=exc.headers)
+# Chức năng phân tích của Studio (truy vết yêu cầu, báo cáo); không đi qua /api/chat hay điều kiện A/B/C.
+from app.api.analysis import build_router as _build_analysis_router
+
+app.include_router(_build_analysis_router(
+    current_user=current_user,
+    owner_pipeline=owner_pipeline,
+    session_factory=lambda: app.state.session_factory,
+))
+
+# Quản lý người dùng cho ADMIN (tạo tài khoản, vai trò, khóa/mở khóa, đặt lại mật khẩu, thu hồi phiên).
+from app.api.users import build_router as _build_users_router
+
+app.include_router(_build_users_router(current_user=current_user))
+
+# Bảng điều khiển quản trị: số đo thật của máy chủ, Ollama, PostgreSQL, Qdrant; nhật ký kiểm toán mọi tài khoản.
+from app.api.admin_system import build_router as _build_admin_system_router
+
+app.include_router(_build_admin_system_router(current_user=current_user, session_factory=lambda: app.state.session_factory,
+                                              vector_path=VECTOR_INDEX_PATH))
+
+# Nhật ký hoạt động: ghi các thao tác có ý nghĩa (không ghi nội dung câu hỏi hay tài liệu). Ghi lỗi không làm hỏng yêu cầu.
+import logging as _logging
+import re as _re
+
+from sqlalchemy import text as _sql
+from starlette.concurrency import run_in_threadpool as _in_thread
+
+_AUDITED = [(m, _re.compile(p), label) for m, p, label in (
+    ("POST", r"^/api/sources/(text|file)$", "Nạp tài liệu"),
+    ("DELETE", r"^/api/studio/sources/(?P<t>[^/]+)$", "Xóa tài liệu"),
+    ("POST", r"^/api/chat$", "Đặt câu hỏi"),
+    ("POST", r"^/api/studio/workspaces$", "Tạo không gian làm việc"),
+    ("DELETE", r"^/api/studio/workspaces/(?P<t>[^/]+)$", "Xóa không gian làm việc"),
+    ("POST", r"^/api/studio/reports$", "Lưu báo cáo"),
+    ("DELETE", r"^/api/studio/reports/(?P<t>[^/]+)$", "Xóa báo cáo"),
+    ("POST", r"^/api/studio/compare$", "So sánh điều kiện"),
+    ("POST", r"^/api/studio/eval/run$", "Chạy đánh giá"),
+    ("POST", r"^/api/studio/traceability/extract$", "Truy vết yêu cầu"),
+    ("POST", r"^/api/studio/req-quality$", "Soát chất lượng yêu cầu"),
+    ("POST", r"^/api/studio/design/points$", "Lập gói thiết kế"),
+    ("POST", r"^/api/studio/consistency/candidates$", "Kiểm tra mâu thuẫn"),
+    ("POST", r"^/api/studio/profile/local$", "Lập hồ sơ tài liệu"),
+    ("POST", r"^/api/studio/compare-docs$", "So sánh phiên bản tài liệu"),
+    ("POST", r"^/api/studio/feedback$", "Đánh giá câu trả lời"),
+    ("POST", r"^/api/studio/mindmap$", "Lập sơ đồ tư duy"),
+    ("POST", r"^/api/studio/answer-report$", "Viết báo cáo từ câu trả lời"),
+    ("GET", r"^/api/studio/library-quality$", "Kiểm tra kho tài liệu"),
+    ("POST", r"^/api/studio/rating/studies$", "Tạo đợt chấm mù"),
+    ("DELETE", r"^/api/studio/rating/studies/(?P<t>[^/]+)$", "Xóa đợt chấm mù"),
+    ("POST", r"^/api/admin/users$", "Tạo tài khoản"),
+    ("PATCH", r"^/api/admin/users/[^/]+$", "Đổi vai trò / trạng thái tài khoản"),
+    ("POST", r"^/api/admin/users/[^/]+/reset-password$", "Đặt lại mật khẩu"),
+    ("POST", r"^/api/admin/users/[^/]+/revoke-sessions$", "Đăng xuất mọi phiên của tài khoản"),
+)]
+
+
+def _audit_write(owner: str, action: str, target: str, status: int) -> None:
+    with app.state.session_factory() as db:
+        db.execute(_sql("INSERT INTO studio_activity (owner_user_id, action, target, status) VALUES (:o, :a, :t, :s)"),
+                   {"o": owner, "a": action, "t": target[:200], "s": status})
+        db.commit()
+
+
+@app.middleware("http")
+async def _activity_log(request: Request, call_next):
+    hit = None
+    if request.method != "GET" and app.state.session_factory is not None:
+        hit = next(((label, m) for method, pattern, label in _AUDITED
+                    if method == request.method and (m := pattern.match(request.url.path))), None)
+    if hit is None:
+        return await call_next(request)
+    try:
+        owner = str((await _in_thread(current_user, request))["user_id"])
+    except Exception:  # chưa đăng nhập: để route tự trả 401, không ghi nhật ký
+        return await call_next(request)
+    response = await call_next(request)
+    label, match = hit
+    try:
+        await _in_thread(_audit_write, owner, label, getattr(request.state, "audit_target", None) or match.groupdict().get("t") or "", response.status_code)
+    except Exception:
+        _logging.getLogger(__name__).warning("Không ghi được nhật ký hoạt động", exc_info=True)
+    return response

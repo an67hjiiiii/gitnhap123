@@ -33,7 +33,7 @@ def _failure_code(result: dict) -> str:
     failed: dict = next((e for e in reversed(events) if e.get("stage") == "run_failed"), {})
     error_type = str(failed.get("error_type") or "")
     error = str(failed.get("error") or "")
-    if any(e.get("stage") == "planning_rejected" for e in events):
+    if any(e.get("stage") in {"planning_rejected", "planning_degraded"} for e in events):
         return "PLAN_REJECTED"
     if "is not available in profile" in error:
         return "CONDITION_NOT_AVAILABLE"
@@ -214,7 +214,9 @@ class PipelineReviewEngine:
                         **policy_kwargs,
                     )
                     stages = {event.get("stage"): event for event in result.get("events", [])}
-                    if result.get("status") == "FAILED":
+                    # A degraded plan (planner broke) is not evidence of absence: UNDETERMINED, never NOT_FOUND.
+                    planning_degraded = actual_condition != "A" and "planning_degraded" in stages
+                    if result.get("status") == "FAILED" or planning_degraded:
                         failed: dict = stages.get("run_failed") or {}
                         _log.warning(
                             "Review pipeline run failed case_id=%s requirement_id=%s error_type=%s error=%s",
