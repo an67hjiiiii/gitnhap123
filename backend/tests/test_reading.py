@@ -106,8 +106,10 @@ def test_topics_use_document_vocabulary_and_compare_weeks():
 # ---------------- Câu hỏi tiếp nối
 def test_follow_up_resolution():
     ctx = ConversationContext(text="[USER] Thanh toán online là gì?", last_user_request="Thanh toán online là gì?")
-    assert resolve_follow_up("Làm sao cho an toàn?", ctx) == "Thanh toán online là gì?"
+    # Chỉ ghép khi có tham chiếu chưa giải (không còn ghép theo độ ngắn của câu).
+    assert resolve_follow_up("Nó có an toàn không?", ctx) == "Thanh toán online là gì?"
     assert resolve_follow_up("Còn hoàn tiền thì sao?", ctx) == "Thanh toán online là gì?"
+    assert resolve_follow_up("Làm sao cho an toàn?", ctx) is None
     assert resolve_follow_up("Quy trình xử lý sự cố mức P1 gồm những bước nào?", ctx) is None
     assert resolve_follow_up("Làm sao cho an toàn?", ConversationContext()) is None
 
@@ -146,3 +148,17 @@ def test_mindmap_export_and_library_endpoints():
 def test_admin_feedback_is_admin_only():
     assert api().get("/api/studio/admin/feedback").status_code == 403
     assert api("ADMIN").get("/api/studio/admin/feedback").status_code == 503  # cần PostgreSQL
+
+
+def test_short_self_contained_question_is_not_glued_to_previous():
+    ctx = ConversationContext(text="[USER] Explain JWT authentication", last_user_request="Explain JWT authentication")
+    assert resolve_follow_up("What is PostgreSQL?", ctx) is None
+    assert resolve_follow_up("Define OAuth", ctx) is None
+    assert resolve_follow_up("Hash là gì?", ctx) is None
+
+
+def test_real_reference_is_still_resolved():
+    ctx = ConversationContext(text="[USER] Explain JWT authentication", last_user_request="Explain JWT authentication")
+    assert resolve_follow_up("How does it expire?", ctx) == "Explain JWT authentication"
+    assert resolve_follow_up("What about refresh tokens?", ctx) == "Explain JWT authentication"
+    assert resolve_follow_up("Nó hết hạn khi nào?", ctx) == "Explain JWT authentication"

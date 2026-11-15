@@ -101,9 +101,7 @@ _FOLLOW_MARKERS = re.compile(
     r"cụ thể hơn|ví dụ|it|its|they|them|that|this|those|what about|how about)\b",
     re.IGNORECASE,
 )
-_FILLER = set("""gì nào sao làm thế bao nhiêu ai đâu hãy giúp tôi bạn ở là những cách có được không thì khi như cái các và của
-cho với trong về từ theo nếu này đó kia một mình nó vậy còn nữa thêm cần phải nên muốn biết hơn rõ cụ thể chi tiết ví dụ
-the what how why when which who is are do does a an of to in for on and or it this that""".split())
+
 
 
 def _fold(text: str) -> str:
@@ -114,15 +112,13 @@ def _fold(text: str) -> str:
 def resolve_follow_up(query: str, context: ConversationContext) -> str | None:
     """Câu hỏi trước mà câu này đang hỏi tiếp, hoặc None nếu câu này tự đủ nghĩa.
 
-    Coi là hỏi tiếp khi có từ chỉ trỏ ("nó", "còn ... thì sao") hoặc câu chỉ còn tối đa hai chữ nội dung
-    sau khi bỏ hư từ. Lịch sử chỉ dùng để hiểu ý, không bao giờ là bằng chứng.
+    Chỉ coi là hỏi tiếp khi có tham chiếu chưa được giải ("nó", "còn ... thì sao", "it", "what about"); câu ngắn
+    nhưng tự đủ nghĩa (vd "What is PostgreSQL?") KHÔNG bị ghép với câu trước. Lịch sử chỉ dùng để hiểu ý, không bao giờ là bằng chứng.
     """
     previous = (context.last_user_request or "").strip()
     if not previous or _fold(previous) == _fold(query.strip()):
         return None
-    filler = {_fold(w) for w in _FILLER}
-    content = [w for w in re.findall(r"\w+", _fold(query)) if w not in filler and not w.isdigit()]
-    if _FOLLOW_MARKERS.search(query) or len(content) <= 2:
+    if _FOLLOW_MARKERS.search(query):
         return previous
     return None
 

@@ -76,7 +76,10 @@ def run_plan(tmp_path, monkeypatch, provider):
     ))
 
 
-@pytest.mark.parametrize("failure", ["json", "exception", "semantic", "normalization"])
+# "semantic" left this list on purpose: plan_anchoring now repairs a semantic gap, so that case ends COMPLETE
+# (see test_anchoring_repairs_semantic_gap_and_completes). Plans that cannot be repaired still degrade here / in
+# test_unanchorable_plan_still_degrades.
+@pytest.mark.parametrize("failure", ["json", "exception", "normalization"])
 def test_planning_failure_degrades_after_one_repair(tmp_path, monkeypatch, failure):
     provider = PlanningProvider(failure)
     if failure == "normalization":
