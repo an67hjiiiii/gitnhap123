@@ -30,6 +30,6 @@
       {"id": "mix-vi", "source_id": "src-mix-vi", "text": "Trạng thái nghiệp vụ được lưu trong PostgreSQL có thẩm quyền."}
     ],
     "expected_ids": ["mix-vi", "mix-db", "mix-api"],
-    "expected_scores": [0.589256, 0.316228, 0.0]
+    "expected_scores": [0.629941, 0.503953, 0.0]
   }
 ]

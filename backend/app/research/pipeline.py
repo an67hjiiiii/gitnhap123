@@ -185,7 +185,8 @@ class ResearchPipeline:
         reply_in_query_language: bool = False,
     ) -> dict:
         condition = condition.upper()
-        answer_language = (reply_language_hint or reply_language_of(query)) if (product_mode or reply_in_query_language) else None
+        answer_language = reply_language_hint or (
+            reply_language_of(query) if (product_mode or reply_in_query_language) else None)
         if condition not in CONDITIONS:
             raise ValueError(f"Unknown condition {condition}")
         if isinstance(conversation_context, str):
@@ -461,7 +462,11 @@ class ResearchPipeline:
                 async def degrade_planning(reason: str, errors: list[str]) -> dict:
                     event("planning_degraded", reason=reason, errors=errors, fallback="C_MULTI")
                     task = Task(task_id="T1", goal=query, domain="general")
-                    retrieval_query = _retrieval_query_with_conversation_context(query, conversation_context)
+                    retrieval_query = simple_retrieval_query  # includes the resolved follow-up when there is one
+                    degraded_query = (
+                        "\n\n".join((query, f"(Câu hỏi tiếp nối. Câu hỏi trước của người dùng: {follow_up})"))
+                        if follow_up else query
+                    )
                     r0 = time.perf_counter()
                     trace: dict = {}
                     try:
@@ -493,7 +498,7 @@ class ResearchPipeline:
                             result = await answer_vanilla(provider, query, [], metrics)
                         else:
                             result = await answer_vanilla(
-                                provider, query, selected, metrics,
+                                provider, degraded_query, selected, metrics,
                                 reply_language=answer_language or "vi",
                             )
                     except Exception:
@@ -766,6 +771,13 @@ class ResearchPipeline:
                                 "task_plan_failed_verification_after_repair",
                                 list(anchored_verification.errors),
                             )
+                        if repaired_plan is not None:
+                            preserved = validate_repaired_plan(plan, anchored)
+                            if not preserved.valid:
+                                event("planning_rejected", reason="anchored_repair_not_preserving_plan")
+                                return await degrade_planning(
+                                    "anchored_repair_not_preserving_plan", list(preserved.errors),
+                                )
                         repaired_plan, repaired_verification = anchored, anchored_verification
                     plan = repaired_plan
                     verification = repaired_verification

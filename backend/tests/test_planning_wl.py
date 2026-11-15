@@ -221,3 +221,87 @@ import pytest as _pytest
 def _always_summarise(monkeypatch):
     """These tests exercise the summary call itself; production skips it for short/single-domain bodies."""
     monkeypatch.setenv("SYNTH_MIN_BODY_CHARS", "0")
+
+
+def test_anchoring_repairs_semantic_gap_and_completes(tmp_path, monkeypatch):
+    provider = PlanningProvider("semantic")
+    run = run_plan(tmp_path, monkeypatch, provider)
+
+    assert run["status"] == "COMPLETE"
+    anchors = [event for event in run["events"] if event["stage"] == "plan_anchoring"]
+    assert len(anchors) == 1
+    assert anchors[0]["accepted"] is True
+    assert anchors[0]["changes"]
+    assert not any(event["stage"] == "planning_degraded" for event in run["events"])
+    assert not any(event["stage"] == "run_failed" for event in run["events"])
+    assert run["answer"]
+    assert any("Review authentication" in task["goal"] for task in run["tasks"])
+
+
+def test_unanchorable_plan_still_degrades(tmp_path, monkeypatch):
+    """When anchoring cannot repair the plan (here: anchoring is a no-op), the run still degrades after one repair."""
+    from app.research import pipeline as pipeline_module
+    from app.research.plan_verification import verify_task_plan
+
+    monkeypatch.setattr(pipeline_module, "anchor_and_verify", lambda plan: (plan, verify_task_plan(plan), []))
+    provider = PlanningProvider("semantic")
+    run = run_plan(tmp_path, monkeypatch, provider)
+
+    assert run["status"] == "PARTIAL"
+    assert run["lifecycle_status"] == "COMPLETED"
+    assert run["answer"]
+    assert provider.plan_calls == 2
+    repairs = [event for event in run["events"] if event["stage"] == "planning_repair"]
+    assert len(repairs) == 1
+    assert repairs[0]["attempt"] == 1
+    degraded = [event for event in run["events"] if event["stage"] == "planning_degraded"]
+    assert len(degraded) == 1
+    assert degraded[0]["fallback"] == "C_MULTI"
+    assert degraded[0]["reason"]
+    assert degraded[0]["errors"]
+    anchors = [event for event in run["events"] if event["stage"] == "plan_anchoring"]
+    assert anchors and all(event["accepted"] is False for event in anchors)
+    assert "kế hoạch phân tích không hợp lệ, đã chuyển sang trả lời trực tiếp" in run["task_results"][0]["missing_information"]
+    assert not any(event["stage"] == "run_failed" for event in run["events"])
+    assert {"run_id", "status", "answer", "tasks", "task_results", "metrics", "events", "provenance"} <= run.keys()
+
+
+def test_anchor_and_verify_repairs_required_obligation_text():
+    from app.core.types import Obligation, TaskPlan
+    from app.research.plan_anchoring import anchor_and_verify
+
+    plan = TaskPlan(
+        request="Review authentication",
+        obligations=[Obligation("O1", "Review authentication", required=True)],
+        tasks=[Task("T1", "Review database query", "security", covers_obligations=["O1"])],
+    )
+
+    anchored, verification, changes = anchor_and_verify(plan)
+
+    assert verification.valid is True
+    assert verification.errors == ()
+    assert verification.covered_obligations == ("O1",)
+    assert changes
+    assert "Review authentication" in anchored.tasks[0].goal
+    assert anchored.tasks[0].covers_obligations == ["O1"]
+    assert plan.tasks[0].goal == "Review database query"
+
+
+def test_anchor_and_verify_preserves_unknown_obligation_error():
+    from app.core.types import Obligation, TaskPlan
+    from app.research.plan_anchoring import anchor_and_verify
+
+    plan = TaskPlan(
+        request="Review authentication",
+        obligations=[Obligation("O1", "Review authentication", required=True)],
+        tasks=[Task("T1", "Review database query", "security",
+                    covers_obligations=["O1", "O_UNKNOWN"])],
+    )
+
+    anchored, verification, changes = anchor_and_verify(plan)
+
+    assert verification.valid is False
+    assert verification.errors == ("task T1 references unknown obligation O_UNKNOWN",)
+    assert changes
+    assert "Review authentication" in anchored.tasks[0].goal
+    assert anchored.tasks[0].covers_obligations == ["O1", "O_UNKNOWN"]
