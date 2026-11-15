@@ -118,3 +118,8 @@ Chỉ thêm, không đổi hợp đồng cũ.
 - Chat trả thẳng (không truy xuất, `run_id=null`): event `intent_routed` có `path` = `DIRECT` | `HISTORY` | `EMPTY_STORE`, `grounded:false`; câu kiến thức chung kèm ghi chú "Không dựa trên tài liệu của bạn". Intent mới: `general_knowledge`, `history_answer`; `intent.reason` có thể là `DEFINITION`, `SELF_CONTAINED`, `HISTORY_CUE`, `GATE_DOCUMENT_MATCH`, `HISTORY_MISS`.
 - Event `timings` `{intent_ms, memory_ms, language_ms, answer_ms, gate_ms, history_ms, total_ms}` (khoá nào có tuỳ đường đi); event `no_evidence` `{reason: MODEL_REFUSED|NO_CHUNKS, retrieved, selected}`.
 - Câu trả lời không còn thẻ `<source name>…</source name>`.
+
+## Tự lập lại chỉ mục khi đổi embedding_version
+- Backend phát hiện chỉ mục khác `embedding_version` hiện tại (lúc khởi động và lười khi có câu hỏi tài liệu) → lập lại trong nền theo từng nguồn (tăng dần, không xoá collection cũ).
+- Trong lúc chạy, câu hỏi tài liệu trả `200`, `status=NO_EVIDENCE`, `answer` tiếng Việt từ `labels.vi.json` (`reindex.running`: "Đang cập nhật chỉ mục tài liệu (x/y), thử lại sau ít phút."), event `intent_routed.path="REINDEXING"`, event `reindex_progress {status,done,total,failed,started_at,finished_at,duration_s}` và trường `index` cùng nội dung. Không còn 503 `INDEX_INCOMPATIBLE` thô. Câu trả thẳng/HISTORY không bị chặn.
+- `GET /api/index/status` (cần đăng nhập) trả trạng thái tiến độ: `idle|running|done|failed`.

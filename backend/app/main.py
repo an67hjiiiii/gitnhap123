@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from pathlib import Path
@@ -30,6 +31,9 @@ from app.ingestion.documents import (
 from app.providers.ollama import OllamaProvider
 from app.research.pipeline import ResearchPipeline
 from app.retrieval.candidate_index import CandidateIndex, IndexingError
+from app.retrieval.index_identity import IndexState
+from app.retrieval.reindex import ReindexManager, index_state
+from app.review.labels import load_labels
 from app.retrieval.embeddings import effective_dimension, make_embedder, validate_embedding_config
 from app.review.memory import InMemoryMemoryStore
 from app.storage.conversation_store import ConversationStore
@@ -138,6 +142,63 @@ def mark_stale_chat_runs():
         for root in (Path(RUNS_DIR) / "owners").glob("*"):
             if root.is_dir():
                 RunStore(str(root)).mark_stale_running_runs(max_age)
+
+_REINDEX = ReindexManager()
+
+
+def _reindex_items() -> list[tuple[str, str]]:
+    """(owner_id, source_id) of every READY source, for the background rebuild."""
+    if STORAGE_BACKEND == "postgres":
+        from sqlalchemy import select
+        from app.storage.postgres.models import KnowledgeSourceRecord
+
+        with app.state.session_factory() as db:
+            rows = db.execute(select(KnowledgeSourceRecord.owner_user_id, KnowledgeSourceRecord.source_id)
+                              .where(KnowledgeSourceRecord.status == "READY")
+                              .order_by(KnowledgeSourceRecord.owner_user_id, KnowledgeSourceRecord.source_id)).all()
+        return [(str(o), str(s)) for o, s in rows]
+    items = []
+    for root in sorted((Path(DATA_DIR) / "owners").glob("*")):
+        if root.is_dir():
+            items += [(root.name, s["source_id"]) for s in SourceStore(str(root / "sources")).list_sources()
+                      if s.get("status", "READY") == "READY"]
+    return items
+
+
+def maybe_start_reindex(user: dict | None = None) -> bool:
+    """Start the background rebuild when the collection identity differs from the current embedder (once)."""
+    if VECTOR_BACKEND in {"", "disabled", "off", "none"} or _REINDEX.running:
+        return False
+    index = owner_pipeline(user or {"user_id": "_reindex"}).candidate_index
+    if index is None or index_state(index) != IndexState.INCOMPATIBLE:
+        return False
+    return _REINDEX.start(lambda owner: owner_pipeline({"user_id": owner}).candidate_index,
+                          _reindex_items(), prepare=index.begin_rebuild)
+
+
+def _reindex_reply(language: str) -> dict | None:
+    """Friendly 'index is updating' payload while a rebuild runs (None when idle/finished)."""
+    state = _REINDEX.status()
+    if state["status"] != "running":
+        return None
+    labels = load_labels().get("reindex", {})
+    text = labels.get("running", "").format(done=state["done"], total=state["total"])
+    return {"text": text, "state": state}
+
+
+@app.on_event("startup")
+def start_background_reindex():
+    try:
+        maybe_start_reindex()
+    except Exception:  # never block startup; document questions retry lazily
+        logging.getLogger(__name__).exception("could not start background reindex")
+
+
+@app.get("/api/index/status")
+def index_status(request: Request):
+    current_user(request)
+    return _REINDEX.status()
+
 
 def owner_source_store(user: dict):
     if STORAGE_BACKEND == "postgres":
@@ -562,6 +623,21 @@ async def _chat_core(body: "ChatRequest", request: Request, on_event=None, notif
                 "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "EMPTY_STORE"},
                            {"stage": "timings", **timings}],
                 "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
+            }
+        try:
+            maybe_start_reindex(user)
+        except Exception:
+            pass
+        waiting = _reindex_reply(intent_info["language"])
+        if waiting is not None:  # friendly answer instead of INDEX_INCOMPATIBLE while the index is being rebuilt
+            conversations.add_message(conversation_id, "USER", message)
+            conversations.add_message(conversation_id, "ASSISTANT", waiting["text"])
+            return {
+                "run_id": None, "status": "NO_EVIDENCE", "answer": waiting["text"], "citations": [], "task_results": [],
+                "events": [{"stage": "intent_routed", **intent_info, "retrieval": False, "path": "REINDEXING"},
+                           {"stage": "reindex_progress", **waiting["state"]}, {"stage": "timings", **timings}],
+                "conversation_id": conversation_id, "intent": intent_info, "route": None, "rewritten_query": None,
+                "index": waiting["state"],
             }
         m0 = time.perf_counter()
         memory = await build_memory(provider, str(user["user_id"]), conversation, cache=_SUMMARY_CACHE)
