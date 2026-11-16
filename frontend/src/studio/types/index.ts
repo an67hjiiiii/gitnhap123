@@ -3,6 +3,7 @@ export interface User {
   username: string;
   email: string;
   full_name: string;
+  avatar?: string | null;
   role: 'developer' | 'tech_lead' | 'researcher' | 'admin' | string;
   created_at: string;
 }
@@ -15,6 +16,10 @@ export interface Workspace {
   created_at: string;
   documents_count: number;
   runs_count: number;
+  /** personal = thư mục cá nhân (studio_workspaces); org = không gian tổ chức (mã sp_) */
+  kind?: 'personal' | 'org';
+  level?: 'STAFF' | 'MANAGER' | 'EXECUTIVE';
+  is_owner?: boolean;
 }
 
 export interface ExperimentConfig {
@@ -144,6 +149,12 @@ export interface DocumentInfo {
   status?: 'indexed' | 'processing' | 'failed' | string;
   created_at?: string;
   workspace_id?: number;
+  // chỉ có ở tài liệu thuộc không gian tổ chức
+  classification?: 'PRIVATE' | 'COMPANY' | 'DEPARTMENT' | 'RESTRICTED' | 'SECRET';
+  department_id?: string | null;
+  owner?: string;
+  mine?: boolean;
+  can_delete?: boolean;
 }
 
 export interface ChunkInfo {
@@ -224,7 +235,7 @@ export interface HealthResponse {
 }
 
 export type ExecutionMode = 'proposed_adaptive' | 'naive_multi_agent' | 'vanilla_rag' | 'ablation_comparison';
-export type NavigationTab = 'orchestration' | 'chat' | 'overview' | 'documents' | 'traceability' | 'req_quality' | 'design' | 'security' | 'consistency' | 'evaluation' | 'benchmarks' | 'rating' | 'users' | 'db_explorer';
+export type NavigationTab = 'orchestration' | 'chat' | 'overview' | 'documents' | 'traceability' | 'req_quality' | 'design' | 'security' | 'consistency' | 'evaluation' | 'benchmarks' | 'rating' | 'users' | 'db_explorer' | 'organization';
 
 // Phase 6: Security Audit & Diagnostics Types
 export interface SecurityCheckpointItem {

@@ -84,7 +84,8 @@ def glossary_candidates(text: str, limit: int = 20) -> tuple[list[dict], list[di
     """(thuật ngữ có định nghĩa sẵn trong tài liệu, thuật ngữ kỹ thuật lặp lại chưa có định nghĩa kèm câu ngữ cảnh)."""
     defined = {}
     for m in _DEFINITION.finditer(text):
-        term, definition = m.group(1).strip(" *`"), m.group(2).strip()
+        # dòng "Tên: nội dung" có thể là dòng liên hệ: che dữ liệu nhạy cảm như tab Riêng tư, không trả giá trị gốc
+        term, definition = m.group(1).strip(" *`"), pii_scan(m.group(2).strip())["masked_text"]
         if len(term.split()) <= 5 and term.casefold() not in defined:
             defined[term.casefold()] = {"term": term, "definition": definition, "origin": "document"}
     counts = Counter()
@@ -99,7 +100,7 @@ def glossary_candidates(text: str, limit: int = 20) -> tuple[list[dict], list[di
             continue
         context = next((s.strip() for s in sentences if term in s and len(s.strip()) > 20), "")
         if context:
-            pending.append({"term": term, "context": context[:300], "count": n})
+            pending.append({"term": term, "context": pii_scan(context)["masked_text"][:300], "count": n})
     return list(defined.values())[:40], pending
 
 

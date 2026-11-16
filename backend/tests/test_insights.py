@@ -68,6 +68,18 @@ def test_glossary_takes_definitions_from_document():
     assert not any(p["term"] == "RTO" for p in pending)  # đã có định nghĩa thì không hỏi mô hình
 
 
+def test_glossary_never_returns_raw_personal_data():
+    # dòng liên hệ dạng "Tên: nội dung" bị nhận như định nghĩa; giá trị nhạy cảm phải bị che như tab Riêng tư
+    text = ("- Quản lý phòng khám: chị Lan, email lan.nguyen@smilecare-demo.vn, điện thoại 0905 123 456.\n"
+            "- Kế toán: anh Minh, CCCD 048090001234, thẻ 4111 1111 1111 1111.\n"
+            "Hệ thống gọi `send_sms` tới 0905 123 456. Hàm `send_sms` gửi OTP.")
+    defined, pending = insights.glossary_candidates(text)
+    shown = " ".join(d["definition"] for d in defined) + " " + " ".join(p["context"] for p in pending)
+    for raw in ("lan.nguyen@smilecare-demo.vn", "0905 123 456", "048090001234", "4111 1111 1111 1111"):
+        assert raw not in shown
+    assert "[ĐÃ CHE]" in shown and {d["term"] for d in defined} == {"Quản lý phòng khám", "Kế toán"}
+
+
 def test_compare_versions_reports_changed_rule():
     out = insights.compare_versions("# Hạn mức\nGiới hạn 50 triệu\nGiữ nguyên", "# Hạn mức\nGiới hạn 100 triệu\nGiữ nguyên")
     assert out["changed"] == 1 and out["changes"][-1]["section"] == "# Hạn mức"

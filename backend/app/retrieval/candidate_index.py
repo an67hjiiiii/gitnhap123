@@ -71,11 +71,23 @@ class CandidateIndex:
         source_ids: Iterable[str] | None = None,
     ) -> list[VectorMatch]:
         selected = None if source_ids is None else [str(source_id) for source_id in source_ids]
+        scope_reader = getattr(self.source_store, "scope_source_ids", None)
+        if not callable(scope_reader):  # kho tệp cũ (không có không gian tổ chức): giữ nguyên hành vi
+            return self.vector_store.search(
+                self.embedder.embed(query), limit=limit, owner_user_id=self.owner_user_id, source_ids=selected,
+            )
+        allowed = scope_reader()
+        if selected is not None:
+            allowed &= set(selected)
+        if not allowed:
+            return []  # đóng khi rỗng: không bao giờ tìm toàn kho
+        # không gian tổ chức đọc cả tài liệu người khác tải lên nên chỉ lọc theo danh sách được phép
+        personal = getattr(self.source_store, "space_id", None) is None
         return self.vector_store.search(
             self.embedder.embed(query),
             limit=limit,
-            owner_user_id=self.owner_user_id,
-            source_ids=selected,
+            owner_user_id=self.owner_user_id if personal else None,
+            source_ids=sorted(allowed),
         )
 
 

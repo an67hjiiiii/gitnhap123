@@ -31,6 +31,12 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class AvatarRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    avatar: str | None = Field(default=None, max_length=200_000)
+
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -135,3 +141,19 @@ def current_session(request: Request) -> dict[str, object]:
             detail="Authentication is required",
         ) from exc
     return {"authenticated": True, "user": user}
+
+
+@router.put("/avatar")
+def update_avatar(body: AvatarRequest, request: Request) -> dict[str, object]:
+    """Tự đổi ảnh đại diện của chính mình (không có tham số user_id nên không sửa được ảnh người khác)."""
+    store = get_auth_store(request)
+    try:
+        user = store.resolve(get_session_token(request))
+    except InvalidSessionError as exc:
+        raise HTTPException(status_code=401, detail="Authentication is required") from exc
+    if not hasattr(store, "set_avatar"):
+        raise HTTPException(status_code=501, detail="Kho tài khoản này không hỗ trợ ảnh đại diện")
+    try:
+        return {"user": store.set_avatar(str(user["user_id"]), body.avatar)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

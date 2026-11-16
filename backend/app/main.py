@@ -5,10 +5,11 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from app.api.auth import router as auth_router
 from app.api.auth import get_session_token
 from app.auth.store import AuthStore, InvalidSessionError
+from app.core.access import require_active_member
 from app.core.config import RuntimeConfig
 from app.ingestion.documents import (
     DOCUMENT_INGESTION_VERSION,
@@ -73,16 +74,41 @@ def current_user(request: Request) -> dict:
     except InvalidSessionError as exc:
         raise HTTPException(status_code=401, detail="Authentication is required") from exc
 
+
+def current_principal(request: Request) -> dict:
+    """Người dùng kèm phạm vi của yêu cầu (?space_id=...). Không có = cá nhân, hành vi như cũ.
+
+    Mọi kho (tài liệu, lượt chạy, hội thoại) đọc phạm vi từ đây nên không route nào quên lọc được.
+    Có space_id thì phải là thành viên đang hoạt động của không gian đó, nếu không 403.
+    """
+    user = current_user(request)
+    space_id = (request.query_params.get("space_id") or "").strip() or None
+    if space_id is not None:
+        if STORAGE_BACKEND != "postgres":
+            raise HTTPException(400, "Không gian tổ chức cần APP_STORAGE_BACKEND=postgres.")
+        try:
+            with app.state.session_factory() as db:
+                require_active_member(db, str(user["user_id"]), space_id)
+        except PermissionError as exc:
+            raise HTTPException(403, "Bạn không thuộc không gian tổ chức này.") from exc
+    return {**user, "space_id": space_id}
+
+
+def _space(user: dict) -> str | None:
+    return user.get("space_id")
+
+
 def owner_source_store(user: dict):
+    """Phạm vi lấy từ current_principal: cá nhân như trước, hoặc chỉ tài liệu app.core.access cho phép."""
     if STORAGE_BACKEND == "postgres":
-        return PostgresSourceStore(app.state.session_factory, str(user["user_id"]))
+        return PostgresSourceStore(app.state.session_factory, str(user["user_id"]), _space(user))
     root = Path(DATA_DIR) / "owners" / str(user["user_id"]) / "sources"
     return SourceStore(str(root))
 
 def owner_run_store(user: dict, conversation_id: str | None = None):
     if STORAGE_BACKEND == "postgres":
         return PostgresRunStore(
-            app.state.session_factory, str(user["user_id"]), conversation_id
+            app.state.session_factory, str(user["user_id"]), conversation_id, _space(user)
         )
     root = Path(RUNS_DIR) / "owners" / str(user["user_id"])
     return RunStore(str(root))
@@ -170,7 +196,7 @@ def _index_imported_source(user: dict, source_store, imported: dict) -> dict:
 
 def owner_conversation_store(user: dict):
     if STORAGE_BACKEND == "postgres":
-        return PostgresConversationStore(app.state.session_factory, str(user["user_id"]))
+        return PostgresConversationStore(app.state.session_factory, str(user["user_id"]), _space(user))
     root = Path(DATA_DIR) / "owners" / str(user["user_id"]) / "conversations"
     return ConversationStore(root)
 
@@ -221,20 +247,20 @@ async def local_model_health():
 
 @app.get("/api/sources")
 def list_sources(request: Request):
-    user = current_user(request)
+    user = current_principal(request)
     store = owner_source_store(user)
     return {"snapshot_id": store.snapshot_id(), "sources": store.list_sources()}
 
 @app.get("/api/sources/{source_id}")
 def get_source(source_id: str, request: Request):
-    item = owner_source_store(current_user(request)).source(source_id)
+    item = owner_source_store(current_principal(request)).source(source_id)
     if not item:
         raise HTTPException(404, "source not found")
     return item
 
 @app.get("/api/chunks/{chunk_id}")
 def get_chunk(chunk_id: str, request: Request):
-    item = owner_source_store(current_user(request)).chunk(chunk_id)
+    item = owner_source_store(current_principal(request)).chunk(chunk_id)
     if not item:
         raise HTTPException(404, "chunk not found")
     return item
@@ -244,6 +270,8 @@ def import_text(body: SourceTextRequest, request: Request):
     if not body.text.strip():
         raise HTTPException(400, "text is empty")
     user = current_user(request)
+    if request.query_params.get("space_id"):  # nộp tài liệu vào tổ chức (kèm mức mật) làm ở đợt sau
+        raise HTTPException(400, "Chưa hỗ trợ tải tài liệu trực tiếp vào không gian tổ chức.")
     request.state.audit_target = body.source_name
     store = owner_source_store(user)
     try:
@@ -264,6 +292,8 @@ def import_text(body: SourceTextRequest, request: Request):
 @app.post("/api/sources/file")
 async def import_file(request: Request, file: UploadFile = File(...)):
     user = current_user(request)
+    if request.query_params.get("space_id"):  # nộp tài liệu vào tổ chức (kèm mức mật) làm ở đợt sau
+        raise HTTPException(400, "Chưa hỗ trợ tải tài liệu trực tiếp vào không gian tổ chức.")
     data = await file.read()
     if len(data) > 2_000_000:
         raise HTTPException(413, "Files must be no larger than 2 MB")
@@ -308,7 +338,7 @@ async def chat(body: ChatRequest, request: Request):
     if not body.message.strip():
         raise HTTPException(400, "message is required")
     try:
-        user = current_user(request)
+        user = current_principal(request)
         runtime_config = RuntimeConfig.from_env()
         if body.product_mode:
             if body.condition is not None or body.provider is not None:
@@ -380,11 +410,11 @@ async def chat(body: ChatRequest, request: Request):
 
 @app.get("/api/runs")
 def list_runs(request: Request):
-    return owner_run_store(current_user(request)).list()
+    return owner_run_store(current_principal(request)).list()
 
 @app.get("/api/runs/{run_id}")
 def get_run(run_id: str, request: Request):
-    run = owner_run_store(current_user(request)).get(run_id)
+    run = owner_run_store(current_principal(request)).get(run_id)
     if not run:
         raise HTTPException(404, "run not found")
     return run
@@ -392,12 +422,33 @@ def get_run(run_id: str, request: Request):
 
 @app.get("/api/conversations")
 def list_conversations(request: Request):
-    return owner_conversation_store(current_user(request)).list()
+    return owner_conversation_store(current_principal(request)).list()
+
+
+class ConversationPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, max_length=120)
+    pinned: bool | None = None
+    hidden: bool | None = None
+
+
+@app.patch("/api/conversations/{conversation_id}")
+def patch_conversation(conversation_id: str, body: ConversationPatch, request: Request):
+    """Đổi tên / ghim / xóa (ẩn, hoàn tác được) cuộc trò chuyện của chính mình; tin nhắn và lượt chạy không bị xóa."""
+    store = owner_conversation_store(current_principal(request))
+    if not hasattr(store, "update"):
+        raise HTTPException(501, "Kho dữ liệu này không hỗ trợ sửa cuộc trò chuyện")
+    try:
+        return store.update(conversation_id, title=body.title, pinned=body.pinned, hidden=body.hidden)
+    except LookupError as exc:
+        raise HTTPException(404, "conversation not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.get("/api/conversations/{conversation_id}")
 def get_conversation(conversation_id: str, request: Request):
-    conversation = owner_conversation_store(current_user(request)).get(conversation_id)
+    conversation = owner_conversation_store(current_principal(request)).get(conversation_id)
     if conversation is None:
         raise HTTPException(404, "conversation not found")
     return conversation
@@ -407,7 +458,7 @@ def get_conversation(conversation_id: str, request: Request):
 from app.api.studio import build_router as _build_studio_router
 
 app.include_router(_build_studio_router(
-    current_user=current_user,
+    current_user=current_principal,
     owner_pipeline=owner_pipeline,
     session_factory=lambda: app.state.session_factory,
     owner_source_store=owner_source_store,
@@ -418,10 +469,15 @@ app.include_router(_build_studio_router(
 from app.api.analysis import build_router as _build_analysis_router
 
 app.include_router(_build_analysis_router(
-    current_user=current_user,
+    current_user=current_principal,
     owner_pipeline=owner_pipeline,
     session_factory=lambda: app.state.session_factory,
 ))
+
+# Không gian tổ chức: phòng ban, thành viên, lời mời, tài liệu tổ chức, thông báo (luật ở app/core/access.py).
+from app.api.org import build_router as _build_org_router
+
+app.include_router(_build_org_router(current_user=current_user, session_factory=lambda: app.state.session_factory))
 
 # Quản lý người dùng cho ADMIN (tạo tài khoản, vai trò, khóa/mở khóa, đặt lại mật khẩu, thu hồi phiên).
 from app.api.users import build_router as _build_users_router
@@ -441,10 +497,12 @@ import re as _re
 from sqlalchemy import text as _sql
 from starlette.concurrency import run_in_threadpool as _in_thread
 
+_ORG_AUDIT_MASK = "(không gian tổ chức)"
 _AUDITED = [(m, _re.compile(p), label) for m, p, label in (
     ("POST", r"^/api/sources/(text|file)$", "Nạp tài liệu"),
     ("DELETE", r"^/api/studio/sources/(?P<t>[^/]+)$", "Xóa tài liệu"),
     ("POST", r"^/api/chat$", "Đặt câu hỏi"),
+    ("PATCH", r"^/api/conversations/(?P<t>[^/]+)$", "Sửa cuộc trò chuyện"),
     ("POST", r"^/api/studio/workspaces$", "Tạo không gian làm việc"),
     ("DELETE", r"^/api/studio/workspaces/(?P<t>[^/]+)$", "Xóa không gian làm việc"),
     ("POST", r"^/api/studio/reports$", "Lưu báo cáo"),
@@ -463,6 +521,19 @@ _AUDITED = [(m, _re.compile(p), label) for m, p, label in (
     ("GET", r"^/api/studio/library-quality$", "Kiểm tra kho tài liệu"),
     ("POST", r"^/api/studio/rating/studies$", "Tạo đợt chấm mù"),
     ("DELETE", r"^/api/studio/rating/studies/(?P<t>[^/]+)$", "Xóa đợt chấm mù"),
+    # không gian tổ chức: chỉ ghi mã (không gian, thành viên, tài liệu), không ghi tên hay nội dung
+    ("POST", r"^/api/org/spaces$", "Tạo không gian tổ chức"),
+    ("POST", r"^/api/org/spaces/(?P<t>[^/]+)/invites$", "Tạo lời mời vào tổ chức"),
+    ("POST", r"^/api/org/join$", "Xin vào tổ chức bằng link/mã"),
+    ("POST", r"^/api/org/invites/(?P<t>[^/]+)/(accept|decline)$", "Trả lời lời mời vào tổ chức"),
+    ("POST", r"^/api/org/spaces/[^/]+/members/(?P<t>[^/]+)/approve$", "Duyệt thành viên tổ chức"),
+    ("PATCH", r"^/api/org/spaces/[^/]+/members/(?P<t>[^/]+)$", "Đổi cấp bậc / phòng ban thành viên"),
+    ("DELETE", r"^/api/org/spaces/[^/]+/members/(?P<t>[^/]+)$", "Gỡ thành viên tổ chức"),
+    ("POST", r"^/api/org/spaces/(?P<t>[^/]+)/leave$", "Rời không gian tổ chức"),
+    ("POST", r"^/api/org/spaces/[^/]+/sources/(?P<t>[^/]+)/publish$", "Nộp tài liệu vào tổ chức"),
+    ("PATCH", r"^/api/org/spaces/[^/]+/sources/(?P<t>[^/]+)$", "Đổi mức mật tài liệu"),
+    ("POST", r"^/api/org/spaces/[^/]+/sources/(?P<t>[^/]+)/shares$", "Chia sẻ tài liệu tổ chức"),
+    ("DELETE", r"^/api/org/spaces/[^/]+/shares/(?P<t>[^/]+)$", "Gỡ chia sẻ tài liệu"),
     ("POST", r"^/api/admin/users$", "Tạo tài khoản"),
     ("PATCH", r"^/api/admin/users/[^/]+$", "Đổi vai trò / trạng thái tài khoản"),
     ("POST", r"^/api/admin/users/[^/]+/reset-password$", "Đặt lại mật khẩu"),
@@ -492,7 +563,10 @@ async def _activity_log(request: Request, call_next):
     response = await call_next(request)
     label, match = hit
     try:
-        await _in_thread(_audit_write, owner, label, getattr(request.state, "audit_target", None) or match.groupdict().get("t") or "", response.status_code)
+        target = getattr(request.state, "audit_target", None) or match.groupdict().get("t") or ""
+        if request.query_params.get("space_id"):
+            target = _ORG_AUDIT_MASK  # ADMIN xem nhật ký: không lộ tên tài liệu hay câu hỏi của tổ chức
+        await _in_thread(_audit_write, owner, label, target, response.status_code)
     except Exception:
         _logging.getLogger(__name__).warning("Không ghi được nhật ký hoạt động", exc_info=True)
     return response

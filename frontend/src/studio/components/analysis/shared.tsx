@@ -93,7 +93,7 @@ type IconType = React.ComponentType<{ size?: number }>;
 // Dòng nhóm phía trên tiêu đề, cùng kiểu với landing (gạch nhấn + chữ xanh).
 const KICKER: Record<string, string> = {
   'Tổng quan': 'Hoạt động của hệ thống', 'Hồ sơ tài liệu': 'Công cụ phân tích', 'Truy vết yêu cầu': 'Công cụ phân tích', 'Chất lượng yêu cầu': 'Công cụ phân tích', 'Gói thiết kế kỹ thuật': 'Công cụ phân tích',
-  'Rà soát bảo mật': 'Công cụ phân tích', 'Kiểm tra mâu thuẫn': 'Công cụ phân tích', 'Phòng đánh giá': 'Nghiên cứu', 'Chấm mù': 'Nghiên cứu', 'Thực nghiệm': 'Nghiên cứu', 'Cơ sở dữ liệu': 'Quản trị', 'Người dùng': 'Quản trị',
+  'Rà soát bảo mật': 'Công cụ phân tích', 'Kiểm tra mâu thuẫn': 'Công cụ phân tích', 'Phòng đánh giá': 'Nghiên cứu', 'Chấm mù': 'Nghiên cứu', 'Thực nghiệm': 'Nghiên cứu', 'Cơ sở dữ liệu': 'Quản trị', 'Người dùng': 'Quản trị', 'Tổ chức': 'Cộng tác',
 };
 export function ToolHeader({ Icon, title, desc, right }: { Icon: IconType; title: string; desc: string; right?: React.ReactNode }) {
   return (

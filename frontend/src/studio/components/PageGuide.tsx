@@ -25,6 +25,7 @@ const SAY: Partial<Record<NavigationTab, string>> = {
   benchmarks: 'Đặt ba cách trả lời cạnh nhau để so.',
   rating: 'Nhờ người khác chấm mù các câu trả lời.',
   users: 'Cấp, khóa tài khoản và phân quyền nhân viên.',
+  organization: 'Tạo công ty, mời đồng nghiệp, phân cấp và đặt mức mật tài liệu.',
   db_explorer: 'Xem dữ liệu và sức khỏe của hệ thống.',
 };
 

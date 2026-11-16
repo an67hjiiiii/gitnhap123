@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import cast, delete, func, literal, or_, select
+from sqlalchemy import cast, delete, false, func, literal, or_, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -29,6 +30,7 @@ from app.auth.store import (
     _parse_iso,
     _token_hash,
 )
+from app.core.access import REDACTED_ANSWER, redact_run, referenced_source_ids, visible_source_ids
 from app.core.types import SourceChunk
 from app.retrieval.text import make_chunks, normalize_text
 from app.storage.postgres.models import (
@@ -59,7 +61,13 @@ def _public_user(user: UserRecord) -> dict[str, Any]:
         "updated_at": _iso(user.updated_at),
         "last_login_at": None if user.last_login_at is None else _iso(user.last_login_at),
         "status": user.status.upper(),
+        "avatar": user.avatar,
     }
+
+
+# ảnh mẫu do giao diện vẽ (preset:<mã>) hoặc ảnh tải lên đã thu nhỏ; chỉ nhận PNG/JPEG/WebP, không nhận SVG
+_AVATAR_RE = re.compile(r"^(preset:[a-z0-9-]{1,32}|data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2})$")
+AVATAR_MAX_CHARS = 200_000
 
 
 def _public_session(session: SessionRecord) -> dict[str, Any]:
@@ -355,6 +363,20 @@ class PostgresAuthStore:
             db.flush()
             return _public_user(user)
 
+    def set_avatar(self, user_id: str, avatar: str | None) -> dict[str, Any]:
+        """Người dùng tự đổi ảnh đại diện của mình; None hoặc chuỗi rỗng = bỏ ảnh."""
+        value = (avatar or "").strip() or None
+        if value is not None and (len(value) > AVATAR_MAX_CHARS or not _AVATAR_RE.match(value)):
+            raise ValueError("Ảnh đại diện không hợp lệ (chỉ PNG, JPEG, WebP dưới 150 KB hoặc ảnh mẫu).")
+        with self.session_factory.begin() as db:
+            user = db.get(UserRecord, user_id)
+            if user is None:
+                raise KeyError(user_id)
+            user.avatar = value
+            user.updated_at = _now()
+            db.flush()
+            return _public_user(user)
+
     def admin_reset_password(self, user_id: str) -> tuple[dict[str, Any], str]:
         """Đặt mật khẩu tạm ngẫu nhiên (trả về đúng một lần để admin đưa cho người dùng) và đăng xuất mọi phiên cũ."""
         temporary = secrets.token_urlsafe(12)
@@ -376,11 +398,31 @@ class PostgresAuthStore:
 
 
 class PostgresSourceStore:
-    """A source/chunk store bound to one authenticated owner."""
+    """A source/chunk store bound to one authenticated user and one scope.
 
-    def __init__(self, session_factory: sessionmaker[Session], owner_user_id: str) -> None:
+    space_id None = không gian cá nhân (chỉ tài liệu của chính người dùng, không thuộc tổ chức nào).
+    space_id khác None = không gian tổ chức: chỉ đọc tài liệu mà app.core.access cho phép.
+    Ghi (import, mark_failed, clear) vẫn theo chủ tài liệu.
+    """
+
+    def __init__(self, session_factory: sessionmaker[Session], owner_user_id: str,
+                 space_id: str | None = None) -> None:
         self.session_factory = session_factory
         self.owner_user_id = owner_user_id
+        self.space_id = space_id
+
+    def scope_source_ids(self) -> set[str]:
+        """Tài liệu được đọc trong phạm vi này; tính lại mỗi lần để quyền mới có hiệu lực ngay."""
+        with self.session_factory() as db:
+            return visible_source_ids(db, self.owner_user_id, self.space_id)
+
+    def _read_filters(self) -> list[Any]:
+        if self.space_id is None:
+            # tài liệu tổ chức do mình tải lên không lọt sang phạm vi cá nhân (kể cả sau khi bị gỡ khỏi tổ chức)
+            return [KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                    KnowledgeSourceRecord.space_id.is_(None)]
+        allowed = self.scope_source_ids()
+        return [KnowledgeSourceRecord.source_id.in_(sorted(allowed))] if allowed else [false()]
 
     def import_text(
         self,
@@ -522,7 +564,7 @@ class PostgresSourceStore:
             source = db.scalar(
                 select(KnowledgeSourceRecord).where(
                     KnowledgeSourceRecord.source_id == source_id,
-                    KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                    *self._read_filters(),
                 )
             )
             if source is None:
@@ -537,7 +579,7 @@ class PostgresSourceStore:
     def chunks(self, source_ids: list[str] | None = None) -> list[SourceChunk]:
         with self.session_factory() as db:
             filters = [
-                KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                *self._read_filters(),
                 KnowledgeSourceRecord.status == "READY",
             ]
             if source_ids is not None:
@@ -560,7 +602,7 @@ class PostgresSourceStore:
             available = set(
                 db.scalars(
                     select(KnowledgeSourceRecord.source_id).where(
-                        KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                        *self._read_filters(),
                         KnowledgeSourceRecord.status == "READY",
                         KnowledgeSourceRecord.source_id.in_(requested),
                     )
@@ -574,7 +616,7 @@ class PostgresSourceStore:
             rows = db.execute(
                 select(KnowledgeSourceRecord, func.count(KnowledgeChunkRecord.chunk_id))
                 .outerjoin(KnowledgeChunkRecord)
-                .where(KnowledgeSourceRecord.owner_user_id == self.owner_user_id)
+                .where(*self._read_filters())
                 .group_by(KnowledgeSourceRecord.source_id)
                 .order_by(KnowledgeSourceRecord.source_name, KnowledgeSourceRecord.source_id)
             ).all()
@@ -585,7 +627,7 @@ class PostgresSourceStore:
         with self.session_factory() as db:
             source = db.scalar(select(KnowledgeSourceRecord).where(
                 KnowledgeSourceRecord.source_id == source_id,
-                KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                *self._read_filters(),
             ))
             if source is None:
                 return None
@@ -605,7 +647,7 @@ class PostgresSourceStore:
                 .join(KnowledgeSourceRecord)
                 .where(
                     KnowledgeChunkRecord.chunk_id == chunk_id,
-                    KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                    *self._read_filters(),
                 )
             )
             return None if row is None else self._chunk(row).__dict__.copy()
@@ -620,8 +662,10 @@ class PostgresSourceStore:
 
     def clear(self) -> None:
         with self.session_factory.begin() as db:
+            # chỉ xóa tài liệu cá nhân; tài liệu đã nộp vào tổ chức thuộc về tổ chức
             source_ids = select(KnowledgeSourceRecord.source_id).where(
-                KnowledgeSourceRecord.owner_user_id == self.owner_user_id
+                KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                KnowledgeSourceRecord.space_id.is_(None),
             )
             db.execute(delete(KnowledgeSourceRecord).where(KnowledgeSourceRecord.source_id.in_(source_ids)))
 
@@ -648,23 +692,30 @@ class PostgresRunStore:
     )
 
     def __init__(self, session_factory: sessionmaker[Session], owner_user_id: str,
-                 conversation_id: str | None = None) -> None:
+                 conversation_id: str | None = None, space_id: str | None = None) -> None:
         self.session_factory = session_factory
         self.owner_user_id = owner_user_id
         self.conversation_id = conversation_id
+        self.space_id = space_id
+
+    def _scope(self) -> list[Any]:
+        """Lượt chạy của chính người dùng, đúng phạm vi (cá nhân hoặc một không gian tổ chức)."""
+        space = RunRecord.space_id.is_(None) if self.space_id is None else RunRecord.space_id == self.space_id
+        return [RunRecord.owner_user_id == self.owner_user_id, space]
 
     def save(self, run: dict[str, Any]) -> None:
         created_at = _parse_iso(run.get("created_at"))
         with self.session_factory.begin() as db:
             record = db.get(RunRecord, run["run_id"])
-            if record is not None and record.owner_user_id != self.owner_user_id:
-                raise PermissionError("run belongs to another owner")
+            if record is not None and (record.owner_user_id != self.owner_user_id or record.space_id != self.space_id):
+                raise PermissionError("run belongs to another owner or scope")
             values: dict[str, Any] = {
                 field: run[field] for field in self._FIELDS if field in run
             }
             values.update(
                 owner_user_id=self.owner_user_id,
                 conversation_id=self.conversation_id,
+                space_id=self.space_id,
                 created_at=created_at,
                 extra_data={
                     **run,
@@ -685,16 +736,20 @@ class PostgresRunStore:
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         with self.session_factory() as db:
-            row = db.scalar(select(RunRecord).where(
-                RunRecord.run_id == run_id, RunRecord.owner_user_id == self.owner_user_id
-            ))
-            return None if row is None else dict(row.extra_data)
+            row = db.scalar(select(RunRecord).where(RunRecord.run_id == run_id, *self._scope()))
+            if row is None:
+                return None
+            data = dict(row.extra_data)
+            if self.space_id is not None and not (
+                referenced_source_ids(data) <= visible_source_ids(db, self.owner_user_id, self.space_id)
+            ):
+                return redact_run(data)  # mất quyền với tài liệu gốc thì câu trả lời cũ bị ẩn
+            return data
 
     def list(self, limit: int = 30) -> list[dict[str, Any]]:
         with self.session_factory() as db:
-            rows = db.scalars(select(RunRecord).where(
-                RunRecord.owner_user_id == self.owner_user_id
-            ).order_by(RunRecord.created_at.desc(), RunRecord.run_id.desc()).limit(limit)).all()
+            rows = db.scalars(select(RunRecord).where(*self._scope())
+                              .order_by(RunRecord.created_at.desc(), RunRecord.run_id.desc()).limit(limit)).all()
             return [{key: row.extra_data.get(key) for key in
                      ("run_id", "created_at", "condition", "query", "status", "lifecycle_status", "metrics")} for row in rows]
 
@@ -706,7 +761,7 @@ class PostgresRunStore:
             rows = db.execute(select(
                 RunRecord.run_id, RunRecord.extra_data["created_at"], RunRecord.condition, RunRecord.query,
                 RunRecord.status, RunRecord.extra_data["lifecycle_status"], RunRecord.metrics,
-            ).where(RunRecord.owner_user_id == self.owner_user_id)
+            ).where(*self._scope())
              .order_by(RunRecord.created_at.desc(), RunRecord.run_id.desc()).limit(limit)).all()
             keys = ("run_id", "created_at", "condition", "query", "status", "lifecycle_status", "metrics")
             return [dict(zip(keys, row)) for row in rows]
@@ -716,7 +771,7 @@ class PostgresRunStore:
         (thay cho gọi get() từng lượt rồi đọc task_results[*].citations[*])."""
         path = func.jsonb_path_query_array(cast(RunRecord.extra_data, JSONB), cast(literal("$.task_results[*].citations[*]"), JSONPATH))
         with self.session_factory() as db:
-            arrays = db.execute(select(path).where(RunRecord.owner_user_id == self.owner_user_id)
+            arrays = db.execute(select(path).where(*self._scope())
                                 .order_by(RunRecord.created_at.desc(), RunRecord.run_id.desc()).limit(limit)).scalars().all()
         return [str(c) for arr in arrays for c in (arr or [])]
 
@@ -724,16 +779,23 @@ class PostgresRunStore:
 class PostgresConversationStore:
     """Owner-scoped conversation and ordered message persistence."""
 
-    def __init__(self, session_factory: sessionmaker[Session], owner_user_id: str) -> None:
+    def __init__(self, session_factory: sessionmaker[Session], owner_user_id: str,
+                 space_id: str | None = None) -> None:
         self.session_factory = session_factory
         self.owner_user_id = owner_user_id
+        self.space_id = space_id
+
+    def _scope(self) -> list[Any]:
+        space = (ConversationRecord.space_id.is_(None) if self.space_id is None
+                 else ConversationRecord.space_id == self.space_id)
+        return [ConversationRecord.owner_user_id == self.owner_user_id, space]
 
     def create(self, title: str = "New conversation") -> dict[str, Any]:
         title = str(title or "New conversation").strip()[:120] or "New conversation"
         now = _now()
         record = ConversationRecord(
             conversation_id=f"conv_{uuid4().hex[:16]}", owner_user_id=self.owner_user_id,
-            title=title, created_at=now, updated_at=now,
+            space_id=self.space_id, title=title, created_at=now, updated_at=now,
         )
         with self.session_factory.begin() as db:
             db.add(record)
@@ -749,8 +811,7 @@ class PostgresConversationStore:
         now = _now()
         with self.session_factory.begin() as db:
             conversation = db.scalar(select(ConversationRecord).where(
-                ConversationRecord.conversation_id == conversation_id,
-                ConversationRecord.owner_user_id == self.owner_user_id,
+                ConversationRecord.conversation_id == conversation_id, *self._scope(),
             ).with_for_update())
             if conversation is None:
                 raise LookupError("conversation not found")
@@ -774,17 +835,19 @@ class PostgresConversationStore:
     def get(self, conversation_id: str) -> dict[str, Any] | None:
         with self.session_factory() as db:
             conversation = db.scalar(select(ConversationRecord).where(
-                ConversationRecord.conversation_id == conversation_id,
-                ConversationRecord.owner_user_id == self.owner_user_id,
+                ConversationRecord.conversation_id == conversation_id, *self._scope(),
+                ConversationRecord.hidden_at.is_(None),
             ))
             if conversation is None:
                 return None
             messages = db.scalars(select(ConversationMessageRecord).where(
                 ConversationMessageRecord.conversation_id == conversation_id
             ).order_by(ConversationMessageRecord.sequence_number)).all()
+            hidden = self._hidden_runs(db, [row.run_id for row in messages if row.run_id])
             return {
                 "conversation_id": conversation.conversation_id,
                 "title": conversation.title,
+                "pinned": conversation.pinned_at is not None,
                 "created_at": _iso(conversation.created_at),
                 "updated_at": _iso(conversation.updated_at),
                 "messages": [{
@@ -792,7 +855,7 @@ class PostgresConversationStore:
                     "conversation_id": row.conversation_id,
                     "sequence_number": row.sequence_number,
                     "role": row.role,
-                    "content": row.content,
+                    "content": REDACTED_ANSWER if row.run_id in hidden else row.content,
                     "created_at": _iso(row.created_at),
                     "run_id": row.run_id,
                 } for row in messages],
@@ -800,8 +863,43 @@ class PostgresConversationStore:
 
     def list(self, limit: int = 50) -> list[dict[str, Any]]:
         with self.session_factory() as db:
-            rows = db.scalars(select(ConversationRecord).where(
-                ConversationRecord.owner_user_id == self.owner_user_id
-            ).order_by(ConversationRecord.updated_at.desc()).limit(max(1, min(limit, 200)))).all()
-            return [{"conversation_id": row.conversation_id, "title": row.title,
+            rows = db.scalars(select(ConversationRecord).where(*self._scope(), ConversationRecord.hidden_at.is_(None)).order_by(
+                ConversationRecord.pinned_at.is_(None), ConversationRecord.pinned_at.desc(), ConversationRecord.updated_at.desc(),
+            ).limit(max(1, min(limit, 200)))).all()
+            return [{"conversation_id": row.conversation_id, "title": row.title, "pinned": row.pinned_at is not None,
                      "created_at": _iso(row.created_at), "updated_at": _iso(row.updated_at)} for row in rows]
+
+    def update(self, conversation_id: str, *, title: str | None = None, pinned: bool | None = None,
+               hidden: bool | None = None) -> dict[str, Any]:
+        """Đổi tên, ghim/bỏ ghim, xóa (ẩn) hoặc khôi phục. Không đổi updated_at để thứ tự theo hoạt động giữ nguyên."""
+        values: dict[str, Any] = {}
+        if title is not None:
+            name = str(title).strip()
+            if not name or len(name) > 120:
+                raise ValueError("Tên cuộc trò chuyện cần 1–120 ký tự.")
+            values["title"] = name
+        now = _now()
+        if pinned is not None:
+            values["pinned_at"] = now if pinned else None
+        if hidden is not None:
+            values["hidden_at"] = now if hidden else None
+        with self.session_factory.begin() as db:
+            row = db.scalar(select(ConversationRecord).where(
+                ConversationRecord.conversation_id == conversation_id, *self._scope()))
+            if row is None:
+                raise LookupError("conversation not found")
+            if values:
+                # gán updated_at = chính nó để ORM không tự cập nhật thời điểm (onupdate)
+                db.execute(sa_update(ConversationRecord).where(ConversationRecord.conversation_id == conversation_id)
+                           .values(**values, updated_at=ConversationRecord.updated_at))
+            db.refresh(row)
+            return {"conversation_id": row.conversation_id, "title": row.title, "pinned": row.pinned_at is not None,
+                    "hidden": row.hidden_at is not None, "created_at": _iso(row.created_at), "updated_at": _iso(row.updated_at)}
+
+    def _hidden_runs(self, db: Session, run_ids: list[str]) -> set[str]:
+        """Câu trả lời trong hội thoại tổ chức bị ẩn khi người xem không còn quyền với mọi tài liệu nó dùng."""
+        if self.space_id is None or not run_ids:
+            return set()
+        visible = visible_source_ids(db, self.owner_user_id, self.space_id)
+        rows = db.execute(select(RunRecord.run_id, RunRecord.extra_data).where(RunRecord.run_id.in_(run_ids))).all()
+        return {run_id for run_id, data in rows if not referenced_source_ids(data or {}) <= visible}

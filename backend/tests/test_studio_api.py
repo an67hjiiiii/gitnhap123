@@ -76,6 +76,9 @@ class FakeDB:
     def __exit__(self, *a): return False
     def execute(self, sql, params): self.log.append((str(sql), params))
     def commit(self): self.log.append('commit')
+    def get(self, model, sid):  # tài liệu cá nhân của u1
+        from types import SimpleNamespace
+        return SimpleNamespace(source_id=sid, owner_user_id="u1", space_id=None, department_id=None, classification="PRIVATE")
 
 
 def delete_client(items, vectors, log):
@@ -94,7 +97,8 @@ def test_delete_source_removes_vectors_and_row_scoped_to_owner():
     assert r.status_code == 200 and r.json()["chunks_removed"] == 2
     assert vectors.deleted == ["u1:s1_c0", "u1:s1_c1"]
     sql, params = log[0]
-    assert "owner_user_id" in sql and params == {"s": "s1", "o": "u1"} and log[-1] == 'commit'
+    # quyền xóa đã kiểm bằng app.core.access trước khi chạy câu lệnh
+    assert sql.startswith("DELETE FROM knowledge_sources") and params == {"s": "s1"} and log[-1] == 'commit'
 
 
 def test_delete_source_of_someone_else_is_404():

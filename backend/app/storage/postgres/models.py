@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -15,10 +16,16 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.storage.postgres.base import Base
+
+# Mức mật tài liệu. Thang từ thấp đến cao: COMPANY < DEPARTMENT < RESTRICTED < SECRET; PRIVATE nằm ngoài thang.
+CLASSIFICATIONS = ("PRIVATE", "COMPANY", "DEPARTMENT", "RESTRICTED", "SECRET")
+# Cấp bậc trong một không gian tổ chức (khác vai trò hệ thống USER/ADMIN).
+MEMBER_LEVELS = ("STAFF", "MANAGER", "EXECUTIVE")
 
 
 class UserRecord(Base):
@@ -56,6 +63,8 @@ class UserRecord(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # ảnh đại diện: "preset:<mã>" (ảnh mẫu vẽ sẵn ở giao diện) hoặc data URL ảnh 256px; NULL = chữ cái đầu
+    avatar: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     knowledge_sources: Mapped[list[KnowledgeSourceRecord]] = relationship(
         back_populates="owner",
@@ -109,6 +118,26 @@ class KnowledgeSourceRecord(Base):
             name="ck_knowledge_sources_lifecycle",
         ),
         Index("ix_knowledge_sources_owner_status", "owner_user_id", "status"),
+        CheckConstraint(
+            f"classification IN {CLASSIFICATIONS!r}",
+            name="ck_knowledge_sources_classification",
+        ),
+        # tài liệu cá nhân (không thuộc không gian tổ chức) luôn là Riêng tư và không có phòng ban
+        CheckConstraint(
+            "space_id IS NOT NULL OR (classification = 'PRIVATE' AND department_id IS NULL)",
+            name="ck_knowledge_sources_personal_private",
+        ),
+        CheckConstraint(
+            "classification NOT IN ('DEPARTMENT', 'RESTRICTED') OR department_id IS NOT NULL",
+            name="ck_knowledge_sources_department_required",
+        ),
+        ForeignKeyConstraint(
+            ["space_id", "department_id"],
+            ["org_departments.space_id", "org_departments.department_id"],
+            name="fk_knowledge_sources_department_same_space",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_knowledge_sources_space_classification", "space_id", "classification"),
     )
 
     source_id: Mapped[str] = mapped_column(String(128), primary_key=True)
@@ -119,6 +148,14 @@ class KnowledgeSourceRecord(Base):
         index=True,
     )
     source_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    # NULL = tài liệu cá nhân, hành vi như trước khi có không gian tổ chức
+    space_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("org_spaces.space_id", ondelete="RESTRICT"), nullable=True
+    )
+    department_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    classification: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="PRIVATE", server_default="PRIVATE"
+    )
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="PROCESSING", server_default="PROCESSING"
     )
@@ -200,10 +237,15 @@ class ConversationRecord(Base):
             ondelete="CASCADE",
         ),
         Index("ix_conversations_owner_updated", "owner_user_id", "updated_at"),
+        Index("ix_conversations_space", "space_id"),
     )
 
     conversation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     owner_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # NULL = hội thoại cá nhân; khác NULL = thuộc không gian tổ chức (ở lại khi thành viên rời đi)
+    space_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("org_spaces.space_id", ondelete="RESTRICT"), nullable=True
+    )
     schema_version: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
@@ -225,6 +267,10 @@ class ConversationRecord(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    # ghim lên đầu danh sách; xóa = ẩn (tin nhắn, lượt chạy vẫn giữ để phân tích nghiên cứu)
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     owner: Mapped[UserRecord] = relationship(back_populates="conversations")
     messages: Mapped[list[ConversationMessageRecord]] = relationship(
@@ -264,10 +310,15 @@ class RunRecord(Base):
             ondelete="RESTRICT",
         ),
         Index("ix_runs_owner_created_at", "owner_user_id", "created_at"),
+        Index("ix_runs_space", "space_id"),
     )
 
     run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     owner_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # phạm vi lúc chạy: NULL = cá nhân; khác NULL = không gian tổ chức (câu trả lời có thể chứa nội dung tổ chức)
+    space_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("org_spaces.space_id", ondelete="RESTRICT"), nullable=True
+    )
     conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -370,3 +421,192 @@ class ConversationMessageRecord(Base):
     run_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     conversation: Mapped[ConversationRecord] = relationship(back_populates="messages")
+
+
+class OrgSpaceRecord(Base):
+    """Không gian tổ chức (công ty, bộ phận); tài liệu và hội thoại trong đó thuộc về tổ chức."""
+
+    __tablename__ = "org_spaces"
+    __table_args__ = (
+        CheckConstraint("length(btrim(name)) > 0", name="ck_org_spaces_name_nonempty"),
+    )
+
+    space_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="", server_default="")
+    created_by: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OrgDepartmentRecord(Base):
+    """Phòng ban trong một không gian tổ chức."""
+
+    __tablename__ = "org_departments"
+    __table_args__ = (
+        CheckConstraint("length(btrim(name)) > 0", name="ck_org_departments_name_nonempty"),
+        UniqueConstraint("space_id", "name", name="uq_org_departments_space_name"),
+        # đích của khóa ngoại kép (space_id, department_id): phòng ban phải cùng không gian
+        UniqueConstraint("space_id", "department_id", name="uq_org_departments_space_id"),
+    )
+
+    department_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    space_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("org_spaces.space_id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OrgMemberRecord(Base):
+    """Thành viên của không gian: phòng ban, cấp bậc, cờ chủ không gian, trạng thái."""
+
+    __tablename__ = "org_members"
+    __table_args__ = (
+        CheckConstraint(f"level IN {MEMBER_LEVELS!r}", name="ck_org_members_level"),
+        CheckConstraint("status IN ('PENDING', 'ACTIVE')", name="ck_org_members_status"),
+        # Nhân viên và Trưởng phòng đang hoạt động phải thuộc một phòng; Ban giám đốc thì không bắt buộc
+        CheckConstraint(
+            "status = 'PENDING' OR level = 'EXECUTIVE' OR department_id IS NOT NULL",
+            name="ck_org_members_department_required",
+        ),
+        ForeignKeyConstraint(
+            ["space_id", "department_id"],
+            ["org_departments.space_id", "org_departments.department_id"],
+            name="fk_org_members_department_same_space",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_org_members_user", "user_id"),
+    )
+
+    space_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("org_spaces.space_id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    department_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="STAFF", server_default="STAFF")
+    is_owner: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING", server_default="PENDING")
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OrgInviteRecord(Base):
+    """Lời mời: theo tài khoản (gán sẵn cấp bậc) hoặc link/mã (người vào ở trạng thái chờ duyệt)."""
+
+    __tablename__ = "org_invites"
+    __table_args__ = (
+        CheckConstraint("kind IN ('USER', 'LINK', 'CODE')", name="ck_org_invites_kind"),
+        CheckConstraint(f"level IN {MEMBER_LEVELS!r}", name="ck_org_invites_level"),
+        CheckConstraint(
+            "(kind = 'USER' AND invitee_user_id IS NOT NULL AND token_hash IS NULL)"
+            " OR (kind IN ('LINK', 'CODE') AND token_hash IS NOT NULL AND invitee_user_id IS NULL)",
+            name="ck_org_invites_target",
+        ),
+        CheckConstraint("max_uses IS NULL OR max_uses > 0", name="ck_org_invites_max_uses"),
+        CheckConstraint("use_count >= 0", name="ck_org_invites_use_count"),
+        UniqueConstraint("token_hash", name="uq_org_invites_token_hash"),
+        ForeignKeyConstraint(
+            ["space_id", "department_id"],
+            ["org_departments.space_id", "org_departments.department_id"],
+            name="fk_org_invites_department_same_space",
+            ondelete="CASCADE",
+        ),
+        Index("ix_org_invites_space", "space_id"),
+        Index("ix_org_invites_invitee", "invitee_user_id"),
+    )
+
+    invite_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    space_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("org_spaces.space_id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    invitee_user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True
+    )
+    # chỉ lưu SHA-256 của link/mã, không lưu nguyên văn
+    token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    department_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="STAFF", server_default="STAFF")
+    created_by: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OrgSourceShareRecord(Base):
+    """Chia sẻ trực tiếp một tài liệu cho một người hoặc một phòng ban."""
+
+    __tablename__ = "org_source_shares"
+    __table_args__ = (
+        CheckConstraint(
+            "(target_user_id IS NULL) <> (target_department_id IS NULL)",
+            name="ck_org_source_shares_one_target",
+        ),
+        Index(
+            "uq_org_source_shares_user", "source_id", "target_user_id", unique=True,
+            postgresql_where=text("target_user_id IS NOT NULL"),
+            sqlite_where=text("target_user_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_org_source_shares_department", "source_id", "target_department_id", unique=True,
+            postgresql_where=text("target_department_id IS NOT NULL"),
+            sqlite_where=text("target_department_id IS NOT NULL"),
+        ),
+        Index("ix_org_source_shares_target_user", "target_user_id"),
+        Index("ix_org_source_shares_target_department", "target_department_id"),
+    )
+
+    share_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("knowledge_sources.source_id", ondelete="CASCADE"), nullable=False
+    )
+    target_user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True
+    )
+    target_department_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("org_departments.department_id", ondelete="CASCADE"), nullable=True
+    )
+    shared_by: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class NotificationRecord(Base):
+    """Thông báo trong ứng dụng (chuông): lời mời, yêu cầu tham gia, được chia sẻ tài liệu, đổi cấp bậc."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_unread", "user_id", "read_at", "created_at"),
+    )
+
+    notification_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    space_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("org_spaces.space_id", ondelete="CASCADE"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

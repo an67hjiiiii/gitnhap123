@@ -2,12 +2,28 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { SpellCheck, Users, LogOut, LogIn, X, AlertCircle, UserCheck, ChevronsUpDown, UserPlus, Plus, Check, MessagesSquare, FlaskConical, Database, Trash2, ListChecks, PencilRuler, ShieldCheck, ClipboardCheck, GitCompareArrows, FileSearch, BarChart3, EyeOff, Search, Sun, Moon, Sparkles } from 'lucide-react';
 import { HealthResponse, ExecutionMode, NavigationTab, User, Workspace } from '../types';
-import { ActivityRow, getActivity } from '../services/api';
+import { ActivityRow, getActivity, getNotifications, markNotificationsRead, answerInvite, myInvites, OrgNotification, LEVEL_LABEL, CLASS_LABEL } from '../services/api';
+import { Building2 } from 'lucide-react';
+import '../styles/org.css';
 import { Activity, Bell, Network, Palette, PanelLeftClose, PanelLeftOpen, Save, Upload } from 'lucide-react';
 import '../styles/studio-shell.css';
 import { PortalSwitch } from './admin/AdminPortal';
 import { BrandLogo } from './BrandLogo';
 import { StudioModal } from './StudioModal';
+import { Avatar, AvatarDialog } from './Avatar';
+import { NAV_ICONS } from './NavIcons';
+import { ChevronLeft, ChevronRight, FileText, ImageUp } from 'lucide-react';
+
+// bỏ dấu, chữ thường: tìm "bao mat" vẫn ra "Bảo mật"
+const fold = (v: string) => v.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi, 'd').toLowerCase();
+// ô của không gian: cá nhân dùng 6 kiểu cùng họ xanh lam (màu đậm nhạt + hoa văn khác nhau), gán theo thứ tự tạo;
+// tổ chức dùng tím chàm. Hai chữ cái đầu giúp phân biệt thêm.
+const WsTile: React.FC<{ ws: Workspace; className?: string; variant?: number }> = ({ ws, className = 'wsp-tile', variant = 0 }) => {
+  const words = ws.name.trim().split(/\s+/).filter(w => /^\p{L}|^\d/u.test(w));
+  const text = ((words[0]?.[0] ?? '?') + (words[1]?.[0] ?? '')).toUpperCase();
+  return <span className={`${className} wsp-hue${ws.kind === 'org' ? ' is-org' : ''}`} data-v={ws.kind === 'org' ? undefined : variant % 6} aria-hidden="true">
+    {ws.kind === 'org' ? <Building2 size={15} strokeWidth={2.2} /> : text}</span>;
+};
 
 interface HeaderProps {
   health: HealthResponse | null;
@@ -27,10 +43,13 @@ interface HeaderProps {
   onDeleteWorkspace?: (wsId: number | string, deleteSources: boolean) => Promise<void>;
   onCreateWorkspace?: (name: string, description: string) => Promise<void>;
   onLogout: () => void;
+  onUserChange?: (u: User) => void;
   isMobileDrawerOpen?: boolean;
   onToggleMobileDrawer?: () => void;
   children?: React.ReactNode;
   onOpenAdmin?: () => void;
+  /** gọi lại sau khi nhận lời mời từ chuông thông báo (làm mới danh sách không gian) */
+  onOrgChanged?: () => void;
 }
 
 export const MODES: Record<ExecutionMode, { key: string; title: string; badge: string; desc: string }> = {
@@ -51,6 +70,26 @@ function noteIcon(action: string) {
   if (/tài khoản|mật khẩu|vai trò|phiên|đăng nhập/.test(a)) return UserCheck;
   if (/thiết kế|rà soát|mâu thuẫn|đánh giá|so sánh|truy vết|hồ sơ/.test(a)) return Sparkles;
   return Activity;
+}
+function orgNoteText(n: OrgNotification): string {
+  const p = n.payload || {};
+  const lv = (l?: string) => (l && (LEVEL_LABEL as Record<string, string>)[l]) || '';
+  const level = (q: Record<string, any>) => `${(CLASS_LABEL as Record<string, string>)[q.classification] ?? q.classification}${q.department ? ` · ${q.department}` : ''}`;
+  switch (n.kind) {
+    case 'invite': return `${p.inviter} mời bạn vào ${p.space_name} (${lv(p.level)})`;
+    case 'join_request': return `${p.user} xin vào ${p.space_name}, chờ bạn duyệt`;
+    case 'join_approved': return `Bạn đã được duyệt vào ${p.space_name} (${lv(p.level)})`;
+    case 'join_rejected': return `Yêu cầu vào ${p.space_name} không được duyệt`;
+    case 'invite_accepted': return `${p.user} đã tham gia ${p.space_name}`;
+    case 'invite_declined': return `${p.user} đã từ chối lời mời vào ${p.space_name}`;
+    case 'member_updated': return `Cấp bậc của bạn ở ${p.space_name}: ${lv(p.level)}${p.is_owner ? ' · Chủ' : ''}`;
+    case 'member_removed': return `Bạn đã được gỡ khỏi ${p.space_name}`;
+    case 'source_shared': return `${p.by} chia sẻ "${p.source_name}" với bạn (${p.space_name})`;
+    case 'drafts_handed_over': return `Bạn nhận bàn giao ${p.count} bản nháp của ${p.from} (${p.space_name})`;
+    case 'source_published': return `${p.by} tải lên "${p.source_name}" (${level(p)}) trong ${p.space_name}`;
+    case 'source_access_granted': return `Bạn giờ xem được "${p.source_name}": ${p.by} đổi sang ${level(p)}`;
+    default: return 'Thông báo từ tổ chức';
+  }
 }
 function ago(iso: string) {
   const s = Math.max(0, (Date.now() - new Date(iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z').getTime()) / 1000);
@@ -78,9 +117,50 @@ export function useDismiss(open: boolean, close: () => void) {
 // Thanh bên: không gian làm việc, điều hướng, kho tri thức (children) và tài khoản.
 export const Header: React.FC<HeaderProps> = ({
   health, activeTab, onTabChange, user, workspaces, currentWorkspaceId, onWorkspaceChange,
-  onCreateWorkspace, onDeleteWorkspace, onLogout, isMobileDrawerOpen = false, onToggleMobileDrawer, onOpenPalette, theme = 'light', onThemeChange, children, onOpenAdmin,
+  onCreateWorkspace, onDeleteWorkspace, onLogout, onUserChange, isMobileDrawerOpen = false, onToggleMobileDrawer, onOpenPalette, theme = 'light', onThemeChange, children, onOpenAdmin, onOrgChanged,
 }) => {
   const [menu, setMenu] = useState<'ws' | 'profile' | 'notif' | null>(null);
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [wsQuery, setWsQuery] = useState('');
+  // kiểu ô theo thứ tự tạo: không gian tạo sau nhận kiểu kế tiếp
+  const wsVariant = React.useMemo(() => new Map(workspaces.filter(w => w.kind !== 'org')
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))
+    .map((w, i) => [w.id, i])), [workspaces]);
+  useEffect(() => { if (menu !== 'ws') setWsQuery(''); }, [menu]);
+  // Phóng đại quanh con trỏ, giữ nguyên tâm từng ô để thanh bên không lệch trục.
+  const magFrame = useRef(0);
+  const magnify = (e: React.MouseEvent<HTMLElement>) => {
+    if (!rail || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    cancelAnimationFrame(magFrame.current);
+    const nav = e.currentTarget, y = e.clientY;
+    magFrame.current = requestAnimationFrame(() => {
+      const icons = [...nav.querySelectorAll<HTMLElement>('.sb-ico')];
+      const centers = icons.map(icon => { const r = icon.parentElement!.getBoundingClientRect(); return r.top + r.height / 2; });
+      icons.forEach((icon, i) => {
+        const distance = Math.min(1, Math.abs(centers[i] - y) / 100);
+        const scale = 1 + .65 * (1 + Math.cos(Math.PI * distance)) / 2;
+        icon.style.setProperty('--mag', scale.toFixed(3));
+      });
+      magFrame.current = 0;
+    });
+  };
+  const unmagnify = (e: React.MouseEvent<HTMLElement>) => {
+    cancelAnimationFrame(magFrame.current);
+    e.currentTarget.querySelectorAll<HTMLElement>('.sb-ico').forEach(icon => icon.style.removeProperty('--mag'));
+  };
+  useEffect(() => () => cancelAnimationFrame(magFrame.current), []);
+  // chú thích nổi khi thanh bên thu gọn (nằm ngoài vùng cuộn nên không bị cắt)
+  // cập nhật thẳng phần tử chú thích, không qua state, để rê chuột không làm vẽ lại cả thanh bên
+  const tipRef = useRef<HTMLSpanElement>(null);
+  const showTip = (e: React.SyntheticEvent<HTMLElement>) => {
+    const sb = e.currentTarget.closest('.sb'), tip = tipRef.current;
+    if (!tip || !sb?.classList.contains('is-rail')) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    tip.textContent = e.currentTarget.getAttribute('aria-label') ?? '';
+    tip.style.top = `${r.top + r.height / 2 - sb.getBoundingClientRect().top}px`;
+    tip.hidden = false;
+  };
+  const hideTip = () => { if (tipRef.current) tipRef.current.hidden = true; };
   // Thu gọn thanh bên thành dải biểu tượng (chỉ màn rộng); nhớ lựa chọn; Ctrl+B để bật/tắt.
   const [rail, setRail] = useState(() => { try { return localStorage.getItem('orchestriq-sb-rail') === '1'; } catch { return false; } });
   const toggleRail = () => setRail(v => { const n = !v; try { localStorage.setItem('orchestriq-sb-rail', n ? '1' : '0'); } catch { /* chế độ riêng tư */ } return n; });
@@ -98,10 +178,28 @@ export const Header: React.FC<HeaderProps> = ({
     load(); const t = window.setInterval(() => { if (!document.hidden) load(); }, 60000);
     return () => { alive = false; window.clearInterval(t); };
   }, [user?.username]);
-  const unread = notes.filter(n => !seenAt || n.created_at > seenAt).length;
+  const [orgNotes, setOrgNotes] = useState<OrgNotification[]>([]);
+  const [orgUnread, setOrgUnread] = useState(0);
+  // lời mời còn hiệu lực: chỉ những lời mời này mới hiện nút Tham gia / Từ chối (lời mời đã trả lời thì chỉ còn dòng chữ)
+  const [openInvites, setOpenInvites] = useState<Set<string>>(new Set());
+  const loadOrg = () => Promise.all([getNotifications(), myInvites().catch(() => [])]).then(([r, inv]) => {
+    setOrgNotes(r.items.slice(0, 8)); setOrgUnread(r.unread); setOpenInvites(new Set(inv.map(i => i.invite_id)));
+  }).catch(() => undefined);
+  useEffect(() => {
+    if (!user) return;
+    void loadOrg(); const t = window.setInterval(() => { if (!document.hidden) void loadOrg(); }, 30000);
+    return () => window.clearInterval(t);
+  }, [user?.username]);
+  const [answered, setAnswered] = useState<Record<string, string>>({});
+  const answer = async (invite: string, decision: 'accept' | 'decline') => {
+    try { await answerInvite(invite, decision); setAnswered(a => ({ ...a, [invite]: decision === 'accept' ? 'Đã tham gia' : 'Đã từ chối' })); onOrgChanged?.(); }
+    catch (e: any) { setAnswered(a => ({ ...a, [invite]: e.message })); }
+  };
+  const unread = notes.filter(n => !seenAt || n.created_at > seenAt).length + orgUnread;
   const openNotif = () => {
     const next = menu === 'notif' ? null : 'notif';
     setMenu(next);
+    if (next && orgUnread) { setOrgUnread(0); markNotificationsRead('all').catch(() => undefined); }
     if (next) { getActivity(8).then(setNotes).catch(() => undefined); const now = notes[0]?.created_at || new Date().toISOString(); setSeenAt(now); try { localStorage.setItem('orchestriq-notif-seen', now); } catch { /* chế độ riêng tư */ } }
   };
   const [wsToDelete, setWsToDelete] = useState<Workspace | null>(null);
@@ -160,6 +258,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const nav: { id: NavigationTab; label: string; Icon: typeof MessagesSquare; show: boolean }[] = [
     { id: 'orchestration', label: 'Không gian làm việc', Icon: MessagesSquare, show: true },
+    { id: 'organization', label: 'Tổ chức', Icon: Building2, show: !!user },
     { id: 'overview', label: 'Tổng quan', Icon: BarChart3, show: true },
     { id: 'documents', label: 'Hồ sơ tài liệu', Icon: FileSearch, show: true },
     { id: 'traceability', label: 'Truy vết yêu cầu', Icon: ListChecks, show: true },
@@ -188,16 +287,25 @@ export const Header: React.FC<HeaderProps> = ({
                 <Bell size={17} />{unread > 0 && <i className="sb-badge">{unread > 9 ? '9+' : unread}</i>}
               </button>
               {menu === 'notif' && <div className="pop sb-notif" role="dialog" aria-label="Hoạt động gần đây">
+                {orgNotes.length > 0 && <><div className="sb-notif-head"><b>Tổ chức</b><button type="button" className="dp-link" onClick={() => { setMenu(null); go('organization'); }}>Mở trang Tổ chức</button></div>
+                <ul className="og-notes">{orgNotes.map(n => <li key={n.notification_id} className={n.read ? '' : 'is-unread'}>
+                  <span className="sb-notif-ico"><Building2 size={15} /></span>
+                  <span className="sb-notif-t"><b>{orgNoteText(n)}</b>
+                    {n.kind === 'invite' && n.payload.invite_id && (answered[n.payload.invite_id] || !openInvites.has(n.payload.invite_id)
+                      ? <small>{answered[n.payload.invite_id] ?? 'Đã xử lý'}</small>
+                      : <span className="og-note-acts"><button type="button" className="btn btn-dark is-sm" onClick={() => answer(n.payload.invite_id, 'accept')}>Tham gia</button>
+                        <button type="button" className="btn btn-ghost is-sm" onClick={() => answer(n.payload.invite_id, 'decline')}>Từ chối</button></span>)}</span>
+                  <time>{ago(n.created_at)}</time></li>)}</ul></>}
                 <div className="sb-notif-head"><b>Hoạt động gần đây</b><button type="button" className="dp-link" onClick={() => { setMenu(null); go('overview'); }}>Xem tất cả</button></div>
                 {notes.length === 0 ? <p className="sb-notif-empty">Chưa có hoạt động nào.</p> : <ul>{notes.map((n, i) => {
                   const I = noteIcon(n.action);
                   return <li key={i} className={n.status >= 400 ? 'is-bad' : ''}><span className="sb-notif-ico"><I size={15} /></span>
-                    <span className="sb-notif-t"><b>{n.action}</b>{n.target && <small>{n.target}</small>}</span><time>{ago(n.created_at)}</time></li>;
+                    <span className="sb-notif-t"><b>{n.action}</b>{n.target && !/^(usr|sp|src|inv|shr|dep|rs|rpt|ws)_[A-Za-z0-9_-]+$/.test(n.target) && <small>{n.target}</small>}</span><time>{ago(n.created_at)}</time></li>;
                 })}</ul>}
               </div>}
             </div>}
             <button type="button" className="sb-icon sb-rail-btn" onClick={toggleRail} aria-pressed={rail} aria-label={rail ? 'Mở rộng thanh bên (Ctrl+B)' : 'Thu gọn thanh bên (Ctrl+B)'} title={rail ? 'Mở rộng (Ctrl+B)' : 'Thu gọn (Ctrl+B)'}>
-              {rail ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+              {rail ? <ChevronRight size={15} strokeWidth={2.4} /> : <ChevronLeft size={15} strokeWidth={2.4} />}
             </button>
           </div>
         </div>
@@ -212,45 +320,62 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           ) : (
           <button className="sb-ws" onClick={() => setMenu(menu === 'ws' ? null : 'ws')} aria-expanded={menu === 'ws'} aria-haspopup="menu" title="Chuyển không gian làm việc">
-            <span className="sb-ws-mark">{(currentWorkspace?.name || '?').charAt(0).toUpperCase()}</span>
+            {currentWorkspace ? <WsTile ws={currentWorkspace} className="sb-ws-mark" variant={wsVariant.get(currentWorkspace.id)} /> : <span className="sb-ws-mark">?</span>}
             <span className="sb-ws-name">{currentWorkspace?.name || 'Chưa chọn không gian'}</span>
             <ChevronsUpDown size={15} />
           </button>
           )}
-          {menu === 'ws' && (
-            <div className="pop" role="menu">
-              <p className="pop-label">Không gian làm việc</p>
-              <div className="pop-scroll">
-                {workspaces.map(ws => (
-                  <div key={ws.id} className="pop-row">
-                    <button role="menuitem" className="pop-item" onClick={() => { onWorkspaceChange(ws.id); setMenu(null); }}>
-                      <span className="sb-ws-mark is-sm">{ws.name.charAt(0).toUpperCase()}</span>
-                      <span className="pop-text"><b>{ws.name}</b><small>{ws.documents_count} tài liệu · {ws.runs_count} cuộc trò chuyện</small></span>
-                      {ws.id === currentWorkspaceId && <Check size={15} className="pop-check" />}
-                    </button>
-                    {onDeleteWorkspace && workspaces.length > 1 && (
-                      <button className="pop-del" aria-label={`Xóa không gian ${ws.name}`} title="Xóa không gian"
-                        onClick={() => { setMenu(null); setDeleteDocs(false); setWsToDelete(ws); }}><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                ))}
+          {menu === 'ws' && (() => {
+            const q = fold(wsQuery.trim());
+            const shown = q ? workspaces.filter(w => fold(w.name).includes(q)) : workspaces;
+            const canDelete = !!onDeleteWorkspace && workspaces.filter(w => w.kind !== 'org').length > 1;
+            const groups = [['Cá nhân', shown.filter(w => w.kind !== 'org')], ['Tổ chức', shown.filter(w => w.kind === 'org')]] as const;
+            return (
+              <div className="pop wsp-pop" role="menu" aria-label="Không gian làm việc">
+                <div className="wsp-pop-head"><b>Không gian làm việc</b><span className="wsp-count">{workspaces.length}</span></div>
+                {workspaces.length >= 5 && <label className="wsp-find"><Search size={14} />
+                  <input autoFocus value={wsQuery} onChange={e => setWsQuery(e.target.value)} placeholder="Tìm không gian…" aria-label="Tìm không gian" /></label>}
+                <div className="pop-scroll wsp-list">
+                  {shown.length === 0 && <p className="wsp-empty">Không có không gian nào khớp “{wsQuery}”.</p>}
+                  {groups.map(([title, list]) => list.length > 0 && <div key={title} className="wsp-group">
+                    <p className="wsp-group-t">{title}</p>
+                    {list.map(ws => {
+                      const on = ws.id === currentWorkspaceId;
+                      return <div key={ws.id} className={`wsp-item${on ? ' is-on' : ''}`}>
+                        <button role="menuitemradio" aria-checked={on} className="wsp-pick" onClick={() => { onWorkspaceChange(ws.id); setMenu(null); }}>
+                          <WsTile ws={ws} variant={wsVariant.get(ws.id)} />
+                          <span className="wsp-info"><b>{ws.name}</b>
+                            <span className="wsp-meta">{ws.kind === 'org'
+                              ? <i className="wsp-role">{ws.level ? LEVEL_LABEL[ws.level] : 'Thành viên'}{ws.is_owner ? ' · Chủ' : ''}</i>
+                              : <><i title="Tài liệu"><FileText size={12} />{ws.documents_count}</i><i title="Cuộc trò chuyện"><MessagesSquare size={12} />{ws.runs_count}</i></>}</span>
+                          </span>
+                          {on && <span className="wsp-now"><Check size={12} strokeWidth={3} />Đang mở</span>}
+                        </button>
+                        {canDelete && ws.kind !== 'org' && <button className="wsp-del" aria-label={`Xóa không gian ${ws.name}`} title="Xóa không gian"
+                          onClick={() => { setMenu(null); setDeleteDocs(false); setWsToDelete(ws); }}><Trash2 size={14} /></button>}
+                      </div>;
+                    })}
+                  </div>)}
+                </div>
+                {onCreateWorkspace && <button className="wsp-new" onClick={() => { setMenu(null); setIsCreateModalOpen(true); }}>
+                  <span className="wsp-new-ico"><Plus size={16} strokeWidth={2.4} /></span><span className="wsp-info"><b>Tạo không gian mới</b><small>Kho tài liệu và lịch sử trò chuyện riêng</small></span></button>}
               </div>
-              {onCreateWorkspace && <button className="pop-item is-add" onClick={() => { setMenu(null); setIsCreateModalOpen(true); }}><Plus size={15} />Tạo không gian mới</button>}
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         <div className="sb-scroll">
           {onOpenPalette && <button type="button" className="sb-search" onClick={onOpenPalette} title={rail ? "Tìm nhanh (Ctrl K)" : undefined}><Search size={15} /><span>Tìm nhanh</span><kbd>Ctrl K</kbd></button>}
-          <nav className="sb-nav" aria-label="Chức năng chính" ref={navRef}>
+          <nav className="sb-nav" aria-label="Chức năng chính" ref={navRef} onMouseMove={magnify} onMouseLeave={unmagnify}>
             <span className="sb-glide" ref={glideRef} aria-hidden="true" />
             {nav.filter(n => n.show).map(({ id, label, Icon }) => (
               <React.Fragment key={id}>
                 {id === 'documents' && <p className="sb-group">Công cụ phân tích</p>}
                 {id === 'benchmarks' && <p className="sb-group">Nghiên cứu</p>}
                 {id === 'users' && <p className="sb-group">Quản trị</p>}
-                <button onClick={() => go(id)} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} className={`sb-link${activeTab === id ? ' is-on' : ''}`} title={rail ? label : undefined}>
-                  <Icon size={16} /><span>{label}</span>
+                <button onClick={() => go(id)} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} className={`sb-link${activeTab === id ? ' is-on' : ''}`}
+                  onMouseEnter={showTip} onFocus={showTip} onMouseLeave={hideTip} onBlur={hideTip}>
+                  <span className="sb-ico" data-tone={id}>{NAV_ICONS[id] ?? <Icon size={16} strokeWidth={2.2} />}</span><span>{label}</span>
                 </button>
               </React.Fragment>
             ))}
@@ -258,6 +383,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <div className="sb-section">{children}</div>
         </div>
+        {rail && <span className="sb-tip" ref={tipRef} hidden aria-hidden="true" />}
 
         <div className="sb-foot">
           <div className="sb-foot-row">
@@ -270,7 +396,7 @@ export const Header: React.FC<HeaderProps> = ({
           {user ? (
             <div className="sb-pop" ref={profileRef}>
               <button className="sb-user" onClick={() => setMenu(menu === 'profile' ? null : 'profile')} aria-expanded={menu === 'profile'} aria-haspopup="menu">
-                <span className="sb-avatar">{user.full_name.charAt(0)}</span>
+                <Avatar value={user.avatar} className="sb-avatar">{user.full_name.charAt(0)}</Avatar>
                 <span className="sb-user-text"><b>{user.full_name}</b><small>{ROLE_LABEL[user.role] ?? user.role}</small></span>
                 <ChevronsUpDown size={15} />
               </button>
@@ -278,13 +404,14 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={e => onThemeChange(theme === 'dark' ? 'light' : 'dark', { x: e.clientX, y: e.clientY })}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>}
               {menu === 'profile' && (
                 <div className="pop is-up" role="menu">
-                  <div className="sb-me"><span className="sb-avatar is-lg">{user.full_name.charAt(0)}</span><span><b>{user.full_name}</b><small>{user.username}</small></span></div>
+                  <div className="sb-me"><Avatar value={user.avatar} className="sb-avatar is-lg">{user.full_name.charAt(0)}</Avatar><span><b>{user.full_name}</b><small>{user.username}</small></span></div>
                   <p className="pop-label">Cài đặt</p>
                   {onThemeChange && <div className="sb-set"><span><Palette size={15} />Giao diện</span>
                     <span className="sb-seg" role="group" aria-label="Chọn giao diện">
                       <button type="button" aria-pressed={theme === 'light'} onClick={e => onThemeChange('light', { x: e.clientX, y: e.clientY })}><Sun size={13} />Sáng</button>
                       <button type="button" aria-pressed={theme === 'dark'} onClick={e => onThemeChange('dark', { x: e.clientX, y: e.clientY })}><Moon size={13} />Tối</button>
                     </span></div>}
+                  {onUserChange && <button role="menuitem" className="pop-item" onClick={() => { setMenu(null); setAvatarOpen(true); }}><ImageUp size={15} />Đổi ảnh đại diện</button>}
                   <button role="menuitem" className="pop-item" onClick={() => { toggleRail(); setMenu(null); }}>{rail ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}{rail ? 'Mở rộng thanh bên' : 'Thu gọn thanh bên'}<kbd>Ctrl B</kbd></button>
                   {onOpenPalette && <button role="menuitem" className="pop-item" onClick={() => { setMenu(null); onOpenPalette(); }}><Search size={15} />Tìm nhanh và chuyển trang<kbd>Ctrl K</kbd></button>}
                   <div className="pop-sep" />
@@ -298,6 +425,8 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
       </aside>
+
+      {avatarOpen && user && onUserChange && <AvatarDialog user={user} onClose={() => setAvatarOpen(false)} onSaved={onUserChange} />}
 
       {wsToDelete && onDeleteWorkspace && (
         <StudioModal labelId="ws-del-title" size="md" icon={<Trash2 size={18} />} title={`Xóa không gian "${wsToDelete.name}"?`}

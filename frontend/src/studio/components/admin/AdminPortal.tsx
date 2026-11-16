@@ -10,6 +10,7 @@ import { SystemHealth } from './SystemHealth';
 import { AuditLog } from './AuditLog';
 import { AiSettings } from './AiSettings';
 import { StudioBackdrop } from '../StudioMotion';
+import { Avatar } from '../Avatar';
 import '../../styles/admin-portal.css';
 
 type Page = 'health' | 'users' | 'data' | 'ai';
@@ -58,7 +59,7 @@ export function AdminPortal({ user, theme, onThemeChange, onLogout, onExit }: {
             <span className="ap-nav-ico"><Icon size={17} /></span><span className="ap-nav-t"><b>{label}</b><small>{desc}</small></span>
           </button>))}</nav>
         <div className="ap-side-foot">
-          <div className="ap-me"><span className="ap-av">{user.full_name.charAt(0)}</span><span><b>{user.full_name}</b><small>Quản trị viên</small></span>
+          <div className="ap-me"><Avatar value={user.avatar} className="ap-av">{user.full_name.charAt(0)}</Avatar><span><b>{user.full_name}</b><small>Quản trị viên</small></span>
             <button className="ap-icon" onClick={e => onThemeChange(theme === 'dark' ? 'light' : 'dark', { x: e.clientX, y: e.clientY })} aria-label={theme === 'dark' ? 'Giao diện sáng' : 'Giao diện tối'} title={theme === 'dark' ? 'Giao diện sáng' : 'Giao diện tối'}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>
             <button className="ap-icon" onClick={onLogout} aria-label="Đăng xuất" title="Đăng xuất"><LogOut size={16} /></button>
           </div>
