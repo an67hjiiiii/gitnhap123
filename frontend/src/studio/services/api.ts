@@ -10,8 +10,21 @@ import { adaptRun, Cap1Run, MODE_TO_CONDITION, modeOf } from './adapt';
 const API = '/api';
 export const NOT_SUPPORTED = 'Chức năng này chưa có trong backend CAP1.';
 
+// Phạm vi tổ chức: khi đang mở một không gian tổ chức (mã bắt đầu "sp_"), mọi yêu cầu tự gắn ?space_id=
+// để backend chỉ trả tài liệu, lượt chạy, hội thoại người dùng được phép (luật nằm ở backend app/core/access.py).
+let orgScope: string | null = null;
+export const isOrgId = (ws?: number | string | null): ws is string => typeof ws === 'string' && ws.startsWith('sp_');
+export function setOrgScope(ws?: number | string | null) { orgScope = isOrgId(ws) ? ws : null; }
+// Không gắn phạm vi: đăng nhập, API tổ chức (tự mang mã không gian), thư mục cá nhân, và bước tải tệp
+// (tệp vào kho cá nhân trước rồi mới được nộp vào tổ chức kèm mức mật).
+const UNSCOPED = /^\/(auth|org)\/|^\/studio\/workspaces|^\/sources\/(file|text)$/;
+function scoped(path: string): string {
+  if (!orgScope || UNSCOPED.test(path)) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}space_id=${encodeURIComponent(orgScope)}`;
+}
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await fetch(`${API}${scoped(path)}`, {
     credentials: 'same-origin',
     ...init,
     headers: init.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json', ...(init.headers || {}) } : init.headers,
@@ -61,7 +74,14 @@ function toUser(u: any): User {
     full_name: u.display_name || u.username || u.email || 'Người dùng',
     role: String(u.role || '').toUpperCase() === 'ADMIN' ? 'admin' : 'developer',
     created_at: u.created_at || '',
+    avatar: u.avatar ?? null,
   } as unknown as User;
+}
+
+/** Tự đổi ảnh đại diện: "preset:<mã>", data URL ảnh 256px, hoặc null để bỏ ảnh. */
+export async function setAvatar(avatar: string | null): Promise<User> {
+  const data = await call<any>('/auth/avatar', { method: 'PUT', body: JSON.stringify({ avatar }) });
+  return toUser(data.user);
 }
 
 export async function login(identifier: string, password: string): Promise<{ user: User }> {
@@ -89,9 +109,14 @@ export type WorkspaceId = number | string;
 const wsReady = (ws?: WorkspaceId) => typeof ws === 'string' && ws.startsWith('ws_');
 
 export async function getWorkspaces(): Promise<Workspace[]> {
-  const rows = await call<any[]>('/studio/workspaces');
-  return rows.map(w => ({ id: w.workspace_id, name: w.name, description: w.description, created_at: w.created_at,
-    documents_count: w.source_count, runs_count: w.conversation_count }));
+  const [rows, spaces] = await Promise.all([call<any[]>('/studio/workspaces'), listMySpaces().catch(() => [] as OrgSpace[])]);
+  const personal: Workspace[] = rows.map(w => ({ id: w.workspace_id, name: w.name, description: w.description, created_at: w.created_at,
+    documents_count: w.source_count, runs_count: w.conversation_count, kind: 'personal' }));
+  // không gian tổ chức đã được duyệt đứng sau các thư mục cá nhân trong ô chọn không gian
+  return [...personal, ...spaces.filter(s => s.status === 'ACTIVE').map(s => ({
+    id: s.space_id, name: s.name, description: s.description, created_at: '', documents_count: 0, runs_count: 0,
+    kind: 'org' as const, level: s.level, is_owner: s.is_owner,
+  }))];
 }
 export async function createWorkspace(name: string, description: string): Promise<Workspace> {
   const w = await post<any>('/studio/workspaces', { name, description });
@@ -149,6 +174,15 @@ export async function compareConditions(message: string, conditions: string[]): 
 
 // ---------------- Kho tài liệu
 export async function getDocuments(ws?: WorkspaceId): Promise<DocumentInfo[]> {
+  if (isOrgId(ws)) {
+    const rows = await call<OrgSource[]>(`/org/spaces/${encodeURIComponent(ws)}/sources`);
+    return rows.map(s => ({
+      id: s.source_id, source_file: s.source_name, chunks_count: s.chunk_count, file_type: (s.source_name.split('.').pop() || '').toLowerCase(),
+      domain_tags: [], status: String(s.status || '').toLowerCase() === 'failed' ? 'failed' : 'indexed',
+      classification: s.classification, department_id: s.department_id, owner: s.owner, mine: s.mine, can_delete: s.can_delete,
+      created_at: s.created_at ?? undefined,
+    })) as unknown as DocumentInfo[];
+  }
   const [data, items] = await Promise.all([call<any>('/sources'), wsReady(ws) ? workspaceItems(ws!) : Promise.resolve(null)]);
   const allow = items ? new Set(items.source_ids) : null;
   data.sources = (data.sources || []).filter((s: any) => !allow || allow.has(s.source_id));
@@ -166,11 +200,13 @@ export async function getDocumentChunks(docId: number | string): Promise<ChunkIn
   })) as unknown as ChunkInfo[];
 }
 
-export async function uploadDocument(file: File, ws?: WorkspaceId): Promise<{ filename: string; chunks_created: number; status: string; message: string; source_id?: string }> {
+export async function uploadDocument(file: File, ws?: WorkspaceId, publish?: { classification: Classification; department_id?: string | null }): Promise<{ filename: string; chunks_created: number; status: string; message: string; source_id?: string }> {
   const form = new FormData();
   form.append('file', file);
   const data = await call<any>('/sources/file', { method: 'POST', body: form });
-  if (data.source_id) await assignToWorkspace(ws ?? '', 'source', data.source_id);
+  // trong không gian tổ chức: nộp ngay với mức mật đã chọn trước khi tải (tài liệu Mật không lộ dù một khoảnh khắc)
+  if (data.source_id && isOrgId(ws)) await publishSource(ws, data.source_id, publish ?? { classification: 'DEPARTMENT' });
+  else if (data.source_id) await assignToWorkspace(ws ?? '', 'source', data.source_id);
   return { filename: file.name, chunks_created: data.chunks_added ?? 0, status: 'ok', message: '', source_id: data.source_id };
 }
 
@@ -178,6 +214,7 @@ export async function uploadDocument(file: File, ws?: WorkspaceId): Promise<{ fi
 const SAMPLES = ['01_Dac_ta_yeu_cau_PayNhanh.md', '02_Thiet_ke_CSDL_PayNhanh.md', '03_Dac_ta_API_PayNhanh.md', '04_Chinh_sach_bao_mat_PayNhanh.md',
   '05_Quy_trinh_xu_ly_su_co_PayNhanh.md', '06_Kien_truc_va_trien_khai_PayNhanh.md', '07_So_tay_ky_su_moi_PayNhanh.md'];
 export async function seedSampleDocs(ws?: WorkspaceId): Promise<{ status: string; message: string }> {
+  if (isOrgId(ws)) throw new Error('Bộ tài liệu mẫu chỉ nạp vào không gian cá nhân. Tài liệu tổ chức cần chọn mức mật khi tải lên.');
   for (const name of SAMPLES) {
     const text = await fetch(`/samples/${name}`).then(r => { if (!r.ok) throw new Error(`Thiếu tài liệu mẫu ${name}`); return r.text(); });
     const r = await post<any>('/sources/text', { source_name: name, text });
@@ -302,7 +339,10 @@ export async function getDbDiagnostic(): Promise<DbDiagnosticResponse> {
 export async function simulateLLMContention(..._args: unknown[]): Promise<LLMContentionSimulateResponse> { throw new Error(NOT_SUPPORTED); }
 
 // ---------------- Trò chuyện nhiều lượt (cuộc trò chuyện của CAP1, chế độ sản phẩm giống giao diện chat gốc)
-export interface Conversation { conversation_id: string; title: string; created_at: string; updated_at: string }
+export interface Conversation { conversation_id: string; title: string; created_at: string; updated_at: string; pinned?: boolean }
+/** Đổi tên, ghim, xóa (ẩn, hoàn tác bằng hidden: false) cuộc trò chuyện của chính mình. */
+export const updateConversation = (id: string, patch: { title?: string; pinned?: boolean; hidden?: boolean }) =>
+  call<Conversation & { hidden: boolean }>(`/conversations/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
 export interface ConversationMessage { message_id: string; role: 'USER' | 'ASSISTANT' | string; content: string; created_at: string; run_id: string | null }
 
 export async function listConversations(ws?: WorkspaceId): Promise<Conversation[]> {
@@ -462,7 +502,7 @@ export const explainSelection = (sourceName: string, selection: string, context:
   post<{ explanation: string; example: string } & Measured>('/studio/explain', { source_name: sourceName, selection, context });
 export const answerReport = (runId: string) => post<{ title: string; markdown: string } & Measured>('/studio/answer-report', { run_id: runId });
 export async function exportDocx(markdown: string): Promise<Blob> {
-  const res = await fetch(`${API}/studio/export/docx`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown }) });
+  const res = await fetch(`${API}${scoped('/studio/export/docx')}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown }) });
   if (!res.ok) throw new Error(`Không tạo được tệp Word (HTTP ${res.status})`);
   return res.blob();
 }
@@ -546,3 +586,65 @@ export const getAdminSystem = () => call<AdminSystem>('/admin/system');
 export interface AuditRow { action: string; target: string; status: number; created_at: string; email: string | null; display_name: string | null; role: string | null }
 export const getAdminAudit = (page = 1, size = 20, q = '', errors = false) =>
   call<{ rows: AuditRow[]; total: number; page: number; size: number; pages: number }>(`/admin/audit?page=${page}&size=${size}&q=${encodeURIComponent(q)}${errors ? '&errors=true' : ''}`);
+
+// ---------------- Không gian tổ chức (/api/org): phòng ban, thành viên, lời mời, tài liệu tổ chức, thông báo
+export type Classification = 'PRIVATE' | 'COMPANY' | 'DEPARTMENT' | 'RESTRICTED' | 'SECRET';
+export type MemberLevel = 'STAFF' | 'MANAGER' | 'EXECUTIVE';
+export interface OrgSpace { space_id: string; name: string; description: string; level: MemberLevel; department_id: string | null; is_owner: boolean; status: 'ACTIVE' | 'PENDING' }
+export interface OrgDepartment { department_id: string; name: string }
+export interface OrgMember { user_id: string; display_name: string; email: string | null; avatar?: string | null; department_id: string | null; level: MemberLevel; is_owner: boolean; status: 'ACTIVE' | 'PENDING'; joined_at: string | null }
+export interface OrgDetail { space_id: string; name: string; description: string; me: { level: MemberLevel; department_id: string | null; is_owner: boolean }; departments: OrgDepartment[]; members: OrgMember[] }
+export interface OrgInvite { invite_id: string; kind: 'USER' | 'LINK' | 'CODE'; invitee: string | null; level: MemberLevel; department_id: string | null; expires_at: string | null; max_uses: number | null; use_count: number; revoked: boolean }
+export interface MyInvite { invite_id: string; space_id: string; space_name: string; inviter: string; level: MemberLevel; department_id: string | null; expires_at: string | null }
+export interface OrgSource { source_id: string; source_name: string; status: string; chunk_count: number; classification: Classification; department_id: string | null; owner: string; mine: boolean; can_delete: boolean; created_at: string | null }
+export interface OrgShare { share_id: string; user_id: string | null; user: string | null; department_id: string | null; shared_by: string }
+export interface OrgNotification { notification_id: string; kind: string; space_id: string | null; payload: Record<string, any>; read: boolean; created_at: string }
+
+const enc = encodeURIComponent;
+const send = <T>(method: string, path: string, body?: unknown) => call<T>(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+
+export const listMySpaces = () => call<OrgSpace[]>('/org/spaces');
+export const createSpace = (name: string, departments: string[], description = '') => post<{ space_id: string; name: string }>('/org/spaces', { name, description, departments });
+export const getSpace = (id: string) => call<OrgDetail>(`/org/spaces/${enc(id)}`);
+export const createDepartment = (id: string, name: string) => post<OrgDepartment>(`/org/spaces/${enc(id)}/departments`, { name });
+export const deleteDepartment = (id: string, dep: string) => send(`DELETE`, `/org/spaces/${enc(id)}/departments/${enc(dep)}`);
+export const updateMember = (id: string, user: string, body: { level: MemberLevel; department_id: string | null; is_owner: boolean }) =>
+  send('PATCH', `/org/spaces/${enc(id)}/members/${enc(user)}`, body);
+export const removeMember = (id: string, user: string) => send<{ handed_over_to: string | null; drafts: number }>('DELETE', `/org/spaces/${enc(id)}/members/${enc(user)}`);
+export const leaveSpace = (id: string) => send<{ handed_over_to: string | null; drafts: number }>('POST', `/org/spaces/${enc(id)}/leave`);
+export const approveMember = (id: string, user: string, level: MemberLevel, department_id: string | null) =>
+  post(`/org/spaces/${enc(id)}/members/${enc(user)}/approve`, { level, department_id });
+export const inviteByEmail = (id: string, email: string, level: MemberLevel, department_id: string | null) =>
+  post<{ invite_id: string }>(`/org/spaces/${enc(id)}/invites`, { kind: 'USER', email, level, department_id });
+export const createJoinToken = (id: string, kind: 'LINK' | 'CODE', expires_days = 7, max_uses = 20) =>
+  post<{ invite_id: string; token: string }>(`/org/spaces/${enc(id)}/invites`, { kind, expires_days, max_uses });
+export const listInvites = (id: string) => call<OrgInvite[]>(`/org/spaces/${enc(id)}/invites`);
+export const revokeInvite = (id: string, invite: string) => send('DELETE', `/org/spaces/${enc(id)}/invites/${enc(invite)}`);
+export const myInvites = () => call<MyInvite[]>('/org/invites');
+export const answerInvite = (invite: string, decision: 'accept' | 'decline') => post<{ space_id: string }>(`/org/invites/${enc(invite)}/${decision}`, {});
+export const joinSpace = (token: string) => post<{ space_id: string; space_name: string; status: string }>('/org/join', { token });
+export const publishSource = (id: string, source: string, body: { classification: Classification; department_id?: string | null }) =>
+  post(`/org/spaces/${enc(id)}/sources/${enc(source)}/publish`, body);
+export const updateSource = (id: string, source: string, body: { classification?: Classification; department_id?: string }) =>
+  send('PATCH', `/org/spaces/${enc(id)}/sources/${enc(source)}`, body);
+export const shareSource = (id: string, source: string, target: { user_id?: string; department_id?: string }) =>
+  post<{ share_id: string }>(`/org/spaces/${enc(id)}/sources/${enc(source)}/shares`, target);
+export const listShares = (id: string, source: string) => call<OrgShare[]>(`/org/spaces/${enc(id)}/sources/${enc(source)}/shares`);
+export const unshare = (id: string, share: string) => send('DELETE', `/org/spaces/${enc(id)}/shares/${enc(share)}`);
+export const getNotifications = () => call<{ unread: number; items: OrgNotification[] }>('/org/notifications');
+export const markNotificationsRead = (ids: string[] | 'all') => post<{ marked: number }>('/org/notifications/read', ids === 'all' ? { all: true } : { ids });
+
+export const LEVEL_LABEL: Record<MemberLevel, string> = { STAFF: 'Nhân viên', MANAGER: 'Trưởng phòng', EXECUTIVE: 'Ban giám đốc' };
+export const CLASS_LABEL: Record<Classification, string> = {
+  PRIVATE: 'Riêng tư', COMPANY: 'Toàn công ty', DEPARTMENT: 'Nội bộ phòng', RESTRICTED: 'Hạn chế', SECRET: 'Mật',
+};
+export const CLASS_HINT: Record<Classification, string> = {
+  PRIVATE: 'Chỉ bạn xem (bản nháp)', COMPANY: 'Mọi thành viên', DEPARTMENT: 'Thành viên trong phòng và Ban giám đốc',
+  RESTRICTED: 'Trưởng phòng của phòng và Ban giám đốc', SECRET: 'Chỉ Ban giám đốc',
+};
+// mức mật mỗi cấp bậc được đặt (khớp SETTABLE ở backend; backend vẫn là nơi quyết định)
+export const SETTABLE: Record<MemberLevel, Classification[]> = {
+  STAFF: ['PRIVATE', 'DEPARTMENT', 'RESTRICTED'],
+  MANAGER: ['PRIVATE', 'DEPARTMENT', 'RESTRICTED', 'COMPANY'],
+  EXECUTIVE: ['PRIVATE', 'DEPARTMENT', 'RESTRICTED', 'COMPANY', 'SECRET'],
+};

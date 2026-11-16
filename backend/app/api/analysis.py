@@ -184,6 +184,10 @@ def build_router(
             raise HTTPException(503, "Chức năng này cần APP_STORAGE_BACKEND=postgres.")
         return factory()
 
+    def _personal_only(user: dict) -> None:
+        if user.get("space_id"):
+            raise HTTPException(400, "Chức năng này chỉ dùng trong không gian cá nhân.")
+
     @router.post("/traceability/extract")
     def extract(body: ExtractBody, request: Request) -> dict:
         user = current_user(request)
@@ -439,7 +443,7 @@ def build_router(
         prev = next((e.get("previous_request") for e in run.get("events") or [] if e.get("stage") == "follow_up_resolved"), None)
         if prev:
             question = f"{question} (tiếp theo câu hỏi: {prev})"
-        request.state.audit_target = question[:120]
+        request.state.audit_target = body.run_id  # nhật ký không ghi nội dung câu hỏi
         try:
             return await _llm(reading.answer_report(provider_factory(), question, answer, evidence))
         except ValueError as exc:
@@ -469,7 +473,9 @@ def build_router(
         with _db() as db:
             rows = db.execute(text(
                 "SELECT f.run_id, f.rating, f.note, f.created_at, COALESCE(u.email, u.username) AS user_label, "
-                "r.query, r.answer, r.status, r.condition FROM studio_feedback f "
+                # ADMIN hệ thống không đọc câu hỏi, câu trả lời của lượt chạy thuộc không gian tổ chức
+                "CASE WHEN r.space_id IS NULL THEN r.query ELSE '(không gian tổ chức)' END AS query, "
+                "CASE WHEN r.space_id IS NULL THEN r.answer END AS answer, r.status, r.condition FROM studio_feedback f "
                 "LEFT JOIN users u ON u.user_id = f.owner_user_id LEFT JOIN runs r ON r.run_id = f.run_id "
                 "ORDER BY f.created_at DESC LIMIT :l"), {"l": max(1, min(limit, 1000))}).mappings().all()
             totals = {int(k): int(v) for k, v in db.execute(text("SELECT rating, COUNT(*) FROM studio_feedback GROUP BY rating")).all()}
@@ -489,6 +495,7 @@ def build_router(
     @router.post("/rating/studies")
     def create_study(body: StudyBody, request: Request) -> dict:
         user = current_user(request)
+        _personal_only(user)  # người chấm nhận câu trả lời qua mã: không đưa nội dung tổ chức ra ngoài
         store = owner_pipeline(user).run_store
         rows = []
         for ref in body.items:
@@ -689,7 +696,9 @@ def build_router(
 
     @router.post("/reports")
     def save_report(body: ReportBody, request: Request) -> dict:
-        owner = str(current_user(request)["user_id"])
+        user = current_user(request)
+        _personal_only(user)  # báo cáo lưu là của cá nhân, không được giữ nội dung tổ chức sau khi rời đi
+        owner = str(user["user_id"])
         payload = json.dumps(body.payload, ensure_ascii=False)
         if len(payload.encode("utf-8")) > MAX_PAYLOAD_BYTES:
             raise HTTPException(413, "Báo cáo quá lớn để lưu.")
@@ -717,7 +726,9 @@ def build_router(
 
     @router.patch("/reports/{report_id}")
     def update_report(report_id: str, body: ReportUpdate, request: Request) -> dict:
-        owner = str(current_user(request)["user_id"])
+        user = current_user(request)
+        _personal_only(user)
+        owner = str(user["user_id"])
         payload = json.dumps(body.payload, ensure_ascii=False)
         if len(payload.encode("utf-8")) > MAX_PAYLOAD_BYTES:
             raise HTTPException(413, "Báo cáo quá lớn để lưu.")

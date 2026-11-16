@@ -1,0 +1,746 @@
+"""API không gian tổ chức (/api/org): không gian, phòng ban, thành viên, lời mời, tài liệu tổ chức, thông báo.
+
+Mọi quyết định "được hay không" gọi app.core.access; file này chỉ đọc/ghi CSDL và trả lời HTTP.
+Link và mã mời chỉ lưu dạng SHA-256 và chỉ trả nguyên văn đúng một lần khi tạo.
+Người vào bằng link/mã luôn ở trạng thái chờ duyệt; cấp bậc được gán khi duyệt, không bao giờ lấy từ link.
+"""
+from __future__ import annotations
+
+import hashlib
+import secrets
+import time
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
+from typing import Any, Literal
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.exc import IntegrityError
+
+from app.core.access import (
+    Department,
+    Member,
+    Source,
+    can_approve,
+    can_change_classification,
+    can_delete,
+    can_invite,
+    can_remove_member,
+    can_share,
+    can_update_member,
+    can_upload,
+    can_view,
+    load_member,
+    require_active_member,
+    visible_source_ids,
+)
+from app.storage.postgres.models import (
+    KnowledgeChunkRecord,
+    KnowledgeSourceRecord,
+    NotificationRecord,
+    OrgDepartmentRecord,
+    OrgInviteRecord,
+    OrgMemberRecord,
+    OrgSourceShareRecord,
+    OrgSpaceRecord,
+    UserRecord,
+)
+
+Level = Literal["STAFF", "MANAGER", "EXECUTIVE"]
+Classification = Literal["PRIVATE", "COMPANY", "DEPARTMENT", "RESTRICTED", "SECRET"]
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # bỏ ký tự dễ nhầm (0/O, 1/I)
+JOIN_FAILURE_LIMIT = 10
+JOIN_FAILURE_WINDOW_S = 15 * 60
+ORG_AUDIT_MASK = "(tài liệu tổ chức)"
+
+
+class _Body(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class SpaceBody(_Body):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    departments: list[str] = Field(default_factory=list, max_length=50)
+
+
+class SpaceUpdate(_Body):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class DepartmentBody(_Body):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class MemberUpdate(_Body):
+    level: Level
+    department_id: str | None = None
+    is_owner: bool = False
+
+
+class ApproveBody(_Body):
+    level: Level = "STAFF"
+    department_id: str | None = None
+
+
+class InviteBody(_Body):
+    kind: Literal["USER", "LINK", "CODE"]
+    email: str | None = Field(default=None, max_length=254)
+    level: Level = "STAFF"
+    department_id: str | None = None
+    expires_days: int = Field(default=7, ge=1, le=30)
+    max_uses: int = Field(default=20, ge=1, le=500)
+
+
+class JoinBody(_Body):
+    token: str = Field(min_length=4, max_length=200)
+
+
+class PublishBody(_Body):
+    classification: Classification = "DEPARTMENT"
+    department_id: str | None = None
+
+
+class SourceUpdate(_Body):
+    classification: Classification | None = None
+    department_id: str | None = None
+
+
+class ShareBody(_Body):
+    user_id: str | None = None
+    department_id: str | None = None
+
+
+class ReadBody(_Body):
+    ids: list[str] = Field(default_factory=list, max_length=200)
+    all: bool = False
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(value: datetime | None) -> str | None:
+    return None if value is None else value.isoformat()
+
+
+def _new_id(prefix: str) -> str:
+    return f"{prefix}_{secrets.token_hex(8)}"
+
+
+def _sha(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _normalize_code(value: str) -> str:
+    return "".join(ch for ch in value.upper() if ch.isalnum())
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    # SQLite trả datetime không múi giờ; PostgreSQL trả có múi giờ
+    return None if value is None or value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def build_router(*, current_user: Callable[[Request], dict], session_factory: Callable[[], Any]) -> APIRouter:
+    router = APIRouter(prefix="/api/org", tags=["org"])
+    join_failures: dict[str, list[float]] = {}  # shortcut: đếm sai trong bộ nhớ một tiến trình; nhiều tiến trình thì chuyển vào CSDL
+
+    def _db():
+        factory = session_factory()
+        if factory is None:
+            raise HTTPException(503, "Không gian tổ chức cần APP_STORAGE_BACKEND=postgres.")
+        return factory()
+
+    def _uid(request: Request) -> str:
+        return str(current_user(request)["user_id"])
+
+    def _actor(db, user_id: str, space_id: str) -> Member:
+        try:
+            return require_active_member(db, user_id, space_id)
+        except PermissionError as exc:
+            raise HTTPException(403, "Bạn không thuộc không gian tổ chức này.") from exc
+
+    def _member_or_404(db, user_id: str, space_id: str) -> Member:
+        member = load_member(db, user_id, space_id)
+        if member is None:
+            raise HTTPException(404, "Không tìm thấy thành viên.")
+        return member
+
+    def _department(db, space_id: str, department_id: str | None) -> None:
+        if department_id is None:
+            return
+        row = db.get(OrgDepartmentRecord, department_id)
+        if row is None or row.space_id != space_id:
+            raise HTTPException(404, "Không tìm thấy phòng ban.")
+
+    def _owner_count(db, space_id: str) -> int:
+        return int(db.scalar(select(func.count()).select_from(OrgMemberRecord).where(
+            OrgMemberRecord.space_id == space_id, OrgMemberRecord.is_owner.is_(True),
+            OrgMemberRecord.status == "ACTIVE")) or 0)
+
+    def _notify(db, user_ids, space_id: str | None, kind: str, payload: dict) -> None:
+        for user_id in dict.fromkeys(user_ids):  # bỏ trùng, giữ thứ tự
+            db.add(NotificationRecord(notification_id=_new_id("ntf"), user_id=user_id, space_id=space_id,
+                                      kind=kind, payload=payload, created_at=_now()))  # đủ chính xác để sắp thứ tự
+
+    def _approvers(db, space_id: str, department_id: str | None) -> list[str]:
+        """Người duyệt được yêu cầu tham gia: Ban giám đốc, và Trưởng phòng của phòng được gợi ý."""
+        conds = [OrgMemberRecord.level == "EXECUTIVE"]
+        if department_id is not None:
+            conds.append((OrgMemberRecord.level == "MANAGER") & (OrgMemberRecord.department_id == department_id))
+        return list(db.scalars(select(OrgMemberRecord.user_id).where(
+            OrgMemberRecord.space_id == space_id, OrgMemberRecord.status == "ACTIVE", or_(*conds))))
+
+    def _space_name(db, space_id: str) -> str:
+        row = db.get(OrgSpaceRecord, space_id)
+        return "" if row is None else row.name
+
+    def _user_label(db, user_id: str | None) -> str:
+        row = db.get(UserRecord, user_id) if user_id else None
+        return "" if row is None else (row.display_name or row.email or row.username or "")
+
+    def _source(row: KnowledgeSourceRecord) -> Source:
+        return Source(row.source_id, row.owner_user_id, row.space_id, row.department_id, row.classification)
+
+    def _viewers(db, row: KnowledgeSourceRecord) -> set[str]:
+        """Thành viên đang xem được tài liệu này (cùng luật can_view, tính cả chia sẻ trực tiếp)."""
+        if row.space_id is None:
+            return set()
+        shares = db.scalars(select(OrgSourceShareRecord).where(OrgSourceShareRecord.source_id == row.source_id)).all()
+        to_users = {s.target_user_id for s in shares if s.target_user_id}
+        to_deps = {s.target_department_id for s in shares if s.target_department_id}
+        members = db.scalars(select(OrgMemberRecord).where(
+            OrgMemberRecord.space_id == row.space_id, OrgMemberRecord.status == "ACTIVE")).all()
+        out = set()
+        for m in members:
+            member = Member(m.user_id, m.space_id, m.department_id, m.level, bool(m.is_owner), m.status)
+            if can_view(m.user_id, member, _source(row), m.user_id in to_users or (m.department_id in to_deps)):
+                out.add(m.user_id)
+        return out
+
+    def _notify_new_viewers(db, row: KnowledgeSourceRecord, before: set[str], actor_uid: str, kind: str) -> None:
+        """Báo cho người VỪA được quyền xem (nộp mới, đổi mức mật); người đã xem từ trước không bị báo lại."""
+        db.flush()
+        fresh = _viewers(db, row) - before - {actor_uid}
+        if not fresh:
+            return
+        dep = db.get(OrgDepartmentRecord, row.department_id) if row.department_id else None
+        _notify(db, sorted(fresh), row.space_id, kind, {
+            "space_name": _space_name(db, row.space_id), "source_name": row.source_name, "by": _user_label(db, actor_uid),
+            "classification": row.classification, "department": dep.name if dep else None})
+
+    def _space_source(db, space_id: str, source_id: str, user_id: str) -> KnowledgeSourceRecord:
+        """Tài liệu của không gian mà người hỏi được xem; không xem được thì như không tồn tại (404)."""
+        row = db.get(KnowledgeSourceRecord, source_id)
+        if row is None or row.space_id != space_id or source_id not in visible_source_ids(db, user_id, space_id):
+            raise HTTPException(404, "Không tìm thấy tài liệu.")
+        return row
+
+    def _commit(db, conflict: str = "Dữ liệu bị trùng hoặc đang được dùng.") -> None:
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(409, conflict) from exc
+
+    # ---------------- Không gian
+    @router.post("/spaces")
+    def create_space(body: SpaceBody, request: Request) -> dict:
+        uid = _uid(request)
+        names = list(dict.fromkeys(n.strip() for n in body.departments if n.strip()))
+        if not body.name.strip():
+            raise HTTPException(422, "Tên không gian không được để trống.")
+        space_id = _new_id("sp")
+        with _db() as db:
+            db.add(OrgSpaceRecord(space_id=space_id, name=body.name.strip(), description=body.description.strip(),
+                                  created_by=uid))
+            db.flush()
+            for name in names:
+                db.add(OrgDepartmentRecord(department_id=_new_id("dep"), space_id=space_id, name=name))
+            # người tạo là Chủ + Ban giám đốc
+            db.add(OrgMemberRecord(space_id=space_id, user_id=uid, level="EXECUTIVE", is_owner=True, status="ACTIVE"))
+            _commit(db)
+        request.state.audit_target = space_id
+        return {"space_id": space_id, "name": body.name.strip()}
+
+    @router.get("/spaces")
+    def my_spaces(request: Request) -> list[dict]:
+        uid = _uid(request)
+        with _db() as db:
+            rows = db.execute(select(OrgSpaceRecord, OrgMemberRecord).join(
+                OrgMemberRecord, OrgMemberRecord.space_id == OrgSpaceRecord.space_id).where(
+                OrgMemberRecord.user_id == uid).order_by(OrgSpaceRecord.name)).all()
+            return [{"space_id": s.space_id, "name": s.name, "description": s.description, "level": m.level,
+                     "department_id": m.department_id, "is_owner": bool(m.is_owner), "status": m.status}
+                    for s, m in rows]
+
+    @router.get("/spaces/{space_id}")
+    def space_detail(space_id: str, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            me = _actor(db, uid, space_id)
+            space = db.get(OrgSpaceRecord, space_id)
+            departments = db.scalars(select(OrgDepartmentRecord).where(
+                OrgDepartmentRecord.space_id == space_id).order_by(OrgDepartmentRecord.name)).all()
+            rows = db.execute(select(OrgMemberRecord, UserRecord).join(
+                UserRecord, UserRecord.user_id == OrgMemberRecord.user_id).where(
+                OrgMemberRecord.space_id == space_id).order_by(UserRecord.display_name)).all()
+            members = [{"user_id": m.user_id, "display_name": u.display_name, "email": u.email,
+                        "avatar": u.avatar, "department_id": m.department_id, "level": m.level, "is_owner": bool(m.is_owner),
+                        "status": m.status, "joined_at": _iso(m.joined_at)} for m, u in rows]
+            if not (me.executive or me.level == "MANAGER"):
+                members = [m for m in members if m["status"] == "ACTIVE"]  # yêu cầu chờ duyệt chỉ người duyệt thấy
+            return {"space_id": space_id, "name": space.name, "description": space.description,
+                    "me": {"level": me.level, "department_id": me.department_id, "is_owner": me.is_owner},
+                    "departments": [{"department_id": d.department_id, "name": d.name} for d in departments],
+                    "members": members}
+
+    @router.patch("/spaces/{space_id}")
+    def update_space(space_id: str, body: SpaceUpdate, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            if not _actor(db, uid, space_id).executive:
+                raise HTTPException(403, "Chỉ Ban giám đốc được sửa thông tin không gian.")
+            space = db.get(OrgSpaceRecord, space_id)
+            if body.name is not None:
+                space.name = body.name.strip() or space.name
+            if body.description is not None:
+                space.description = body.description.strip()
+            _commit(db)
+            return {"space_id": space_id, "name": space.name, "description": space.description}
+
+    # ---------------- Phòng ban
+    @router.post("/spaces/{space_id}/departments")
+    def create_department(space_id: str, body: DepartmentBody, request: Request) -> dict:
+        uid = _uid(request)
+        department_id = _new_id("dep")
+        with _db() as db:
+            if not _actor(db, uid, space_id).executive:
+                raise HTTPException(403, "Chỉ Ban giám đốc được tạo phòng ban.")
+            db.add(OrgDepartmentRecord(department_id=department_id, space_id=space_id, name=body.name.strip()))
+            _commit(db, "Phòng ban này đã có.")
+        return {"department_id": department_id, "name": body.name.strip()}
+
+    @router.patch("/spaces/{space_id}/departments/{department_id}")
+    def rename_department(space_id: str, department_id: str, body: DepartmentBody, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            if not _actor(db, uid, space_id).executive:
+                raise HTTPException(403, "Chỉ Ban giám đốc được sửa phòng ban.")
+            _department(db, space_id, department_id)
+            db.get(OrgDepartmentRecord, department_id).name = body.name.strip()
+            _commit(db, "Phòng ban này đã có.")
+        return {"department_id": department_id, "name": body.name.strip()}
+
+    @router.delete("/spaces/{space_id}/departments/{department_id}")
+    def delete_department(space_id: str, department_id: str, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            if not _actor(db, uid, space_id).executive:
+                raise HTTPException(403, "Chỉ Ban giám đốc được xóa phòng ban.")
+            _department(db, space_id, department_id)
+            db.delete(db.get(OrgDepartmentRecord, department_id))
+            _commit(db, "Phòng ban còn thành viên hoặc tài liệu: chuyển họ sang phòng khác trước.")
+        return {"deleted": department_id}
+
+    # ---------------- Thành viên
+    @router.patch("/spaces/{space_id}/members/{user_id}")
+    def update_member(space_id: str, user_id: str, body: MemberUpdate, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            target = _member_or_404(db, user_id, space_id)
+            if target.status != "ACTIVE":
+                raise HTTPException(409, "Thành viên đang chờ duyệt: dùng chức năng duyệt.")
+            department_id = None if body.level == "EXECUTIVE" and body.department_id is None else body.department_id
+            _department(db, space_id, department_id)
+            if not can_update_member(actor, target, level=body.level, department_id=department_id,
+                                     is_owner=body.is_owner, owner_count=_owner_count(db, space_id)):
+                raise HTTPException(403, "Bạn không có quyền thay đổi thành viên này theo cách đó.")
+            row = db.get(OrgMemberRecord, (space_id, user_id))
+            row.level, row.department_id, row.is_owner = body.level, department_id, body.is_owner
+            if user_id != uid:
+                _notify(db, [user_id], space_id, "member_updated",
+                        {"space_name": _space_name(db, space_id), "level": body.level, "department_id": department_id,
+                         "is_owner": body.is_owner})
+            _commit(db)
+        return {"user_id": user_id, "level": body.level, "department_id": department_id, "is_owner": body.is_owner}
+
+    def _remove(db, actor: Member, target: Member, handover_to: str | None) -> dict:
+        space_id = target.space_id
+        if not can_remove_member(actor, target, _owner_count(db, space_id)):
+            raise HTTPException(403, "Bạn không có quyền gỡ thành viên này.")
+        drafts = list(db.scalars(select(KnowledgeSourceRecord.source_id).where(
+            KnowledgeSourceRecord.space_id == space_id, KnowledgeSourceRecord.owner_user_id == target.user_id,
+            KnowledgeSourceRecord.classification == "PRIVATE")))
+        recipient = None
+        if drafts:
+            # bàn giao bản nháp cho người có quyền quản lý: Trưởng phòng của họ, hoặc Ban giám đốc
+            if handover_to is None:
+                manager = db.scalar(select(OrgMemberRecord.user_id).where(
+                    OrgMemberRecord.space_id == space_id, OrgMemberRecord.status == "ACTIVE",
+                    OrgMemberRecord.level == "MANAGER", OrgMemberRecord.department_id == target.department_id,
+                    OrgMemberRecord.department_id.is_not(None), OrgMemberRecord.user_id != target.user_id))
+                owner = db.scalar(select(OrgMemberRecord.user_id).where(
+                    OrgMemberRecord.space_id == space_id, OrgMemberRecord.status == "ACTIVE",
+                    OrgMemberRecord.is_owner.is_(True), OrgMemberRecord.user_id != target.user_id))
+                handover_to = manager or (actor.user_id if actor.user_id != target.user_id else owner)
+            recipient = load_member(db, handover_to, space_id) if handover_to else None
+            if (recipient is None or not recipient.active or recipient.user_id == target.user_id
+                    or not (recipient.executive or recipient.manages(target.department_id))):
+                raise HTTPException(422, "Người nhận bàn giao phải là Trưởng phòng của người này hoặc Ban giám đốc.")
+            existing = set(db.scalars(select(OrgSourceShareRecord.source_id).where(
+                OrgSourceShareRecord.target_user_id == recipient.user_id,
+                OrgSourceShareRecord.source_id.in_(drafts))))
+            for source_id in drafts:
+                if source_id not in existing:  # bàn giao = chia sẻ trực tiếp, mã vector vẫn mang tên người tải lên
+                    db.add(OrgSourceShareRecord(share_id=_new_id("shr"), source_id=source_id,
+                                                target_user_id=recipient.user_id, shared_by=actor.user_id))
+        db.execute(delete(OrgMemberRecord).where(OrgMemberRecord.space_id == space_id,
+                                                 OrgMemberRecord.user_id == target.user_id))
+        name = _space_name(db, space_id)
+        if target.user_id != actor.user_id:
+            _notify(db, [target.user_id], None, "member_removed", {"space_name": name})
+        if recipient is not None:
+            _notify(db, [recipient.user_id], space_id, "drafts_handed_over",
+                    {"space_name": name, "from": _user_label(db, target.user_id), "count": len(drafts)})
+        _commit(db)
+        return {"removed": target.user_id, "handed_over_to": None if recipient is None else recipient.user_id,
+                "drafts": len(drafts)}
+
+    @router.delete("/spaces/{space_id}/members/{user_id}")
+    def remove_member(space_id: str, user_id: str, request: Request, handover_to: str | None = None) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            target = _member_or_404(db, user_id, space_id)
+            if target.status == "PENDING":  # từ chối yêu cầu tham gia
+                if not (actor.executive or actor.manages(target.department_id)):
+                    raise HTTPException(403, "Bạn không có quyền xử lý yêu cầu này.")
+                db.delete(db.get(OrgMemberRecord, (space_id, user_id)))
+                _notify(db, [user_id], None, "join_rejected", {"space_name": _space_name(db, space_id)})
+                _commit(db)
+                return {"removed": user_id, "handed_over_to": None, "drafts": 0}
+            return _remove(db, actor, target, handover_to)
+
+    @router.post("/spaces/{space_id}/leave")
+    def leave(space_id: str, request: Request, handover_to: str | None = None) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            member = _member_or_404(db, uid, space_id)
+            if member.status == "PENDING":
+                db.delete(db.get(OrgMemberRecord, (space_id, uid)))
+                _commit(db)
+                return {"removed": uid, "handed_over_to": None, "drafts": 0}
+            return _remove(db, member, member, handover_to)
+
+    @router.post("/spaces/{space_id}/members/{user_id}/approve")
+    def approve(space_id: str, user_id: str, body: ApproveBody, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            target = _member_or_404(db, user_id, space_id)
+            department_id = None if body.level == "EXECUTIVE" and body.department_id is None else body.department_id
+            _department(db, space_id, department_id)
+            if not can_approve(actor, target, body.level, department_id):
+                raise HTTPException(403, "Bạn không có quyền duyệt với cấp bậc và phòng ban này.")
+            row = db.get(OrgMemberRecord, (space_id, user_id))
+            row.status, row.level, row.department_id = "ACTIVE", body.level, department_id
+            _notify(db, [user_id], space_id, "join_approved",
+                    {"space_name": _space_name(db, space_id), "level": body.level, "department_id": department_id})
+            _commit(db)
+        return {"user_id": user_id, "status": "ACTIVE", "level": body.level, "department_id": department_id}
+
+    # ---------------- Lời mời
+    @router.post("/spaces/{space_id}/invites")
+    def create_invite(space_id: str, body: InviteBody, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            _department(db, space_id, body.department_id)
+            invite_id = _new_id("inv")
+            if body.kind == "USER":
+                department_id = None if body.level == "EXECUTIVE" and body.department_id is None else body.department_id
+                if not can_invite(actor, body.level, department_id):
+                    raise HTTPException(403, "Bạn không có quyền mời với cấp bậc và phòng ban này.")
+                email = (body.email or "").strip().lower()
+                invitee = db.scalar(select(UserRecord).where(func.lower(UserRecord.email) == email)) if email else None
+                if invitee is None or invitee.status != "ACTIVE":
+                    raise HTTPException(404, "Không tìm thấy tài khoản với email này. Người được mời cần đăng ký trước.")
+                if db.get(OrgMemberRecord, (space_id, invitee.user_id)) is not None:
+                    raise HTTPException(409, "Người này đã là thành viên hoặc đang chờ duyệt.")
+                db.add(OrgInviteRecord(invite_id=invite_id, space_id=space_id, kind="USER", invitee_user_id=invitee.user_id,
+                                       department_id=department_id, level=body.level, created_by=uid,
+                                       expires_at=_now() + timedelta(days=body.expires_days)))
+                _notify(db, [invitee.user_id], space_id, "invite",
+                        {"invite_id": invite_id, "space_name": _space_name(db, space_id),
+                         "inviter": _user_label(db, uid), "level": body.level, "department_id": department_id})
+                _commit(db)
+                return {"invite_id": invite_id, "kind": "USER"}
+            # link/mã: chỉ người duyệt được yêu cầu tham gia mới được tạo
+            if not (actor.executive or (actor.level == "MANAGER" and body.department_id in (None, actor.department_id))):
+                raise HTTPException(403, "Chỉ Ban giám đốc hoặc Trưởng phòng được tạo link, mã mời.")
+            hint = body.department_id if body.department_id is not None else (None if actor.executive else actor.department_id)
+            if body.kind == "LINK":
+                token = secrets.token_urlsafe(24)
+                token_hash, shown = _sha(token), token
+            else:
+                raw = "".join(secrets.choice(CODE_ALPHABET) for _ in range(8))
+                token_hash, shown = _sha(raw), f"{raw[:4]}-{raw[4:]}"
+            db.add(OrgInviteRecord(invite_id=invite_id, space_id=space_id, kind=body.kind, token_hash=token_hash,
+                                   department_id=hint, level="STAFF", created_by=uid,
+                                   expires_at=_now() + timedelta(days=body.expires_days), max_uses=body.max_uses))
+            _commit(db)
+            return {"invite_id": invite_id, "kind": body.kind, "token": shown,
+                    "note": "Chỉ hiện một lần. Người vào bằng link/mã phải chờ duyệt."}
+
+    @router.get("/spaces/{space_id}/invites")
+    def list_invites(space_id: str, request: Request) -> list[dict]:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            if not (actor.executive or actor.level == "MANAGER"):
+                raise HTTPException(403, "Chỉ Ban giám đốc hoặc Trưởng phòng xem được lời mời.")
+            query = select(OrgInviteRecord).where(OrgInviteRecord.space_id == space_id)
+            if not actor.executive:
+                query = query.where(OrgInviteRecord.created_by == uid)
+            rows = db.scalars(query.order_by(OrgInviteRecord.created_at.desc())).all()
+            return [{"invite_id": r.invite_id, "kind": r.kind, "invitee": _user_label(db, r.invitee_user_id) or None,
+                     "level": r.level, "department_id": r.department_id, "expires_at": _iso(r.expires_at),
+                     "max_uses": r.max_uses, "use_count": r.use_count, "revoked": r.revoked_at is not None} for r in rows]
+
+    @router.delete("/spaces/{space_id}/invites/{invite_id}")
+    def revoke_invite(space_id: str, invite_id: str, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            row = db.get(OrgInviteRecord, invite_id)
+            if row is None or row.space_id != space_id:
+                raise HTTPException(404, "Không tìm thấy lời mời.")
+            if not (actor.executive or row.created_by == uid):
+                raise HTTPException(403, "Bạn không có quyền thu hồi lời mời này.")
+            row.revoked_at = row.revoked_at or _now()
+            _commit(db)
+        return {"invite_id": invite_id, "revoked": True}
+
+    def _usable(row: OrgInviteRecord) -> bool:
+        expires = _aware(row.expires_at)
+        return (row.revoked_at is None and (expires is None or expires > _now())
+                and (row.max_uses is None or row.use_count < row.max_uses))
+
+    @router.get("/invites")
+    def my_invites(request: Request) -> list[dict]:
+        uid = _uid(request)
+        with _db() as db:
+            rows = db.scalars(select(OrgInviteRecord).where(OrgInviteRecord.invitee_user_id == uid)
+                              .order_by(OrgInviteRecord.created_at.desc())).all()
+            return [{"invite_id": r.invite_id, "space_id": r.space_id, "space_name": _space_name(db, r.space_id),
+                     "inviter": _user_label(db, r.created_by), "level": r.level, "department_id": r.department_id,
+                     "expires_at": _iso(r.expires_at)} for r in rows if _usable(r)]
+
+    @router.post("/invites/{invite_id}/{decision}")
+    def answer_invite(invite_id: str, decision: Literal["accept", "decline"], request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            row = db.get(OrgInviteRecord, invite_id)
+            if row is None or row.invitee_user_id != uid or not _usable(row):
+                raise HTTPException(404, "Lời mời không còn hiệu lực.")
+            space_id = row.space_id
+            row.use_count, row.revoked_at = row.use_count + 1, _now()  # mời theo tài khoản chỉ dùng một lần
+            if decision == "accept":
+                if db.get(OrgMemberRecord, (space_id, uid)) is not None:
+                    raise HTTPException(409, "Bạn đã là thành viên hoặc đang chờ duyệt.")
+                db.add(OrgMemberRecord(space_id=space_id, user_id=uid, level=row.level,
+                                       department_id=row.department_id, status="ACTIVE"))
+            if row.created_by:
+                _notify(db, [row.created_by], space_id, {"accept": "invite_accepted", "decline": "invite_declined"}[decision],
+                        {"space_name": _space_name(db, space_id), "user": _user_label(db, uid)})
+            _commit(db)
+        return {"invite_id": invite_id, "decision": decision, "space_id": space_id}
+
+    @router.post("/join")
+    def join(body: JoinBody, request: Request) -> dict:
+        uid = _uid(request)
+        now = time.monotonic()
+        recent = [t for t in join_failures.get(uid, []) if now - t < JOIN_FAILURE_WINDOW_S]
+        if len(recent) >= JOIN_FAILURE_LIMIT:
+            raise HTTPException(429, "Nhập sai quá nhiều lần. Thử lại sau 15 phút.")
+        raw = body.token.strip()
+        candidates = {_sha(raw), _sha(_normalize_code(raw))}
+        with _db() as db:
+            row = db.scalar(select(OrgInviteRecord).where(
+                OrgInviteRecord.kind.in_(("LINK", "CODE")), OrgInviteRecord.token_hash.in_(candidates)))
+            if row is None or not _usable(row):
+                join_failures[uid] = recent + [now]
+                raise HTTPException(404, "Link hoặc mã không đúng, đã hết hạn hoặc đã hết lượt.")
+            space_id = row.space_id
+            if db.get(OrgMemberRecord, (space_id, uid)) is not None:
+                raise HTTPException(409, "Bạn đã là thành viên hoặc đang chờ duyệt.")
+            row.use_count += 1
+            db.add(OrgMemberRecord(space_id=space_id, user_id=uid, level="STAFF",
+                                   department_id=row.department_id, status="PENDING"))
+            _notify(db, _approvers(db, space_id, row.department_id), space_id, "join_request",
+                    {"space_name": _space_name(db, space_id), "user_id": uid, "user": _user_label(db, uid),
+                     "department_id": row.department_id})
+            _commit(db)
+            join_failures.pop(uid, None)
+            return {"space_id": space_id, "space_name": _space_name(db, space_id), "status": "PENDING"}
+
+    # ---------------- Tài liệu tổ chức
+    @router.get("/spaces/{space_id}/sources")
+    def list_sources(space_id: str, request: Request) -> list[dict]:
+        uid = _uid(request)
+        with _db() as db:
+            me = _actor(db, uid, space_id)
+            visible = visible_source_ids(db, uid, space_id)
+            if not visible:
+                return []
+            rows = db.scalars(select(KnowledgeSourceRecord).where(
+                KnowledgeSourceRecord.source_id.in_(sorted(visible))).order_by(KnowledgeSourceRecord.source_name)).all()
+            counts = dict(db.execute(select(KnowledgeChunkRecord.source_id, func.count()).where(
+                KnowledgeChunkRecord.source_id.in_(sorted(visible))).group_by(KnowledgeChunkRecord.source_id)).all())
+            return [{"source_id": r.source_id, "source_name": r.source_name, "status": r.status,
+                     "chunk_count": int(counts.get(r.source_id, 0)),
+                     "classification": r.classification, "department_id": r.department_id,
+                     "owner": _user_label(db, r.owner_user_id), "mine": r.owner_user_id == uid,
+                     "can_delete": can_delete(uid, me, _source(r)), "created_at": _iso(r.created_at)} for r in rows]
+
+    @router.post("/spaces/{space_id}/sources/{source_id}/publish")
+    def publish(space_id: str, source_id: str, body: PublishBody, request: Request) -> dict:
+        """Nộp một tài liệu cá nhân (đã tải lên như hiện nay) vào không gian, kèm phòng ban và mức mật."""
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            row = db.get(KnowledgeSourceRecord, source_id)
+            if row is None or row.owner_user_id != uid or row.space_id is not None:
+                raise HTTPException(404, "Không tìm thấy tài liệu cá nhân này.")
+            department_id = body.department_id
+            if department_id is None and body.classification in ("DEPARTMENT", "RESTRICTED"):
+                department_id = actor.department_id
+            _department(db, space_id, department_id)
+            if not can_upload(actor, body.classification, department_id):
+                raise HTTPException(403, "Bạn không được đặt mức mật hoặc phòng ban này.")
+            row.space_id, row.department_id, row.classification = space_id, department_id, body.classification
+            # rời thư mục cá nhân (Studio); bảng chỉ có trên PostgreSQL thật
+            db.execute(text("DELETE FROM studio_workspace_items WHERE item_type = 'source' AND item_id = :s"),
+                       {"s": source_id})
+            # nhật ký hoạt động (ADMIN xem được) đã ghi tên tệp lúc tải lên: che đi, tên tài liệu tổ chức là nội dung tổ chức
+            db.execute(text("UPDATE studio_activity SET target = :mask WHERE owner_user_id = :o "
+                            "AND action = 'Nạp tài liệu' AND target = :name"),
+                       {"mask": ORG_AUDIT_MASK, "o": uid, "name": row.source_name[:200]})
+            _notify_new_viewers(db, row, set(), uid, "source_published")
+            _commit(db)
+        return {"source_id": source_id, "space_id": space_id, "classification": body.classification,
+                "department_id": department_id}
+
+    @router.patch("/spaces/{space_id}/sources/{source_id}")
+    def update_source(space_id: str, source_id: str, body: SourceUpdate, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            row = _space_source(db, space_id, source_id, uid)
+            before = _viewers(db, row)
+            if body.department_id is not None and body.department_id != row.department_id:
+                if not actor.executive:
+                    raise HTTPException(403, "Chỉ Ban giám đốc được chuyển tài liệu sang phòng khác.")
+                _department(db, space_id, body.department_id)
+                row.department_id = body.department_id
+            if body.classification is not None and body.classification != row.classification:
+                if not can_change_classification(actor, _source(row), body.classification):
+                    raise HTTPException(403, "Bạn không được đổi sang mức mật này.")
+                row.classification = body.classification
+            try:
+                _notify_new_viewers(db, row, before, uid, "source_access_granted")
+            except IntegrityError as exc:  # mức mật cần phòng ban mà tài liệu chưa có: báo lỗi rõ thay vì 500
+                db.rollback()
+                raise HTTPException(409, "Mức mật này cần tài liệu thuộc một phòng ban.") from exc
+            _commit(db, "Mức mật này cần tài liệu thuộc một phòng ban.")
+            return {"source_id": source_id, "classification": row.classification, "department_id": row.department_id}
+
+    @router.post("/spaces/{space_id}/sources/{source_id}/shares")
+    def share(space_id: str, source_id: str, body: ShareBody, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            row = _space_source(db, space_id, source_id, uid)
+            if (body.user_id is None) == (body.department_id is None):
+                raise HTTPException(422, "Chọn đúng một người hoặc một phòng ban để chia sẻ.")
+            target_member = load_member(db, body.user_id, space_id) if body.user_id else None
+            if body.user_id and target_member is None:
+                raise HTTPException(404, "Không tìm thấy thành viên.")
+            target_department = None
+            if body.department_id:
+                _department(db, space_id, body.department_id)
+                target_department = Department(space_id, body.department_id)
+            if not can_share(actor, _source(row), target_member=target_member, target_department=target_department):
+                raise HTTPException(403, "Bạn không có quyền chia sẻ tài liệu này cho đích đó.")
+            share_id = _new_id("shr")
+            db.add(OrgSourceShareRecord(share_id=share_id, source_id=source_id, target_user_id=body.user_id,
+                                        target_department_id=body.department_id, shared_by=uid))
+            try:
+                db.flush()  # phát hiện chia sẻ trùng trước khi truy vấn tiếp (autoflush sẽ ném lỗi ngoài _commit)
+            except IntegrityError as exc:
+                db.rollback()
+                raise HTTPException(409, "Tài liệu đã được chia sẻ cho đích này.") from exc
+            recipients = [body.user_id] if body.user_id else list(db.scalars(select(OrgMemberRecord.user_id).where(
+                OrgMemberRecord.space_id == space_id, OrgMemberRecord.department_id == body.department_id,
+                OrgMemberRecord.status == "ACTIVE")))
+            _notify(db, [r for r in recipients if r != uid], space_id, "source_shared",
+                    {"space_name": _space_name(db, space_id), "source_name": row.source_name, "by": _user_label(db, uid)})
+            _commit(db, "Tài liệu đã được chia sẻ cho đích này.")
+        return {"share_id": share_id}
+
+    @router.get("/spaces/{space_id}/sources/{source_id}/shares")
+    def list_shares(space_id: str, source_id: str, request: Request) -> list[dict]:
+        uid = _uid(request)
+        with _db() as db:
+            _actor(db, uid, space_id)
+            _space_source(db, space_id, source_id, uid)
+            rows = db.scalars(select(OrgSourceShareRecord).where(OrgSourceShareRecord.source_id == source_id)).all()
+            return [{"share_id": r.share_id, "user_id": r.target_user_id, "user": _user_label(db, r.target_user_id) or None,
+                     "department_id": r.target_department_id, "shared_by": _user_label(db, r.shared_by)} for r in rows]
+
+    @router.delete("/spaces/{space_id}/shares/{share_id}")
+    def unshare(space_id: str, share_id: str, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            row = db.get(OrgSourceShareRecord, share_id)
+            source = None if row is None else db.get(KnowledgeSourceRecord, row.source_id)
+            if row is None or source is None or source.space_id != space_id:
+                raise HTTPException(404, "Không tìm thấy lượt chia sẻ.")
+            if not (actor.executive or row.shared_by == uid or actor.manages(source.department_id)):
+                raise HTTPException(403, "Bạn không có quyền gỡ lượt chia sẻ này.")
+            db.delete(row)
+            _commit(db)
+        return {"deleted": share_id}
+
+    # ---------------- Thông báo (chuông)
+    @router.get("/notifications")
+    def notifications(request: Request, limit: int = 50) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            rows = db.scalars(select(NotificationRecord).where(NotificationRecord.user_id == uid).order_by(
+                NotificationRecord.created_at.desc()).limit(max(1, min(limit, 200)))).all()
+            unread = int(db.scalar(select(func.count()).select_from(NotificationRecord).where(
+                NotificationRecord.user_id == uid, NotificationRecord.read_at.is_(None))) or 0)
+            return {"unread": unread, "items": [
+                {"notification_id": r.notification_id, "kind": r.kind, "space_id": r.space_id, "payload": r.payload,
+                 "read": r.read_at is not None, "created_at": _iso(r.created_at)} for r in rows]}
+
+    @router.post("/notifications/read")
+    def mark_read(body: ReadBody, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db:
+            query = select(NotificationRecord).where(NotificationRecord.user_id == uid, NotificationRecord.read_at.is_(None))
+            if not body.all:
+                query = query.where(NotificationRecord.notification_id.in_(body.ids or ["-"]))
+            rows = db.scalars(query).all()
+            for row in rows:
+                row.read_at = _now()
+            _commit(db)
+        return {"marked": len(rows)}
+
+    return router

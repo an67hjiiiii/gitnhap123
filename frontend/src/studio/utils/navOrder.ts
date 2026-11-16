@@ -3,7 +3,7 @@
 import type { NavigationTab } from '../types';
 
 export const NAV_ORDER: NavigationTab[] = [
-  'orchestration', 'overview', 'documents', 'traceability', 'req_quality', 'design', 'security', 'consistency',
+  'orchestration', 'organization', 'overview', 'documents', 'traceability', 'req_quality', 'design', 'security', 'consistency',
   'evaluation', 'benchmarks', 'rating', 'users', 'db_explorer',
 ];
 

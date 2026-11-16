@@ -1,0 +1,37 @@
+/* Ảnh đại diện (Avatar.tsx): ảnh/ảnh mẫu lấp đầy khung tròn hoặc bo góc sẵn có của sb-avatar, ua-av, ap-av */
+.has-img{overflow:hidden;padding:0;background:#fff !important;color:transparent}
+.has-img>img,.has-img>svg,.has-img>.av-art{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
+/* ảnh mẫu: nền dải màu + ánh bóng kính, hình vẽ hoặc emoji ở giữa, co giãn theo khung */
+.av-art{position:relative;display:block;width:100%;height:100%;border-radius:50%;overflow:hidden;container-type:size}
+.av-art::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:radial-gradient(120% 70% at 30% 0%,rgba(255,255,255,.42),rgba(255,255,255,0) 48%);box-shadow:inset 0 -6cqw 12cqw -6cqw rgba(0,0,0,.18)}
+.av-art>svg{position:absolute;inset:0;width:100%;height:100%}
+.av-emo{position:absolute;inset:0;display:grid;place-items:center;font-style:normal;font-size:58cqw;line-height:1}
+.st-app[data-theme="dark"] .has-img{background:#0f1a2c !important}
+
+/* hộp Đổi ảnh đại diện */
+.av-dlg{display:grid;gap:14px}
+.av-current{display:flex;align-items:center;gap:18px;padding:14px;border-radius:18px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 9%,transparent),transparent 70%);border:1px solid var(--line)}
+.st-app .sb-avatar.av-xl{width:96px;height:96px;font-size:38px;box-shadow:0 0 0 4px var(--glass-strong,#fff),0 16px 30px -14px color-mix(in srgb,var(--accent) 70%,transparent)}
+.av-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.av-actions small{flex-basis:100%;font-size:12.5px;color:var(--muted)}
+.av-head{display:flex;align-items:baseline;gap:10px}
+.av-head b{font-size:14px;color:var(--ink)}
+.av-head small{font-size:12.5px;color:var(--muted)}
+.av-dice{margin-left:auto;flex:none;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border:1px dashed var(--line);border-radius:999px;background:var(--glass-strong,#fff);font:inherit;font-size:13px;font-weight:650;color:var(--text);cursor:pointer}
+.av-dice:hover{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.av-dice:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* danh sách lướt dọc: mọi thể loại nối nhau, tên thể loại dính ở đầu khi cuộn */
+.av-scroll{max-height:min(46vh,400px);overflow:auto;scroll-padding-top:46px;margin:0 -6px;padding:0 6px 8px;overscroll-behavior:contain;}
+.av-group{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;margin:0;padding:10px 2px 8px;font-size:12px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  background:rgb(236,240,246);border-radius:12px}
+.av-group span{padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:11px;letter-spacing:0}
+.st-app[data-theme="dark"] .av-group{background:rgb(22,33,52)}
+.st-app[data-theme="dark"] .av-dice{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14);color:#d5e1f2}
+.av-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:12px;padding:4px 2px 10px}
+.av-tile{aspect-ratio:1;padding:3px;box-shadow:0 6px 14px -8px rgba(15,40,80,.45);border:2px solid transparent;border-radius:50%;background:transparent;cursor:pointer;transition:transform .18s ease,border-color .18s}
+.av-tile:hover{transform:translateY(-3px) scale(1.08);box-shadow:0 12px 22px -10px rgba(15,40,80,.5)}
+.av-tile[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+.av-tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:480px){.av-current{flex-direction:column;text-align:center}.av-actions{justify-content:center}.av-head small{display:none}.av-head{align-items:center}}
+@media (prefers-reduced-motion:reduce){.av-tile{transition:none}.av-tile:hover{transform:none}}

@@ -32,6 +32,7 @@ import { ReqQualityView } from './components/ReqQualityView';
 import { ConsistencyView } from './components/ConsistencyView';
 import { DocumentProfileView } from './components/DocumentProfileView';
 import { OverviewView } from './components/OverviewView';
+import { OrgView } from './components/OrgView';
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({default: module.LandingPage}))); 
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -54,6 +55,11 @@ import {
   getMe,
   logout,
   libraryQuality,
+  setOrgScope,
+  isOrgId,
+  joinSpace,
+  Classification,
+  LEVEL_LABEL,
 } from './services/api';
 import { 
   DocumentInfo, 
@@ -68,10 +74,12 @@ import {
 
 function DashboardWorkspace({
   user,
-  onLogout
+  onLogout,
+  onUserChange
 }: {
   user: User | null;
   onLogout: () => void;
+  onUserChange: (u: User) => void;
 }) {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
@@ -95,7 +103,10 @@ function DashboardWorkspace({
   const { setState: setRobotState, speak: robotSpeak } = useRobotAssistant();
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<number | string>(0);
+  // nhớ không gian vừa dùng (tiện ích riêng của trình duyệt); không còn quyền thì refreshState tự về không gian đầu tiên
+  const wsKey = `orchestriq-ws-${user?.id ?? ''}`;
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<number | string>(() => { try { return localStorage.getItem(wsKey) || 0; } catch { return 0; } });
+  useEffect(() => { try { if (currentWorkspaceId) localStorage.setItem(wsKey, String(currentWorkspaceId)); } catch { /* chế độ riêng tư */ } }, [currentWorkspaceId]);
 
   // Analysis & Ingestion States
   const [resultsMap, setResultsMap] = useState<Record<string, ModeExecutionResult>>({});
@@ -111,6 +122,10 @@ function DashboardWorkspace({
   const [isChunksModalOpen, setIsChunksModalOpen] = useState(false);
   const [isPlaygroundModalOpen, setIsPlaygroundModalOpen] = useState(false);
   const [playgroundInitialQuery, setPlaygroundInitialQuery] = useState('');
+
+  setOrgScope(currentWorkspaceId);
+  const currentWs = workspaces.find(w => w.id === currentWorkspaceId);
+  const inOrg = isOrgId(currentWorkspaceId);
 
   const refreshSequence = useRef(0);
   const selectedWorkspace = useRef(currentWorkspaceId);
@@ -141,6 +156,14 @@ function DashboardWorkspace({
     const interval = setInterval(refreshState, 15000);
     return () => { clearInterval(interval); refreshSequence.current++; };
   }, [currentWorkspaceId]);
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('join');
+    if (!token) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    joinSpace(token).then(r => { setToast({ text: `Đã gửi yêu cầu vào "${r.space_name}". Bạn vào được sau khi được duyệt.`, tone: 'ok' }); setActiveTab('organization'); })
+      .catch(e => setToast({ text: e.message, tone: 'error' }));
+  }, []);
 
   // Nhật ký lượt chạy chỉ cần ở trang Thực nghiệm.
   const refreshTelemetry = () => getTelemetry(currentWorkspaceId).then(setTelemetryLogs).catch(() => undefined);
@@ -203,12 +226,12 @@ function DashboardWorkspace({
     }
   };
 
-  const handleUpload = async (file: File) => {
+  const handleUpload = async (file: File, publish?: { classification: Classification; department_id?: string | null }) => {
     setIsUploading(true);
     setRobotState('searching');
     robotSpeak(`Đang phân đoạn và lưu trữ bản sao ${file.name} vào CSDL & Vector DB...`);
     try {
-      const up = await uploadDocument(file, currentWorkspaceId);
+      const up = await uploadDocument(file, currentWorkspaceId, publish);
       await refreshState();
       setRobotState('happy');
       robotSpeak(`Đã chỉ mục thành công tài liệu ${file.name}!`);
@@ -273,6 +296,14 @@ function DashboardWorkspace({
     } catch (err: any) {
       setToast({ text: err.message, tone: 'error' });
     }
+  };
+
+  // mở một không gian tổ chức (hoặc '' = quay về thư mục cá nhân đầu tiên) sau khi danh sách đã làm mới
+  const openSpace = async (id: string) => {
+    const list = await getWorkspaces().catch(() => workspaces);
+    setWorkspaces(list);
+    const next = id || list.find(w => w.kind !== 'org')?.id || list[0]?.id || 0;
+    setCurrentWorkspaceId(next); setActiveConversationId(null);
   };
 
   const handleWorkspaceChange = (wsId: number | string) => {
@@ -377,12 +408,14 @@ function DashboardWorkspace({
         onCreateWorkspace={handleCreateWorkspace}
         onDeleteWorkspace={handleDeleteWorkspace}
         onLogout={onLogout}
+        onUserChange={onUserChange}
         isMobileDrawerOpen={isMobileDrawerOpen}
         onToggleMobileDrawer={() => setIsMobileDrawerOpen(prev => !prev)}
         onOpenPalette={() => { setIsMobileDrawerOpen(false); setPaletteOpen(true); }}
         theme={theme}
         onThemeChange={changeTheme}
         onOpenAdmin={user?.role === 'admin' ? () => switchPortal('admin') : undefined}
+        onOrgChanged={() => { void refreshState(); }}
       >
         <LeftPanel
           documents={documents}
@@ -395,19 +428,23 @@ function DashboardWorkspace({
           isUploading={isUploading}
           totalChunks={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)}
           user={user}
+          orgLevel={inOrg ? currentWs?.level : undefined}
         />
         {user && <ConversationHistory conversations={conversations} activeId={activeConversationId}
           onOpen={id => { setActiveConversationId(id); setActiveTab('orchestration'); setIsMobileDrawerOpen(false); }}
-          onNew={() => { setActiveConversationId(null); setActiveTab('orchestration'); setIsMobileDrawerOpen(false); }} />}
+          onNew={() => { setActiveConversationId(null); setActiveTab('orchestration'); setIsMobileDrawerOpen(false); }}
+          onChanged={refreshConversations} />}
       </Header>
 
       <div className="st-main">
         {!intro && <PageGuide page={activeTab} />}
         <div className="st-mobilebar">
           <button className="icon-btn" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Mở thanh bên" aria-expanded={isMobileDrawerOpen}><Menu size={20} /></button>
-          <b>{activeTab === 'orchestration' ? 'Không gian làm việc' : activeTab === 'overview' ? 'Tổng quan' : activeTab === 'documents' ? 'Hồ sơ tài liệu' : activeTab === 'traceability' ? 'Truy vết yêu cầu' : activeTab === 'req_quality' ? 'Chất lượng yêu cầu' : activeTab === 'design' ? 'Gói thiết kế' : activeTab === 'security' ? 'Rà soát bảo mật' : activeTab === 'evaluation' ? 'Phòng đánh giá' : activeTab === 'consistency' ? 'Kiểm tra mâu thuẫn' : activeTab === 'benchmarks' ? 'Thực nghiệm' : activeTab === 'rating' ? 'Chấm mù' : activeTab === 'users' ? 'Người dùng' : 'Cơ sở dữ liệu'}</b>
+          <b>{activeTab === 'orchestration' ? 'Không gian làm việc' : activeTab === 'overview' ? 'Tổng quan' : activeTab === 'documents' ? 'Hồ sơ tài liệu' : activeTab === 'traceability' ? 'Truy vết yêu cầu' : activeTab === 'req_quality' ? 'Chất lượng yêu cầu' : activeTab === 'design' ? 'Gói thiết kế' : activeTab === 'security' ? 'Rà soát bảo mật' : activeTab === 'evaluation' ? 'Phòng đánh giá' : activeTab === 'consistency' ? 'Kiểm tra mâu thuẫn' : activeTab === 'benchmarks' ? 'Thực nghiệm' : activeTab === 'rating' ? 'Chấm mù' : activeTab === 'users' ? 'Người dùng' : activeTab === 'organization' ? 'Tổ chức' : 'Cơ sở dữ liệu'}</b>
         </div>
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
+        {inOrg && currentWs && <div className="st-banner is-info og-banner"><span><b>{currentWs.name}</b>{currentWs.level ? ` · ${LEVEL_LABEL[currentWs.level]}` : ''}: AI và các công cụ chỉ dùng tài liệu bạn được phép xem trong tổ chức này.</span>
+          {activeTab !== 'organization' && <button onClick={() => setActiveTab('organization')}>Quản lý tổ chức</button>}</div>}
         {!user && (
           <div className="st-banner is-warn">
             <span><b>Chế độ khách:</b> đăng nhập để lưu lượt chạy và quản lý tài liệu.</span>
@@ -418,6 +455,7 @@ function DashboardWorkspace({
           docCount={documents.length} chunkCount={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)} modelOk={health?.ollama_status === 'CONNECTED'}
           workspaceName={workspaces.find(w => w.id === currentWorkspaceId)?.name} recent={conversations}
           onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} prefill={prefill} freshDoc={freshDoc} />}
+        {activeTab === 'organization' && <OrgView workspaceId={currentWorkspaceId} docs={documents} onOpenSpace={id => { void openSpace(id); }} onChanged={refreshState} />}
         {activeTab === 'overview' && <OverviewView health={health} userName={user?.full_name} />}
         {activeTab === 'documents' && <DocumentProfileView key={`doc-${currentWorkspaceId}`} docs={documents}
           onAsk={(q, sourceId, sourceName) => { setActiveConversationId(null); setPrefill({ text: q, key: Date.now(), sourceId, sourceName }); setActiveTab('orchestration'); }} />}
@@ -471,6 +509,21 @@ function AppContent() {
     }).finally(() => { if (active) setSessionLoading(false); });
     return () => { active = false; };
   }, []);
+  // Cookie phiên dùng chung cho mọi tab: đăng nhập tài khoản khác ở tab khác thì tab này đang hiện người cũ
+  // nhưng máy chủ đã trả dữ liệu của người mới. Quay lại tab mà phiên đã đổi thì tải lại để khớp đúng người.
+  const userRef = useRef(user);
+  userRef.current = user;
+  useEffect(() => {
+    const check = () => {
+      if (document.hidden) return;
+      getMe().then(me => { if (userRef.current && String(me.id) !== String(userRef.current.id)) window.location.reload(); })
+        // đã đăng xuất ở tab khác thì tải lại (về trang đăng nhập); lỗi mạng thì bỏ qua, không tải lại liên tục
+        .catch(e => { if (userRef.current && e?.message === 'Chưa đăng nhập') window.location.reload(); });
+    };
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => { window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
+  }, []);
 
   const handleLoginSuccess = (loggedUser: User) => {
     setUser(loggedUser);
@@ -488,7 +541,7 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/" element={<Suspense fallback={<div className="page-loading" role="status">Đang mở không gian C27…</div>}><LandingPage /></Suspense>} />
-      <Route path="/studio" element={sessionLoading ? <div role="status" className="page-loading">Đang xác thực phiên làm việc…</div> : user ? <DashboardWorkspace key={user.id} user={user} onLogout={handleLogout} /> : <Navigate to="/login" replace />} />
+      <Route path="/studio" element={sessionLoading ? <div role="status" className="page-loading">Đang xác thực phiên làm việc…</div> : user ? <DashboardWorkspace key={user.id} user={user} onLogout={handleLogout} onUserChange={setUser} /> : <Navigate to="/login" replace />} />
       <Route path="/login" element={<LoginPage onLoginSuccess={handleLoginSuccess} />} />
       <Route path="/register" element={<RegisterPage onRegisterSuccess={handleLoginSuccess} />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />

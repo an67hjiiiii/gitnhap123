@@ -5,17 +5,7 @@ import { AuthBrandSide } from '../components/auth/AuthBrandSide';
 import { useRobotAssistant } from '../components/robot/RobotContext';
 import { register } from '../services/api';
 import { User } from '../types';
-import { 
-  Eye, 
-  EyeOff, 
-  ArrowRight, 
-   
-  AlertCircle, 
-  Check, 
-  Shield, 
-  Layers, 
-  Sparkles 
-} from 'lucide-react';
+import { Eye, EyeOff, ArrowRight, AlertCircle, Check } from 'lucide-react';
 
 interface RegisterPageProps {
   onRegisterSuccess: (user: User) => void;
@@ -35,7 +25,6 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
   const [showPassword, setShowPassword] = useState(false);
   // Gợi ý độ mạnh: độ dài, chữ hoa/thường, số, ký tự đặc biệt. Dưới 8 ký tự luôn ở mức thấp nhất.
   const pwLevel = !password ? 0 : password.length < 8 ? 0 : Math.min(4, 1 + [password.length >= 12, /[a-z]/.test(password) && /[A-Z]/.test(password), /\d/.test(password), /[^A-Za-z0-9]/.test(password)].filter(Boolean).length);
-  const [role, setRole] = useState<'tech_lead' | 'researcher' | 'developer'>('developer');
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,8 +59,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
         full_name: fullName.trim(),
         username: username.trim(),
         email: email.trim(),
-        password,
-        role
+        password
       });
 
       setSuccess(true);
@@ -218,64 +206,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onRegisterSuccess })
               {password && <div className="auth-strength" data-level={pwLevel} aria-live="polite"><span><i/><i/><i/><i/></span><em>{PW_LABEL[pwLevel]}</em></div>}
             </div>
 
-            {/* Professional Role Selection */}
+            {/* Nhập lại mật khẩu */}
             <div className="space-y-1"><label htmlFor="reg-confirm">Nhập lại mật khẩu</label><div className="relative rounded-xl"><input id="reg-confirm" type={showPassword?'text':'password'} autoComplete="new-password" required value={confirmation} onChange={e=>setConfirmation(e.target.value)} className="w-full px-3.5" placeholder="Nhập lại mật khẩu của bạn"/>{confirmation && <span className={`auth-match${confirmation === password ? ' is-ok' : ''}`} aria-live="polite">{confirmation === password ? 'Khớp' : 'Chưa khớp'}</span>}</div></div>
-            <div className="space-y-1.5 pt-1">
-              <label className="text-xs font-semibold text-slate-700">
-                Vai trò chuyên môn
-              </label>
-
-              <div className="grid grid-cols-3 gap-2">
-                {/* Tech Lead */}
-                <button
-                  type="button"
-                  onClick={() => setRole('tech_lead')}
-                  aria-pressed={role === 'tech_lead'}
-                  className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
-                    role === 'tech_lead'
-                      ? 'border-indigo-600 bg-indigo-50/50 ring-1 ring-indigo-600'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <Shield className="w-4 h-4 text-indigo-600 mb-1" />
-                  <p className="text-xs font-bold text-slate-900 leading-none">Trưởng nhóm</p>
-                  <p className="text-[10px] text-slate-500 mt-1 leading-tight">Kiến trúc & RBAC</p>
-                </button>
-
-                {/* AI Researcher */}
-                <button
-                  type="button"
-                  onClick={() => setRole('researcher')}
-                  aria-pressed={role === 'researcher'}
-                  className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
-                    role === 'researcher'
-                      ? 'border-indigo-600 bg-indigo-50/50 ring-1 ring-indigo-600'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <Sparkles className="w-4 h-4 text-purple-600 mb-1" />
-                  <p className="text-xs font-bold text-slate-900 leading-none">Nghiên cứu</p>
-                  <p className="text-[10px] text-slate-500 mt-1 leading-tight">Mô hình RAG & Ablation</p>
-                </button>
-
-                {/* Developer */}
-                <button
-                  type="button"
-                  onClick={() => setRole('developer')}
-                  aria-pressed={role === 'developer'}
-                  className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
-                    role === 'developer'
-                      ? 'border-indigo-600 bg-indigo-50/50 ring-1 ring-indigo-600'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <Layers className="w-4 h-4 text-emerald-600 mb-1" />
-                  <p className="text-xs font-bold text-slate-900 leading-none">Phát triển</p>
-                  <p className="text-[10px] text-slate-500 mt-1 leading-tight">Module & Kiểm thử</p>
-                </button>
-              </div>
-            </div>
-
             {/* Submit Button */}
             <button
               type="submit"

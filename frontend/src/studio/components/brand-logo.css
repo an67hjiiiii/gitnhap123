@@ -1,0 +1,9 @@
+.brand-lockup .oq-brand-emblem{display:block;width:48px;height:48px;flex:0 0 auto;object-fit:contain;filter:drop-shadow(0 3px 3px rgba(8,27,47,.2));transition:filter .2s ease}
+.brand-lockup{gap:12px}
+.brand-lockup.brand-sm .oq-brand-emblem{width:46px;height:46px}
+.brand-lockup.brand-lg .oq-brand-emblem{width:58px;height:58px}
+.st-app .sb-logo{overflow:visible}
+.st-app .sb-logo .brand-lockup{gap:11px}
+.st-app .sb.is-rail .sb-logo .oq-brand-emblem{width:48px;height:48px}
+.brand-inverse .oq-brand-emblem{filter:drop-shadow(0 3px 5px rgba(0,0,0,.3))}
+@media(max-width:800px){.brand-lockup .oq-brand-emblem{width:42px;height:42px}}

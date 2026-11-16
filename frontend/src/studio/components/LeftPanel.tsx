@@ -2,10 +2,12 @@ import React, { useRef, useState, useMemo } from 'react';
 import { Plus, MoreHorizontal, Search, Sparkles, Zap, Trash2, Eye, FileText, Database, FileSpreadsheet, FileCode, Lock, UploadCloud } from 'lucide-react';
 import { DocumentInfo, User } from '../types';
 import { useDismiss } from './Header';
+import { ClassBadge } from './OrgView';
+import { CLASS_HINT, CLASS_LABEL, Classification, MemberLevel, SETTABLE } from '../services/api';
 
 interface LeftPanelProps {
   documents: DocumentInfo[];
-  onUpload: (file: File) => Promise<void>;
+  onUpload: (file: File, publish?: { classification: Classification }) => Promise<void>;
   onClear: () => Promise<void>;
   onSeedDocs: () => Promise<void>;
   onInspectDocument?: (doc: DocumentInfo) => void;
@@ -16,6 +18,8 @@ interface LeftPanelProps {
   user?: User | null;
   isMobileDrawerOpen?: boolean;
   onCloseMobileDrawer?: () => void;
+  /** cấp bậc trong không gian tổ chức đang mở; có thì phải chọn mức mật trước khi tải */
+  orgLevel?: MemberLevel;
 }
 
 type Domain = 'all' | 'database' | 'api' | 'security';
@@ -46,7 +50,7 @@ function FileIcon({ doc }: { doc: DocumentInfo }) {
 
 // Kho tri thức hiển thị như một mục trong thanh bên.
 export const LeftPanel: React.FC<LeftPanelProps> = ({
-  documents, onUpload, onClear, onSeedDocs, onInspectDocument, onOpenPlayground, onDeleteDocument, isUploading, totalChunks, user,
+  documents, onUpload, onClear, onSeedDocs, onInspectDocument, onOpenPlayground, onDeleteDocument, isUploading, totalChunks, user, orgLevel,
 }) => {
   // Mỗi người chỉ thấy và xóa được tài liệu của chính mình (máy chủ kiểm tra quyền sở hữu).
   const canDelete = !!user;
@@ -59,11 +63,16 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = React.useCallback(() => setMenuOpen(false), []);
   const menuRef = useDismiss(menuOpen, closeMenu);
+  // mức mật chọn TRƯỚC khi tải: tài liệu Mật không bao giờ hiện cho phòng ban dù một khoảnh khắc
+  const levels = orgLevel ? SETTABLE[orgLevel] : [];
+  const [level, setLevel] = useState<Classification>(orgLevel === 'EXECUTIVE' ? 'COMPANY' : 'DEPARTMENT');
+  // đổi không gian (cấp bậc khác) thì về mặc định an toàn: Ban giám đốc thường không thuộc phòng nên mặc định Toàn công ty
+  React.useEffect(() => { if (orgLevel) setLevel(orgLevel === 'EXECUTIVE' ? 'COMPANY' : 'DEPARTMENT'); }, [orgLevel]);
 
   const processFile = async (file: File) => {
     try {
       setStatus({ text: `Đang phân đoạn ${file.name}…`, tone: 'info' });
-      await onUpload(file);
+      await onUpload(file, orgLevel ? { classification: level } : undefined);
       setStatus({ text: `Đã thêm ${file.name}`, tone: 'ok' });
       setTimeout(() => setStatus(null), 3000);
     } catch (err: any) {
@@ -107,6 +116,10 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
         </div>
       </div>
 
+      {orgLevel && <label className="og-upload-level"><span>Mức mật khi tải lên</span>
+        <select value={level} onChange={e => setLevel(e.target.value as Classification)} aria-label="Mức mật khi tải lên">
+          {levels.map(c => <option key={c} value={c}>{CLASS_LABEL[c]}: {CLASS_HINT[c]}</option>)}</select></label>}
+
       {documents.length > 0 && <>
         <label className="kb-search"><Search size={14} /><span className="sr">Tìm trong tài liệu</span>
           <input id="knowledge-search" type="search" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Tìm tài liệu" />
@@ -120,22 +133,22 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
 
       <div className="kb-list">
         {documents.length === 0 ? (
-          <button className="kb-empty" onClick={() => fileInputRef.current?.click()}>
-            <UploadCloud size={20} />
-            <b>Chưa có tài liệu</b>
-            <span>Kéo thả tệp vào đây hoặc bấm để tải lên.</span>
-            <span className="kb-empty-link" onClick={e => { e.stopPropagation(); void onSeedDocs(); }}>Dùng bộ tài liệu mẫu</span>
-          </button>
+          <div className="kb-empty-c">
+            <span className="kb-empty-ico"><UploadCloud size={16} /></span>
+            <span className="kb-empty-t"><b>Chưa có tài liệu</b>
+              <span><button type="button" onClick={() => fileInputRef.current?.click()}>Tải lên</button> · <button type="button" onClick={() => void onSeedDocs()}>Dùng bộ mẫu</button></span></span>
+          </div>
         ) : docs.length === 0 ? <p className="kb-none">Không có tài liệu khớp.</p> : docs.map((doc, idx) => {
           const d = domainOf(doc);
           return (
-            <div key={doc.id || idx} className="kb-row" title={doc.source_file}>
+            <div key={doc.id || idx} className="kb-row" title={doc.owner ? `${doc.source_file}\nTải lên bởi: ${doc.mine ? 'bạn' : doc.owner}` : doc.source_file}>
               <span className={`kb-ic is-${d ?? 'none'}`}><FileIcon doc={doc} /></span>
               <span className="kb-name">{doc.source_file}</span>
+              {doc.classification && <ClassBadge value={doc.classification} />}
               <span className="kb-meta">{doc.status === 'processing' ? <i className="dot is-warn" title="Đang xử lý" /> : doc.status === 'failed' ? <i className="dot is-bad" title="Lỗi xử lý" /> : doc.chunks_count}</span>
               <span className="kb-acts">
                 {onInspectDocument && <button onClick={() => onInspectDocument(doc)} aria-label={`Xem phân đoạn của ${doc.source_file}`} title="Xem phân đoạn"><Eye size={14} /></button>}
-                {onDeleteDocument && doc.id && canDelete && (
+                {onDeleteDocument && doc.id && canDelete && doc.can_delete !== false && (
                   <button className="is-danger" disabled={deletingId === doc.id} aria-label={`Xóa ${doc.source_file}`} title="Xóa tài liệu" onClick={async () => {
                     if (window.confirm(`Bạn có chắc muốn xóa tài liệu "${doc.source_file}" khỏi kho tri thức?`)) { setDeletingId(doc.id!); await onDeleteDocument(doc.id!); setDeletingId(null); }
                   }}><Trash2 size={14} /></button>
