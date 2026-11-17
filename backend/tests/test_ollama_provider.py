@@ -23,6 +23,7 @@ def fake_environment(monkeypatch):
     monkeypatch.setenv("IMPLEMENTATION_PROFILE", "dev")
     monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
     monkeypatch.setenv("LOCAL_LLM_TEMPERATURE", "0.1")
+    monkeypatch.delenv("LOCAL_LLM_CONTEXT_TOKENS", raising=False)
     monkeypatch.delenv("MAX_OUTPUT_TOKENS", raising=False)
     monkeypatch.delenv("TASK_PLAN_MAX_OUTPUT_TOKENS", raising=False)
 
@@ -84,6 +85,34 @@ def test_grounded_schema_is_sent_with_selected_ids(monkeypatch):
     assert payloads[0]["format"]["properties"]["citations"]["items"]["enum"] == ["c1"]
     assert payloads[0]["think"] is False
     assert payloads[0]["options"]["num_predict"] == 700
+
+
+@pytest.mark.parametrize(
+    "context_value,expected_options",
+    [
+        (None, {"temperature": 0.1, "num_predict": 700}),
+        ("8192", {"temperature": 0.1, "num_predict": 700, "num_ctx": 8192}),
+    ],
+)
+def test_grounded_payload_has_optional_context_tokens(monkeypatch, context_value, expected_options):
+    if context_value is None:
+        monkeypatch.delenv("LOCAL_LLM_CONTEXT_TOKENS", raising=False)
+    else:
+        monkeypatch.setenv("LOCAL_LLM_CONTEXT_TOKENS", context_value)
+    payloads = mock_chat(monkeypatch)
+
+    asyncio.run(OllamaProvider().generate_grounded(system="WORKER", user="test", evidence_ids=["c1"]))
+
+    assert payloads[0]["options"] == expected_options
+    assert payloads[0]["format"]["properties"]["citations"]["items"]["enum"] == ["c1"]
+
+
+@pytest.mark.parametrize("context_value", ["", "invalid", "0", "-1", "1.5"])
+def test_invalid_context_tokens_are_rejected(monkeypatch, context_value):
+    monkeypatch.setenv("LOCAL_LLM_CONTEXT_TOKENS", context_value)
+
+    with pytest.raises(ValueError, match="LOCAL_LLM_CONTEXT_TOKENS must be a positive integer"):
+        OllamaProvider()
 
 
 @pytest.mark.parametrize("structured,reason,text,count,limit,truncated", [

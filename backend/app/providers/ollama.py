@@ -16,6 +16,18 @@ class OllamaProvider(Provider):
         self.timeout = timeout or float(os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "180"))
         self.temperature = float(os.getenv("LOCAL_LLM_TEMPERATURE", "0.1"))
         self.max_output_tokens = max(64, int(os.getenv("MAX_OUTPUT_TOKENS", "700")))
+        context_tokens = os.getenv("LOCAL_LLM_CONTEXT_TOKENS")
+        if context_tokens is None:
+            self.context_tokens = None
+        else:
+            try:
+                self.context_tokens = int(context_tokens)
+            except ValueError as exc:
+                raise ValueError(
+                    "LOCAL_LLM_CONTEXT_TOKENS must be a positive integer"
+                ) from exc
+            if self.context_tokens <= 0:
+                raise ValueError("LOCAL_LLM_CONTEXT_TOKENS must be a positive integer")
 
     async def generate(self, *, system: str, user: str) -> ProviderResult:
         return await self._generate(system=system, user=user)
@@ -84,6 +96,8 @@ class OllamaProvider(Provider):
                 "num_predict": output_limit,
             },
         }
+        if self.context_tokens is not None:
+            payload["options"]["num_ctx"] = self.context_tokens
         marker = system.upper()
         if any(
             x in marker
