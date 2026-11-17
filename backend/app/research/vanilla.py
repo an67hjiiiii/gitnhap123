@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.core.text_clean import strip_placeholder_tags
 
 import json
+import os
 import re
 
 from app.core.citations import validate_citations
@@ -21,6 +22,24 @@ REPLY_LANGUAGE_HINT = {
 }
 
 
+def _format_evidence_chunk(chunk: SourceChunk) -> str:
+    header = f"[{chunk.chunk_id}] Tài liệu: {chunk.source_name or chunk.source_id or chunk.chunk_id}"
+    version_line = chunk.provenance.get("version_line")
+    if os.getenv("CHUNK_MODE", "").strip().lower() == "legal" and version_line:
+        header += f"\nPhiên bản: {version_line}"
+        location = str(chunk.provenance.get("section_path") or "").rsplit(" > ", 1)[-1]
+        if re.match(r"Điều\s+\d+[a-zđ]?\s*[.:]", location, re.IGNORECASE):
+            header += f"\nVị trí: {location}"
+    return f"{header}\n{chunk.text}"
+
+
+def _guard_evidence_text(chunk: SourceChunk) -> str:
+    version_line = chunk.provenance.get("version_line")
+    if os.getenv("CHUNK_MODE", "").strip().lower() == "legal" and version_line:
+        return f"Tài liệu: {chunk.source_name}\nPhiên bản: {version_line}\n{chunk.text}"
+    return chunk.text
+
+
 async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None, checker=None) -> TaskResult:
     if not evidence:
         return TaskResult(
@@ -33,7 +52,7 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
             missing_information=["relevant evidence"],
         )
 
-    evidence_text = "\n\n".join(f"[{c.chunk_id}] Tài liệu: {c.source_name or c.source_id or c.chunk_id}\n{c.text}" for c in evidence)
+    evidence_text = "\n\n".join(_format_evidence_chunk(c) for c in evidence)
     system = (
         "VANILLA_RAG_ANSWERER. Chỉ dùng bằng chứng được cấp. Chỉ trả JSON theo Schema. "
         "Mặc định viết answer bằng tiếng Việt (Vietnamese), tự nhiên, tối đa 4 câu, khoảng 100 từ; "
@@ -59,6 +78,15 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
     )
     if reply_language in REPLY_LANGUAGE_HINT:
         user += "\n\n" + REPLY_LANGUAGE_HINT[reply_language]
+    if any(c.provenance.get("version_diff") for c in evidence):
+        diff_instruction = ("\nĐây là bằng chứng từ bảng diff đã chuẩn hóa. Viết MỘT câu cho mỗi thay đổi, "
+                 "nêu Điều cũ/mới và giá trị trước/sau, trích chunk ID tương ứng; liệt kê đủ mọi thay đổi "
+                 "được cấp, không giới hạn 4 câu. Không suy diễn thay đổi ngoài bảng diff.")
+        system += diff_instruction
+        user += diff_instruction
+        if all(c.provenance.get("version_unchanged") for c in evidence):
+            user += ("\nHai đoạn là cùng nội dung sau chuẩn hóa đơn vị hoặc đổi số Điều. "
+                     "Trả lời rõ 'không đổi về nội dung', trích cả hai phiên bản.")
     grounded = getattr(provider, "generate_grounded", None)
     result = (
         await grounded(system=system, user=user, evidence_ids=[c.chunk_id for c in evidence])
@@ -89,12 +117,12 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
     guard_notes: list[str] = []
     if checker is not None and answer:
         cited = [c for c in evidence if c.chunk_id in valid]
-        cited_texts = [c.text for c in cited]
+        cited_texts = [_guard_evidence_text(c) for c in cited]
         source_label = ", ".join(dict.fromkeys(
             c.source_name or c.source_id or c.chunk_id for c in (cited or evidence)
         ))
         checked = checker.guard(
-            answer, status=status, evidence_texts=[c.text for c in evidence],
+            answer, status=status, evidence_texts=[_guard_evidence_text(c) for c in evidence],
             source_label=source_label, cited_texts=cited_texts,
         )
         answer, guard_notes = checked.answer, checked.notes
@@ -109,6 +137,18 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         if removed_claims:
             status = "PARTIAL"
             missing.extend("đã bỏ câu không có căn cứ: " + claim[:60] for claim in removed_claims)
+
+    if os.getenv("VERSION_FILTER", "off").strip().lower() == "on" and answer:
+        families = {}
+        cited_families = {c.provenance.get("family_key") for c in evidence if c.chunk_id in valid}
+        # Mọi đoạn đưa cho mô hình đều tính: mô hình có thể dùng bản chưa xác nhận mà không trích.
+        for chunk in evidence:
+            family = chunk.provenance.get("family_key")
+            if family:
+                families.setdefault(family, {})[chunk.source_id] = chunk.provenance.get("version_confirmed", False)
+        for family, sources in sorted(families.items()):
+            if family in cited_families and len(sources) >= 2 and not any(sources.values()):
+                answer = answer.rstrip() + f"\n\nLưu ý: chưa xác nhận bản hiện hành của {family}."
 
     if valid:
         answer = answer.rstrip() + "\n\nNguồn: " + ", ".join(f"[{cid}]" for cid in valid)

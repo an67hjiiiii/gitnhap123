@@ -93,7 +93,15 @@ class ResearchPipeline:
         min_score: float,
         source_ids: list[str] | None,
         fallback_trace: dict | None = None,
+        version_query: str | None = None,
     ) -> list[SourceChunk]:
+        scope_reader = getattr(self.source_store, "effective_source_ids", None)
+        if callable(scope_reader):
+            source_ids = sorted(scope_reader(query if version_query is None else version_query, source_ids))
+            if not source_ids:
+                return []
+            if chunks is not None:
+                chunks = [c for c in chunks if c.source_id in source_ids]
         variants = build_query_variants(query)
         for extra in EXTRA_RETRIEVAL_QUERIES.get():  # translated question for a mixed-language corpus
             if extra and all(extra != v.text for v in variants):
@@ -114,7 +122,10 @@ class ResearchPipeline:
         matches_by_id = {}
         guaranteed: set[str] = set()
         for variant in variants:
-            found = self.candidate_index.candidates(variant.text, limit=top_k, source_ids=source_ids)
+            candidate_args = {"limit": top_k, "source_ids": source_ids}
+            if callable(scope_reader):
+                candidate_args["version_query"] = query if version_query is None else version_query
+            found = self.candidate_index.candidates(variant.text, **candidate_args)
             if variant.label == "translated_query":
                 # scores of different languages are not comparable (same-language pairs score higher), so the
                 # translated query keeps its own best hits instead of being crowded out by the original's
@@ -375,13 +386,23 @@ class ResearchPipeline:
 
             # With a candidate index only the retrieved chunk ids are hydrated (chunks_by_ids); the whole
             # corpus is loaded lazily and only by lexical fallback / BM25 fusion.
-            all_chunks = None if self.candidate_index is not None else self.source_store.chunks(source_ids)
+            scope_reader = getattr(self.source_store, "effective_source_ids", None)
+            if callable(scope_reader):
+                source_ids = sorted(scope_reader(simple_retrieval_query, source_ids))
+            diff_reader = getattr(self.source_store, "version_diff_evidence", None)
+            diff_evidence = (await asyncio.to_thread(diff_reader, simple_retrieval_query, source_ids)
+                             if callable(diff_reader) and (condition == "A" or simple_product_request) else None)
+            all_chunks = (None if diff_evidence is not None or self.candidate_index is not None
+                          else self.source_store.chunks(source_ids))
             budget_cut = False
             if condition == "A" or simple_product_request:
                 r0 = time.perf_counter()
                 retrieval_trace: dict = {}
                 retrieval_query_text = simple_retrieval_query  # includes the resolved follow-up when there is one
-                if product_mode:
+                if diff_evidence is not None:
+                    candidates = diff_evidence
+                    retrieval_trace["backend"] = "version_diffs"
+                elif product_mode:
                     candidates = await product_retrieve(
                         self, provider, metrics, query=query, retrieval_query=retrieval_query_text,
                         chunks=all_chunks, cfg=cfg, source_ids=source_ids, trace=retrieval_trace, event=event,
@@ -394,11 +415,13 @@ class ResearchPipeline:
                         top_k=cfg.task_top_k,
                         min_score=cfg.retrieval_min_score,
                         source_ids=source_ids,
+                        **({"version_query": simple_retrieval_query} if callable(scope_reader) else {}),
                         fallback_trace=retrieval_trace,
                     )
                 metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                 metrics.retrieved_chunks += len(candidates)
-                selected, budget_dropped = apply_token_budget(candidates, cfg.max_context_tokens)
+                selected, budget_dropped = (apply_token_budget(candidates, cfg.max_context_tokens)
+                                           if diff_evidence is None else (candidates, []))
                 metrics.selected_chunks += len(selected)
                 metrics.dropped_chunks += len(budget_dropped)
                 metrics.context_chars += sum(len(c.text) for c in selected)
@@ -481,6 +504,7 @@ class ResearchPipeline:
                             self._retrieve_candidates, retrieval_query, all_chunks,
                             top_k=cfg.task_top_k, min_score=cfg.retrieval_min_score,
                             source_ids=source_ids, fallback_trace=trace,
+                            **({"version_query": simple_retrieval_query} if callable(scope_reader) else {}),
                         )
                     metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                     selected, dropped = apply_token_budget(candidates, cfg.max_context_tokens)
@@ -831,6 +855,7 @@ class ResearchPipeline:
                             top_k=cfg.task_top_k,
                             min_score=cfg.retrieval_min_score,
                             source_ids=source_ids,
+                            **({"version_query": simple_retrieval_query} if callable(scope_reader) else {}),
                             fallback_trace={},
                         )
                         for task in ordered
@@ -848,6 +873,7 @@ class ResearchPipeline:
                         top_k=cfg.task_top_k,
                         min_score=cfg.retrieval_min_score,
                         source_ids=source_ids,
+                        **({"version_query": simple_retrieval_query} if callable(scope_reader) else {}),
                         fallback_trace=retrieval_trace,
                     )
                     metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)

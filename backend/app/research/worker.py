@@ -6,7 +6,7 @@ from app.core.citations import validate_citations
 from app.core.structured_output import is_placeholder_answer, parse_answer_json
 from app.core.types import RunMetrics, SourceChunk, Task, TaskResult
 from app.research.registry import profile
-from app.research.vanilla import REPLY_LANGUAGE_HINT
+from app.research.vanilla import REPLY_LANGUAGE_HINT, _format_evidence_chunk
 
 
 def _extract_json(text: str) -> dict:
@@ -32,7 +32,7 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
             metrics=task_metrics,
         )
     p = profile(task.domain)
-    evidence_text = "\n\n".join(f"[{c.chunk_id}] Tài liệu: {c.source_name or c.source_id or c.chunk_id}\n{c.text}" for c in evidence)
+    evidence_text = "\n\n".join(_format_evidence_chunk(c) for c in evidence)
     system = (
         f"WORKER. Role={p['name']}. Scope={p['scope']}. Exclusions={p['exclusions']}. "
         "Chỉ dùng bằng chứng được cấp; chỉ trả JSON theo Schema, citations chỉ chứa chunk ID chính xác được cấp. "

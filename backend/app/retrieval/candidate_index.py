@@ -175,6 +175,7 @@ class CandidateIndex:
         limit: int = 10,
         source_ids: Iterable[str] | None = None,
         workspace_id: str | None = None,
+        version_query: str | None = None,
     ) -> list[VectorMatch]:
         self.last_search_info = {
             "index_state": IndexState.INCOMPATIBLE.value,
@@ -190,6 +191,13 @@ class CandidateIndex:
         )
         self._check_identity(manifest)
         selected = None if source_ids is None else [str(source_id) for source_id in source_ids]
+        scope_reader = getattr(self.source_store, "effective_source_ids", None)
+        scoped = callable(scope_reader)
+        if scoped:
+            selected = sorted(scope_reader(query if version_query is None else version_query, selected))
+        if selected == []:
+            return []
+        personal = getattr(self.source_store, "space_id", None) is None
         self.last_search_info["retrieval_backend_used"] = (
             "qdrant" if hasattr(self.vector_store, "collection") else "memory"
         )
@@ -208,7 +216,7 @@ class CandidateIndex:
         return self.vector_store.search(
             self._query_embeddings[key],
             limit=limit,
-            owner_user_id=self.owner_user_id,
+            owner_user_id=self.owner_user_id if personal or not scoped else None,
             source_ids=selected,
             **filters,
         )

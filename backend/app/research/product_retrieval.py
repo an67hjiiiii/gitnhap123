@@ -70,13 +70,19 @@ def run_budget_exceeded(metrics: RunMetrics, cfg, event, step: str) -> bool:
     return False
 
 
-def _base(pipeline, q: str, chunks, cfg, source_ids, top_k: int, trace: dict | None = None) -> list[SourceChunk]:
+def _base(pipeline, q: str, chunks, cfg, source_ids, top_k: int, trace: dict | None = None, version_query=None) -> list[SourceChunk]:
     return pipeline._retrieve_candidates(
-        q, chunks, top_k=top_k, min_score=cfg.retrieval_min_score, source_ids=source_ids, fallback_trace=trace)
+        q, chunks, top_k=top_k, min_score=cfg.retrieval_min_score, source_ids=source_ids, fallback_trace=trace,
+        **({"version_query": version_query} if callable(getattr(getattr(pipeline, "source_store", None), "effective_source_ids", None)) else {}))
 
 
-def _lists_for(pipeline, q: str, chunks, cfg, source_ids, top_k: int, fusion: str, trace=None) -> list[list[SourceChunk]]:
-    lists = [_base(pipeline, q, chunks, cfg, source_ids, top_k, trace)]
+def _lists_for(pipeline, q: str, chunks, cfg, source_ids, top_k: int, fusion: str, trace=None, version_query=None) -> list[list[SourceChunk]]:
+    scope_reader = getattr(getattr(pipeline, "source_store", None), "effective_source_ids", None)
+    if callable(scope_reader):
+        source_ids = sorted(scope_reader(q if version_query is None else version_query, source_ids))
+        if chunks is not None:
+            chunks = [c for c in chunks if c.source_id in source_ids]
+    lists = [_base(pipeline, q, chunks, cfg, source_ids, top_k, trace, version_query)]
     if fusion in {"bm25", "hybrid"}:
         if chunks is None:  # lazy: only fusion needs the whole corpus
             chunks = pipeline.source_store.chunks(source_ids)
@@ -99,14 +105,14 @@ async def product_retrieve(pipeline, provider, metrics: RunMetrics, *, query: st
         event("retrieval.multi", ideas=ideas, dependent=dependent, queries=len(queries))
         per_query = await asyncio.gather(*[
             asyncio.to_thread(_lists_for, pipeline, q, chunks, cfg, source_ids,
-                              cfg.task_top_k if i == 0 else per_idea_k, fusion, trace if i == 0 else None)
+                              cfg.task_top_k if i == 0 else per_idea_k, fusion, trace if i == 0 else None, retrieval_query)
             for i, q in enumerate(queries)
         ])
         base_list = [c for group in per_query for c in group[0]]  # raw scores of every idea, for the weakness test
         merged = rrf_merge([lst for group in per_query for lst in group], top_k)
     else:
         lists = await asyncio.to_thread(
-            _lists_for, pipeline, retrieval_query, chunks, cfg, source_ids, top_k, fusion, trace)
+            _lists_for, pipeline, retrieval_query, chunks, cfg, source_ids, top_k, fusion, trace, retrieval_query)
         base_list = lists[0]
         merged = rrf_merge(lists, top_k) if len(lists) > 1 else base_list
 
@@ -116,7 +122,7 @@ async def product_retrieve(pipeline, provider, metrics: RunMetrics, *, query: st
         rewritten = query if run_budget_exceeded(metrics, cfg, event, "query_rewrite") else await rewrite_query(provider, query, metrics)
         wide = top_k * 2
         extra = await asyncio.to_thread(
-            _lists_for, pipeline, rewritten, chunks, cfg, source_ids, wide, fusion)
+            _lists_for, pipeline, rewritten, chunks, cfg, source_ids, wide, fusion, None, retrieval_query)
         before = {c.chunk_id for c in merged}
         retried = rrf_merge([merged, *extra], wide)
         gained = [c.chunk_id for c in retried if c.chunk_id not in before]

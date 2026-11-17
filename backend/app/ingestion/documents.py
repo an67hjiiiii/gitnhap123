@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -56,13 +57,31 @@ def extract_document(
         raise ValueError("source_name must not be empty")
     suffix = Path(clean_name).suffix.casefold()
     source_type = SUPPORTED_DOCUMENT_EXTENSIONS.get(suffix)
+    if suffix == ".docx" and os.getenv("VERSION_DIFF") == "1":
+        source_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     if source_type is None:
         supported = ", ".join(sorted(SUPPORTED_DOCUMENT_EXTENSIONS))
         raise DocumentTypeError(
             f"unsupported document type {suffix or '<none>'}; supported: {supported}"
         )
 
-    if suffix == ".pdf":
+    if suffix == ".docx":
+        if not isinstance(data, bytes):
+            raise TypeError("DOCX document data must be bytes")
+        byte_size = len(data)
+        _assert_size(byte_size)
+        from zipfile import ZipFile
+        from xml.etree import ElementTree
+
+        with ZipFile(BytesIO(data)) as archive:
+            info = archive.getinfo("word/document.xml")
+            if info.file_size > MAX_DOCUMENT_BYTES * 20:
+                raise DocumentTypeError("DOCX expanded document exceeds size limit")
+            root = ElementTree.fromstring(archive.read(info))
+        ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        raw_text = "\n".join("".join(node.text or "" for node in paragraph.iter(ns + "t"))
+                             for paragraph in root.iter(ns + "p"))
+    elif suffix == ".pdf":
         if not isinstance(data, bytes):
             raise TypeError("PDF document data must be bytes")
         byte_size = len(data)
@@ -83,6 +102,11 @@ def extract_document(
         raise TypeError("document data must be bytes or text")
 
     text = normalize_text(raw_text)
+    cleaning_stats = None
+    if os.getenv("INGEST_CLEAN") == "rules":
+        from app.ingestion.clean import CLEANER_VERSION, clean_legal_text
+
+        text, cleaning_stats = clean_legal_text(text)
     if not text:
         raise ValueError("text must not be empty")
 
@@ -97,6 +121,9 @@ def extract_document(
     }
     if isinstance(content_type, str) and content_type.strip():
         provenance["declared_content_type"] = content_type.strip().lower()
+    if cleaning_stats is not None:
+        provenance["cleaner_version"] = CLEANER_VERSION
+        provenance["cleaning_stats"] = cleaning_stats
     if suffix == ".pdf":
         provenance.update({"page_count": page_count, "parser": "pypdf-text-v1"})
 

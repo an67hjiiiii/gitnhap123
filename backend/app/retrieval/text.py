@@ -1,5 +1,6 @@
 from __future__ import annotations
 import hashlib
+import os
 import re
 import unicodedata
 from collections.abc import Mapping
@@ -49,6 +50,13 @@ def content_hash(text: str) -> str:
 
 def contextual_text(chunk: SourceChunk) -> str:
     header = chunk.provenance.get("context_header")
+    if os.getenv("CHUNK_MODE", "").strip().lower() == "legal" and "chunk_kind" in chunk.provenance:
+        # Full version labels stay in provenance, outside embedding/BM25 input.
+        # Reconstruct from structure so persisted round-one legal chunks work too.
+        header = f"Tài liệu: {chunk.source_name}"
+        section_path = chunk.provenance.get("section_path")
+        if section_path:
+            header += f" > {section_path}"
     return f"{header}\n{chunk.text}" if header else chunk.text
 
 
@@ -96,7 +104,107 @@ def _split_paragraph(text: str, max_chars: int) -> list[str]:
     return result
 
 
+_ARTICLE = re.compile(r"^[ \t]*Điều[ \t]+(\d+[a-zđ]?)[ \t]*[.:](?:[ \t]*(.*))?$", re.IGNORECASE)
+_CHAPTER = re.compile(r"^[ \t]*Chương[ \t]+(?:[IVXLCDM]+|\d+)\b.*$", re.IGNORECASE)
+_SECTION = re.compile(r"^[ \t]*Mục[ \t]+\d+\b.*$", re.IGNORECASE)
+_APPENDIX = re.compile(r"^[ \t]*Phụ[ \t]+lục(?:[ \t]+(?:[IVXLCDM]+|\d+)\b.*|[ \t]*[.:]?.*)$", re.IGNORECASE)
+_CLAUSE = re.compile(r"^[ \t]*(\d+)\.[ \t]+", re.MULTILINE)
+_POINT = re.compile(r"^[ \t]*[a-zđ]\)[ \t]+", re.MULTILINE | re.IGNORECASE)
+_VERSION_FIELD = re.compile(
+    r"^[ \t]*((?:Số hiệu|Số|Phiên bản|Hiệu lực[^:\n]*|Tình trạng)[ \t]*:[ \t]*[^\n]+)$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def _legal_parts(text: str) -> tuple[list[tuple[str, str, str, str | None]], str]:
+    """Read legal headings as boundaries, independent of PDF paragraph/page breaks."""
+    parts: list[tuple[str, str, str, str | None]] = []
+    chapter = section = article_heading = ""
+    article: str | None = None
+    kind = "metadata"
+    pending: list[str] = []
+
+    def flush() -> None:
+        if pending:
+            path = " > ".join(h for h in (chapter, section, article_heading) if h)
+            parts.append(("\n".join(pending), path, kind, article))
+            pending.clear()
+
+    for raw in normalize_text(text).splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        match = _ARTICLE.match(line)
+        if match:
+            flush()
+            kind, article, article_heading = "article", match[1], line
+        elif _CHAPTER.match(line) or _SECTION.match(line):
+            flush()
+            if _CHAPTER.match(line):
+                chapter, section = line, ""
+            else:
+                section = line
+            kind, article, article_heading = "preamble", None, ""
+        elif _APPENDIX.match(line):
+            flush()
+            chapter, section, article_heading = "", "", ""
+            kind, article = "appendix", None
+        elif kind == "metadata" and re.match(r"^Căn cứ\b", line, re.IGNORECASE):
+            flush()
+            kind = "preamble"
+        pending.append(line)
+    flush()
+    metadata = next((body for body, _, part_kind, _ in parts if part_kind == "metadata"), "")
+    version_line = "; ".join(m[1].strip() for m in _VERSION_FIELD.finditer(metadata))
+    return parts, version_line
+
+
+def _marker_units(text: str, pattern: re.Pattern) -> list[str]:
+    starts = [m.start() for m in pattern.finditer(text)]
+    # Keep any heading/intro with the first numbered unit.
+    return [text[start:end].strip() for start, end in
+            zip([0, *starts[1:]], [*starts[1:], len(text)])]
+
+
+def _legal_pieces(text: str, kind: str, max_chars: int) -> list[tuple[str, str | None]]:
+    if max_chars < 1:
+        raise ValueError("max_chars must be positive")
+    if kind != "article":
+        # A metadata block is one identifiable chunk, even when its label is long.
+        return [(p, None) for p in ([text] if kind == "metadata" else _split_paragraph(text, max_chars))]
+    units: list[tuple[str, str | None]] = []
+    for clause in _marker_units(text, _CLAUSE):
+        number = next((m[1] for m in _CLAUSE.finditer(clause)), None)
+        points = _marker_units(clause, _POINT) if len(clause) > max_chars else [clause]
+        for point in points:
+            units.extend((piece, number) for piece in _split_paragraph(point, max_chars))
+    pieces: list[tuple[str, str | None]] = []
+    pending: list[str] = []
+    numbers: list[str] = []
+
+    def flush() -> None:
+        if pending:
+            clause_range = (numbers[0] if numbers[0] == numbers[-1]
+                            else f"{numbers[0]}-{numbers[-1]}") if numbers else None
+            pieces.append(("\n".join(pending), clause_range))
+            pending.clear()
+            numbers.clear()
+
+    for body, number in units:
+        if pending and sum(map(len, pending)) + len(pending) + len(body) > max_chars:
+            flush()
+        pending.append(body)
+        if number:
+            numbers.append(number)
+    flush()
+    return pieces
+
+
 def chunk_text(text: str, max_chars: int = 1200) -> list[str]:
+    if os.getenv("CHUNK_MODE", "").strip().lower() == "legal":
+        parts, _ = _legal_parts(text)
+        return [piece for body, _, kind, _ in parts
+                for piece, _ in _legal_pieces(body, kind, max_chars)]
     return [piece for part, _ in _document_parts(text)
             for piece in _split_paragraph(part, max_chars)]
 
@@ -113,6 +221,27 @@ def make_chunks(
     # Source versions remain content-addressed; document identity survives re-upload.
     doc_id = "src_" + hashlib.sha256(source_name.encode()).hexdigest()[:16]
     result: list[SourceChunk] = []
+    if os.getenv("CHUNK_MODE", "").strip().lower() == "legal":
+        parts, version_line = _legal_parts(clean)
+        label = f" [{version_line}]" if version_line else ""
+        for order, (part, section_path, kind, article) in enumerate(parts):
+            for piece_order, (chunk, clause_range) in enumerate(_legal_pieces(part, kind, max_chars)):
+                chunk_id = f"{doc_id}_c{order:04d}"
+                if piece_order:
+                    chunk_id += f"_p{piece_order:04d}"
+                header = f"Tài liệu: {source_name}{label}"
+                if section_path:
+                    header += f" > {section_path}"
+                result.append(SourceChunk(
+                    chunk_id=chunk_id, source_id=source_id, source_name=source_name,
+                    text=chunk, index=len(result),
+                    provenance={**dict(provenance or {}), "doc_id": doc_id,
+                                "chunk_index": len(result), "content_hash": content_hash(chunk),
+                                "section_path": section_path, "context_header": header,
+                                "chunk_kind": kind, "article": article,
+                                "clause_range": clause_range, "version_line": version_line},
+                ))
+        return result
     for order, (part, section_path) in enumerate(_document_parts(clean)):
         for piece_order, chunk in enumerate(_split_paragraph(part, max_chars)):
             chunk_id = f"{doc_id}_c{order:04d}"

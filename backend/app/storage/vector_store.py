@@ -37,6 +37,14 @@ class VectorStore(Protocol):
     def delete(self, ids: Iterable[str]) -> None: ...
 
 
+def _require_scope(owner_user_id: str | None, source_ids: Iterable[str] | None) -> list[str] | None:
+    """An empty source scope never expands into an unrestricted search."""
+    selected = None if source_ids is None else sorted({str(s) for s in source_ids if str(s)})
+    if owner_user_id is None and selected is None:
+        raise ValueError("vector search needs an owner or a source list")
+    return selected
+
+
 class InMemoryVectorStore:
     """Deterministic test adapter with the same owner-filter contract."""
 
@@ -66,7 +74,10 @@ class InMemoryVectorStore:
         self._validate("query", query)
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be positive")
-        selected_sources = None if source_ids is None else set(source_ids)
+        scoped = _require_scope(owner_user_id, source_ids)
+        if scoped == []:
+            return []
+        selected_sources = None if scoped is None else set(scoped)
         records = [
             record
             for record in self._records.values()
@@ -238,10 +249,9 @@ class QdrantVectorStore:
         self._validate_vector(query)
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be positive")
-        if source_ids is not None:
-            source_ids = list(source_ids)
-            if not source_ids:
-                return []
+        source_ids = _require_scope(owner_user_id, source_ids)
+        if source_ids == []:
+            return []
         query_filter = self._owner_filter(owner_user_id, source_ids, workspace_id, embedding_version)
         kwargs = {
             "collection_name": self.collection,

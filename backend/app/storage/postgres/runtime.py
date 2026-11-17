@@ -4,7 +4,7 @@ import hashlib
 import re
 import os
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -32,6 +32,8 @@ from app.auth.store import (
 from app.core.types import SourceChunk
 from app.retrieval.text import make_chunks, normalize_text
 from app.storage.postgres.models import (
+    DocumentVersionRecord,
+    VersionDiffRecord,
     ConversationMessageRecord,
     ConversationRecord,
     KnowledgeChunkRecord,
@@ -378,9 +380,63 @@ class PostgresAuthStore:
 class PostgresSourceStore:
     """A source/chunk store bound to one authenticated owner."""
 
-    def __init__(self, session_factory: sessionmaker[Session], owner_user_id: str) -> None:
+    def __init__(self, session_factory: sessionmaker[Session], owner_user_id: str, *, space_id: str | None = None) -> None:
         self.session_factory = session_factory
         self.owner_user_id = owner_user_id
+        self.space_id = space_id
+
+    def scope_source_ids(self) -> set[str]:
+        from app.core.access import visible_source_ids
+        with self.session_factory() as db:
+            return visible_source_ids(db, self.owner_user_id, self.space_id)
+
+    def effective_source_ids(self, query: str, source_ids=None) -> set[str]:
+        from app.core.access import filter_version_ids, visible_source_ids
+        if os.getenv("VERSION_DIFF") == "1":
+            from app.ingestion.version_diff import diff_intent
+            if diff_intent(query):
+                query += " so sánh"
+        with self.session_factory() as db:
+            allowed = visible_source_ids(db, self.owner_user_id, self.space_id)
+            if os.getenv("VERSION_FILTER", "off").strip().lower() == "on" and allowed:
+                rows = db.scalars(select(DocumentVersionRecord).where(
+                    DocumentVersionRecord.source_id.in_(allowed))).all()
+                versions = [{c.name: getattr(row, c.name) for c in DocumentVersionRecord.__table__.columns}
+                            for row in rows]
+                allowed = filter_version_ids(allowed, versions, query, today=date.today())
+            return allowed if source_ids is None else allowed & set(source_ids)
+
+    def confirm_version(self, source_id: str, confirmed_by: str) -> dict[str, Any]:
+        """Owner-only repository operation; confirmation preserves previously confirmed values."""
+        if confirmed_by != self.owner_user_id:
+            raise PermissionError("confirmation requires the source owner")
+        with self.session_factory.begin() as db:
+            source = db.get(KnowledgeSourceRecord, source_id)
+            if source is None or source.owner_user_id != self.owner_user_id:
+                raise PermissionError("source belongs to another owner")
+            row = db.scalar(select(DocumentVersionRecord).where(
+                DocumentVersionRecord.source_id == source_id).with_for_update())
+            if row is None:
+                raise LookupError("version not found")
+            if row.confirmed_at is None:
+                proposed = (row.evidence or {}).get("proposed_status", row.status)
+                if proposed not in {"draft", "issued", "superseded", "unverified"}:
+                    raise ValueError("invalid proposed version status")
+                row.status = proposed
+                row.confirmed_by, row.confirmed_at = confirmed_by, _now()
+            if os.getenv("VERSION_DIFF") == "1":
+                self._refresh_version_diffs(db, source)
+        return self.get_version(source_id)
+
+    def _retrieval_chunk(self, db: Session, row: KnowledgeChunkRecord) -> SourceChunk:
+        chunk = self._chunk(row)
+        if os.getenv("VERSION_FILTER", "off").strip().lower() == "on":
+            version = db.scalar(select(DocumentVersionRecord).where(
+                DocumentVersionRecord.source_id == row.source_id))
+            if version is not None:
+                chunk.provenance.update(family_key=version.family_key,
+                                        version_confirmed=version.confirmed_at is not None)
+        return chunk
 
     def import_text(
         self,
@@ -480,11 +536,19 @@ class PostgresSourceStore:
                     for chunk in added
                 ])
                 source.status = "READY"
-                source.display_metadata = {**metadata, "status": "READY"}
+                source.display_metadata = {**metadata, "status": "READY",
+                    **({"_version_diff_text": clean_text} if os.getenv("VERSION_DIFF") == "1" else {})}
                 source.updated_at = _now()
         except Exception as exc:
             self.mark_failed(source_id, exc)
             raise
+        if os.getenv("VERSION_PROPOSE") == "1":
+            from app.ingestion.version_meta import propose_version
+
+            self.upsert_version_proposal(source_id, propose_version(clean_text, source_name))
+        elif os.getenv("VERSION_DIFF") == "1":
+            with self.session_factory.begin() as db:
+                self._refresh_version_diffs(db, db.get(KnowledgeSourceRecord, source_id))
         return {
             "source_id": source_id,
             "source_name": source_name,
@@ -495,6 +559,164 @@ class PostgresSourceStore:
             "provenance": dict(source_provenance),
             "snapshot_id": self.snapshot_id(),
         }
+
+    def upsert_version_proposal(self, source_id: str, proposal: dict[str, Any]) -> dict[str, Any]:
+        """Owner-scoped, concurrent-safe proposal save; never overwrite confirmation."""
+        from sqlalchemy.dialects.postgresql import insert
+
+        fields = ("family_key", "doc_number", "version_label", "issued_on", "effective_from",
+                  "effective_to", "applies_from", "applies_note", "transition_note")
+        values = {key: proposal.get(key) for key in fields}
+        for key in ("issued_on", "effective_from", "effective_to", "applies_from"):
+            if isinstance(values[key], str):
+                values[key] = date.fromisoformat(values[key])
+        evidence = dict(proposal.get("evidence") or {})
+        evidence["proposed_status"] = proposal.get("status", "unverified")
+        values.update(status="unverified", relations=list(proposal.get("relations") or []), evidence=evidence)
+        with self.session_factory.begin() as db:
+            source = db.get(KnowledgeSourceRecord, source_id)
+            if source is None or source.owner_user_id != self.owner_user_id:
+                raise PermissionError("source belongs to another owner")
+            statement = insert(DocumentVersionRecord).values(
+                id="ver_" + uuid4().hex, source_id=source_id, owner_user_id=self.owner_user_id, **values)
+            db.execute(statement.on_conflict_do_update(
+                index_elements=[DocumentVersionRecord.source_id],
+                set_={**values, "updated_at": _now()},
+                where=(DocumentVersionRecord.owner_user_id == self.owner_user_id)
+                    & DocumentVersionRecord.confirmed_at.is_(None)
+                    & DocumentVersionRecord.confirmed_by.is_(None),
+            ))
+            if os.getenv("VERSION_DIFF") == "1":
+                self._refresh_version_diffs(db, source)
+        return self.get_version(source_id)
+
+    @staticmethod
+    def _version_text(db: Session, source: KnowledgeSourceRecord) -> str:
+        saved = (source.display_metadata or {}).get("_version_diff_text")
+        if saved is not None:
+            return saved
+        return "\n\n".join(db.scalars(select(KnowledgeChunkRecord.content).where(
+            KnowledgeChunkRecord.source_id == source.source_id).order_by(KnowledgeChunkRecord.chunk_index)))
+
+    def _refresh_version_diffs(self, db: Session, source: KnowledgeSourceRecord) -> None:
+        """Rebuild adjacency in the same owner/space transaction, including stale edges."""
+        from app.ingestion.version_diff import diff_versions
+
+        scope = f"version-diff:{source.owner_user_id}:{source.space_id}"
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(scope, 0))))
+        db.flush()
+        sources = {s.source_id: s for s in db.scalars(select(KnowledgeSourceRecord).where(
+            KnowledgeSourceRecord.owner_user_id == source.owner_user_id,
+            KnowledgeSourceRecord.space_id == source.space_id))}
+        db.execute(delete(VersionDiffRecord).where(or_(VersionDiffRecord.old_source_id.in_(sources),
+                                                     VersionDiffRecord.new_source_id.in_(sources))))
+        versions = db.scalars(select(DocumentVersionRecord).where(
+            DocumentVersionRecord.source_id.in_(sources), DocumentVersionRecord.family_key.is_not(None),
+            DocumentVersionRecord.effective_from.is_not(None)).order_by(
+                DocumentVersionRecord.effective_from, DocumentVersionRecord.source_id)).all()
+        families = {}
+        for v in versions:
+            if sources[v.source_id].status == "READY":
+                families.setdefault(v.family_key, []).append(v)
+        texts = {}
+        for family, chain in families.items():
+            for old, new in zip(chain, chain[1:]):
+                for v in (old, new):
+                    texts.setdefault(v.source_id, self._version_text(db, sources[v.source_id]))
+                for item in diff_versions(texts[old.source_id], texts[new.source_id], include_text=True):
+                    item.pop("pair")
+                    db.add(VersionDiffRecord(id="vd_" + uuid4().hex, family_key=family,
+                        old_source_id=old.source_id, new_source_id=new.source_id, **item))
+
+    def version_diff_evidence(self, query: str, source_ids=None) -> list[SourceChunk] | None:
+        """None means normal retrieval; [] means handled with no matching change.
+
+        Never admit an endpoint through family membership: both IDs must be in
+        the S4 effective selection. Read stored changes; use source units only
+        for topic matching and demonstrably equivalent unchanged items.
+        """
+        from app.ingestion.version_diff import canonical, compare_units, diff_intent, topic_units
+
+        intent = diff_intent(query)
+        if os.getenv("VERSION_DIFF") != "1" or intent is None:
+            return None
+        allowed = self.effective_source_ids(query, source_ids)
+        if not allowed:
+            return None
+        with self.session_factory() as db:
+            versions = {v.source_id: v for v in db.scalars(select(DocumentVersionRecord).where(
+                DocumentVersionRecord.source_id.in_(allowed)))}
+            sources = {s.source_id: s for s in db.scalars(select(KnowledgeSourceRecord).where(
+                KnowledgeSourceRecord.source_id.in_(allowed), KnowledgeSourceRecord.status == "READY"))}
+            rows = db.scalars(select(VersionDiffRecord).where(
+                VersionDiffRecord.old_source_id.in_(allowed), VersionDiffRecord.new_source_id.in_(allowed)
+            ).order_by(VersionDiffRecord.id)).all()
+            pairs = {}
+            for row in rows:
+                if row.old_source_id not in sources or row.new_source_id not in sources:
+                    continue
+                old, new = versions.get(row.old_source_id), versions.get(row.new_source_id)
+                if old is None or new is None:
+                    continue
+                if any((v.status if v.confirmed_at else (v.evidence or {}).get("proposed_status", v.status)) == "draft"
+                       or (v.effective_from and v.effective_from > date.today()) for v in (old, new)):
+                    continue
+                key = (sources[row.new_source_id].owner_user_id, sources[row.new_source_id].space_id, row.family_key)
+                pair = (old.effective_from or date.min, new.effective_from or date.min, old.source_id, new.source_id)
+                if key not in pairs or pair > pairs[key]:
+                    pairs[key] = pair
+            if not pairs:
+                return None
+            # A policy title in the question restricts the family before topic selection.
+            labels = {}
+            for key, (_, _, old_id, new_id) in pairs.items():
+                title = self._version_text(db, sources[new_id]).splitlines()[0]
+                labels[key] = title
+            mentioned = {}
+            q = canonical(query)
+            for key, label in labels.items():
+                words = canonical(label).split()
+                phrases = [" ".join(words[i:i + n]) for n in (2, 3, 4) for i in range(len(words) - n + 1)]
+                score = max((len(p) for p in phrases if p in q and p not in {"chính sách", "hệ thống", "sử dụng"}), default=0)
+                if re.search(r"\bapi\b", q) and "api" in canonical(label):
+                    score = max(score, 3)
+                mentioned[key] = score
+            best = max(mentioned.values(), default=0)
+            if best:
+                pairs = {k: v for k, v in pairs.items() if mentioned[k] > 0}
+            evidence = []
+            for key, (_, _, old_id, new_id) in pairs.items():
+                units = compare_units(self._version_text(db, sources[old_id]), self._version_text(db, sources[new_id]))
+                selected = topic_units(query, units, family_label=labels[key])
+                signatures = {(u["old_article"], u["new_article"], u["old_clause"], u["new_clause"]) for u in selected}
+                changes = [r for r in rows if (r.old_source_id, r.new_source_id) == (old_id, new_id)
+                    and (r.old_article, r.new_article, r.old_clause, r.new_clause) in signatures
+                    and (intent == "ALL" or r.kind == intent or intent == "NEW" and r.kind in {"THEM", "DOI"})]
+                def label(sid):
+                    v = versions[sid]
+                    return f"Tài liệu: {sources[sid].source_name}\nPhiên bản: {v.version_label or v.doc_number or sid}"
+                for r in changes:
+                    text = (f"{label(old_id)}\n{r.old_article or 'Không có Điều cũ'} / khoản {r.old_clause or '-'}\nTrước: {r.text_before or 'Không có'}\n"
+                            f"{label(new_id)}\n{r.new_article or 'Không có Điều mới'} / khoản {r.new_clause or '-'}\nSau: {r.text_after or 'Không còn'}\nLoại: {r.kind}")
+                    evidence.append(SourceChunk(r.id, new_id, sources[new_id].source_name, text, len(evidence),
+                        provenance={"version_diff": True, "family_key": r.family_key}))
+                if not changes and selected and intent == "ALL" and all(u["kind"] is None for u in selected):
+                    for u in selected:
+                        for sid, side in ((old_id, "before"), (new_id, "after")):
+                            text = f"{label(sid)}\n{u['old_article' if side == 'before' else 'new_article']}\n{u['text_' + side]}"
+                            evidence.append(SourceChunk(f"eq_{sid}_{len(evidence)}", sid, sources[sid].source_name,
+                                text, len(evidence), provenance={"version_diff": True, "version_unchanged": True}))
+            return evidence
+
+    def get_version(self, source_id: str) -> dict[str, Any] | None:
+        with self.session_factory() as db:
+            row = db.scalar(select(DocumentVersionRecord).where(
+                DocumentVersionRecord.source_id == source_id,
+                DocumentVersionRecord.owner_user_id == self.owner_user_id,
+            ))
+            if row is None:
+                return None
+            return {column.name: getattr(row, column.name) for column in DocumentVersionRecord.__table__.columns}
 
     def mark_failed(self, source_id: str, error: Exception | str) -> None:
         """Persist a terminal FAILED state without exposing source contents."""
@@ -537,7 +759,7 @@ class PostgresSourceStore:
     def chunks(self, source_ids: list[str] | None = None) -> list[SourceChunk]:
         with self.session_factory() as db:
             filters = [
-                KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                KnowledgeSourceRecord.source_id.in_(self.scope_source_ids()),
                 KnowledgeSourceRecord.status == "READY",
             ]
             if source_ids is not None:
@@ -548,7 +770,7 @@ class PostgresSourceStore:
                 .where(*filters)
                 .order_by(KnowledgeChunkRecord.source_id, KnowledgeChunkRecord.chunk_index)
             ).all()
-            return [self._chunk(row) for row in rows]
+            return [self._retrieval_chunk(db, row) for row in rows]
 
     def validate_source_selection(self, source_ids: list[str]) -> None:
         """Reject missing, non-ready, or foreign source IDs before retrieval."""
@@ -560,7 +782,7 @@ class PostgresSourceStore:
             available = set(
                 db.scalars(
                     select(KnowledgeSourceRecord.source_id).where(
-                        KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                        KnowledgeSourceRecord.source_id.in_(self.scope_source_ids()),
                         KnowledgeSourceRecord.status == "READY",
                         KnowledgeSourceRecord.source_id.in_(requested),
                     )
@@ -575,7 +797,7 @@ class PostgresSourceStore:
             return []
         with self.session_factory() as db:
             filters = [
-                KnowledgeSourceRecord.owner_user_id == self.owner_user_id,
+                KnowledgeSourceRecord.source_id.in_(self.scope_source_ids()),
                 KnowledgeSourceRecord.status == "READY",
                 KnowledgeChunkRecord.chunk_id.in_(wanted),
             ]
@@ -584,7 +806,7 @@ class PostgresSourceStore:
             rows = db.scalars(
                 select(KnowledgeChunkRecord).join(KnowledgeSourceRecord).where(*filters)
             ).all()
-            return [self._chunk(row) for row in rows]
+            return [self._retrieval_chunk(db, row) for row in rows]
 
     def list_sources(self) -> list[dict[str, Any]]:
         with self.session_factory() as db:
