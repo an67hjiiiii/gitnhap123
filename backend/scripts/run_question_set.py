@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import socket
 import csv
 import hashlib
 import json
@@ -44,6 +45,10 @@ class Client:
                 return response.status, result
         except urllib.error.HTTPError as exc:
             return exc.code, {"error": exc.read()[:1000].decode("utf-8", "replace")}
+        except (TimeoutError, socket.timeout) as exc:
+            return ("timeout" if path == "/api/chat" else 0), {"error": str(exc)}
+        except urllib.error.URLError as exc:
+            return ("timeout" if path == "/api/chat" and isinstance(exc.reason, (TimeoutError, socket.timeout)) else 0), {"error": str(exc)}
         except Exception as exc:
             return 0, {"error": str(exc)}
 
@@ -190,7 +195,7 @@ def run_command(args, client=None):
         payload = {"message": row["cau_hoi"], "product_mode": True}
         if group in conversations: payload["conversation_id"] = conversations[group]
         start = time.perf_counter()
-        code, response = client.call("POST", "/api/chat", payload, timeout=900)
+        code, response = client.call("POST", "/api/chat", payload, timeout=getattr(args, "timeout", 120))
         secs = round(time.perf_counter() - start, 3)
         if isinstance(response, dict) and response.get("conversation_id"):
             if group: conversations[group] = response["conversation_id"]
@@ -311,6 +316,7 @@ def main(argv=None):
     run = sub.add_parser("run", help="Chạy CSV tuần tự và lưu kết quả tiếp tục được.")
     run.add_argument("--csv", required=True); run.add_argument("--out", required=True)
     run.add_argument("--base", default="http://127.0.0.1:8110"); run.add_argument("--force", action="store_true")
+    run.add_argument("--timeout", type=float, default=120, help="Thời hạn mỗi câu /api/chat (giây).")
     summ = sub.add_parser("summary", help="Tạo summary.md và cham_tay.csv, không chấm bằng mô hình.")
     summ.add_argument("--out", required=True)
     ing = sub.add_parser("ingest", help="Nạp tài liệu lên backend scratch.")
