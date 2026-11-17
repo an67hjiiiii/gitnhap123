@@ -77,6 +77,9 @@ class SourceStore:
         if not clean_text:
             raise ValueError("text must not be empty")
 
+        from app.retrieval.bm25_index import enabled as bm25_enabled, signature, update_source
+        previous_bm25_signature = signature(self) if bm25_enabled() else None
+
         chunks = make_chunks(clean_name, clean_text)
         if not chunks:
             raise ValueError("text must not be empty")
@@ -127,6 +130,7 @@ class SourceStore:
             "provenance": source_provenance,
         }
         self._save()
+        update_source(self, source_id, previous_bm25_signature, replaced_sources)
         return {
             "source_id": source_id,
             "source_name": clean_name,

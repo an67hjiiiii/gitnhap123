@@ -54,6 +54,7 @@ from app.research.vanilla import answer_vanilla
 from app.research.worker import execute_task
 from app.retrieval.index_identity import IndexingError
 from app.retrieval.candidate_index import cached_rank, no_full_load_enabled
+from app.retrieval.bm25_index import enabled as persistent_bm25_enabled
 from app.retrieval.multilingual import RetrievalQueryVariant, build_query_variants, detect_language
 from app.retrieval.text import apply_token_budget, estimate_tokens, retrieve, terms
 from app.storage.run_store import RunStore
@@ -183,7 +184,8 @@ class ResearchPipeline:
         # The index is derived and can miss paraphrases. Fall back only over the
         # already owner-scoped canonical chunks supplied by the source store.
         # Keep the same top-k and score gate; normalize only generic query fillers.
-        if chunks is None and not (no_full_load_enabled() and callable(getattr(self.source_store, "retrieval_signature", None))):
+        if chunks is None and not (persistent_bm25_enabled() or (
+                no_full_load_enabled() and callable(getattr(self.source_store, "retrieval_signature", None)))):
             chunks = self.source_store.chunks(source_ids)
         fallback_map: dict[str, SourceChunk] = {}
         for variant in variants:
@@ -425,6 +427,7 @@ class ResearchPipeline:
             diff_evidence = (await asyncio.to_thread(diff_reader, simple_retrieval_query, source_ids)
                              if callable(diff_reader) and (condition == "A" or simple_product_request) else None)
             all_chunks = (None if diff_evidence is not None or self.candidate_index is not None
+                          or persistent_bm25_enabled()
                           or (no_full_load_enabled() and callable(getattr(self.source_store, "retrieval_signature", None)))
                           else self.source_store.chunks(source_ids))
             budget_cut = False

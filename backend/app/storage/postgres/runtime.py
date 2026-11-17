@@ -450,6 +450,8 @@ class PostgresSourceStore:
             raise ValueError("source_name must not be empty")
         if not clean_text:
             raise ValueError("text must not be empty")
+        from app.retrieval.bm25_index import enabled as bm25_enabled, signature, update_source
+        previous_bm25_signature = signature(self) if bm25_enabled() else None
         original_source_id = "src_" + hashlib.sha256(
             (str(source_name).strip() + "\0" + clean_text).encode("utf-8")
         ).hexdigest()[:16]
@@ -552,6 +554,7 @@ class PostgresSourceStore:
         elif os.getenv("VERSION_DIFF") == "1":
             with self.session_factory.begin() as db:
                 self._refresh_version_diffs(db, db.get(KnowledgeSourceRecord, source_id))
+        update_source(self, source_id, previous_bm25_signature)
         return {
             "source_id": source_id,
             "source_name": source_name,
@@ -855,7 +858,9 @@ class PostgresSourceStore:
             count, updated = db.execute(select(func.count(KnowledgeChunkRecord.chunk_id),
                 func.max(KnowledgeSourceRecord.updated_at)).select_from(KnowledgeSourceRecord)
                 .outerjoin(KnowledgeChunkRecord).where(KnowledgeSourceRecord.source_id.in_(visible))).one()
-            return count, _iso(updated), visible
+            from app.retrieval.bm25_index import enabled as bm25_enabled
+            revision = (updated.isoformat(timespec="microseconds") if bm25_enabled() else _iso(updated)) if updated else None
+            return count, revision, visible
 
     def chunks(self, source_ids: list[str] | None = None) -> list[SourceChunk]:
         with self.session_factory() as db:
@@ -965,7 +970,8 @@ class PostgresSourceStore:
             return None if row is None else self._chunk(row).__dict__.copy()
 
     def snapshot_id(self) -> str:
-        if os.getenv("RETRIEVAL_NO_FULL_LOAD", "0").strip() == "1":
+        from app.retrieval.bm25_index import enabled as bm25_enabled
+        if os.getenv("RETRIEVAL_NO_FULL_LOAD", "0").strip() == "1" or bm25_enabled():
             signature = repr(self.retrieval_signature())
             return "corpus_" + hashlib.sha256(signature.encode("utf-8")).hexdigest()[:16]
         chunks = self.chunks()

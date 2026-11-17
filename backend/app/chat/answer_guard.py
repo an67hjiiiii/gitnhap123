@@ -29,8 +29,8 @@ _ABBREVIATION = re.compile(r"\b(?:TT|NĐ|QĐ|tr|v\.v)\.$", re.I)
 _REFERENCE_END = re.compile(r"\b(?:Điều|Khoản)\s+\d+\.$", re.I)
 _STRUCTURED_LINE = re.compile(r"^\s*(?:\||[-+*]\s|\d+[.)]\s)")
 _DATE = re.compile(
-    r"\b(?P<day>\d{1,2})\s+tháng\s+(?P<month>\d{1,2})\s+năm\s+(?P<year>\d{4})\b"
-    r"|\b(?P<d>\d{1,2})[/-](?P<m>\d{1,2})[/-](?P<y>\d{4})\b", re.I,
+    r"(?:\bngày\s+)?\b(?P<day>\d{1,2})\s+tháng\s+(?P<month>\d{1,2})\s+năm\s+(?P<year>\d{4})\b"
+    r"|(?:\bngày\s+)?\b(?P<d>\d{1,2})[/-](?P<m>\d{1,2})[/-](?P<y>\d{4})\b", re.I,
 )
 _METADATA = re.compile(
     r"\b(?:phiên\s+bản|bản)(?:\s+(?:cũ|mới))?\s*[:(]?\s*v?\d+(?:[.,]\d+)*\)?"
@@ -47,6 +47,12 @@ _FALSE_CHANGE = re.compile(
     r"\b(?:thay\s+đổi|điều\s+chỉnh|chuyển|nâng|đổi|tăng|giảm)\s+từ\s+(.+?)\s+(?:sang|lên|xuống|thành)\s+"
     r"([^;!?]+)", re.I,
 )
+# Numbered names are supported as a whole, never by an unrelated bare digit.
+_NUMBERED_NAME = re.compile(
+    r"\b(?:đề\s+án|nghị\s+định|quyết\s+định|thông\s+tư)\s+(?:số\s+)?\d+(?![\d/])\b", re.I,
+)
+
+
 _BARE_NUMBER = re.compile(r"(?<![\w.,])\d+(?:[.,]\d+)?(?![\w])")
 _FOOTER = re.compile(r"\n*\s*Nguồn:.*\Z", re.DOTALL)
 _NEGATION = re.compile(r"\b(?:không(?:\s+được)?|chưa|cấm|not|never|must\s+not)\b", re.I)
@@ -172,7 +178,7 @@ def _subject_text(text: str) -> str:
     text = re.sub(r"^\s*(?:điều\s+kiện|nêu\s+rõ)\s+", "", text, flags=re.I)
     text = re.sub(r"^\s*do\s+yêu\s+cầu\s+cụ\s+thể\s+là\s+về\s+", "", text, flags=re.I)
     text = re.sub(r"^\s*(?:(?:theo|căn cứ)\b[^,;]*[,;]|"
-                  r"(?:(?:kể\s+)?từ|vào|đến)\s+ngày\s*[,;])\s*", "", text, flags=re.I)
+                  r"(?:(?:kể\s+)?từ|vào|đến)\s+(?:ngày)?\s*[,;])\s*", "", text, flags=re.I)
     text = re.sub(r"^\s*(?:tài liệu|phiên bản)\s+(?:(?:ghi|nêu)\s+rằng|quy định)\s*",
                   "", text, flags=re.I)
     text = re.sub(r"^\s*(?:các\s+)?thông tin này\s+được\s+xác nhận\s+trong\s*",
@@ -370,7 +376,7 @@ def _quantity_properties(text: str) -> list[tuple[Slot, str | None]]:
     return result
 
 
-def _number_check(sentence: str, texts: list[str]) -> tuple[list[str], list[str]]:
+def _number_check(sentence: str, texts: list[str], question: str | None = None) -> tuple[list[str], list[str]]:
     relevant = []
     eligible = _eligible_sources(sentence, texts)
     for text in eligible:
@@ -390,7 +396,7 @@ def _number_check(sentence: str, texts: list[str]) -> tuple[list[str], list[str]
                 if any(_related(sentence, neighbor) for neighbor in neighbors):
                     relevant.append(source)
     if relevant:
-        return _check_figures(sentence, relevant, eligible)
+        return _check_figures(sentence, relevant, eligible, question)
     # Word overlap cannot relate a sentence to a source written in another language. Judge each such chunk on
     # its own: the sentence is kept when at least one cited chunk of the other language carries the same figures
     # (value + normalised unit). Chunks in the sentence's own language still need a related subject, and a wrong
@@ -399,17 +405,30 @@ def _number_check(sentence: str, texts: list[str]) -> tuple[list[str], list[str]
     for text in eligible:
         if _looks_english(text) == _looks_english(sentence):
             continue
-        result = _check_figures(sentence, split_sentences(text), [text])
+        result = _check_figures(sentence, split_sentences(text), [text], question)
         if not result[0]:
             return result
         if best is None or len(result[0]) < len(best[0]):
             best = result
-    return best if best is not None else _check_figures(sentence, [], eligible)
+    return best if best is not None else _check_figures(sentence, [], eligible, question)
 
 
-def _check_figures(sentence: str, relevant: list[str], texts: list[str]) -> tuple[list[str], list[str]]:
+def _check_figures(sentence: str, relevant: list[str], texts: list[str],
+                   question: str | None = None) -> tuple[list[str], list[str]]:
     bad, derived = [], []
-    quantity_text, dates, bare = _numeric_parts(sentence)
+    # The question supplies values, not factual assertions: do not add it to
+    # subject, negation, provenance or arithmetic evidence.
+    question_parts = _numeric_parts(question or "")
+    question_keys = {key for slot in _numbers(question_parts[0]) for key in _quantity_keys(slot)}
+    name_key = lambda text: re.sub(r"\s+", " ", re.sub(r"\bsố\s+", "", text.casefold())).strip()
+    supported_names = {name_key(m[0]) for text in [*texts, question or ""]
+                       for m in _NUMBERED_NAME.finditer(text.replace("**", ""))}
+    numeric_sentence = sentence.replace("**", "")
+    for match in reversed(list(_NUMBERED_NAME.finditer(numeric_sentence))):
+        if name_key(match[0]) not in supported_names:
+            bad.append("identifier:" + match[0])
+        numeric_sentence = numeric_sentence[:match.start()] + " " * len(match[0]) + numeric_sentence[match.end():]
+    quantity_text, dates, bare = _numeric_parts(numeric_sentence)
     relevant_parts = [_numeric_parts(text) for text in relevant]
     all_parts = [_numeric_parts(text) for text in texts]
     related_quantities = [part[0] for part in relevant_parts]
@@ -431,6 +450,8 @@ def _check_figures(sentence: str, relevant: list[str], texts: list[str]) -> tupl
             missing.append(slot)
             property_conflicts.add(slot)
     for slot in dict.fromkeys(missing):
+        if _quantity_keys(slot) & question_keys:
+            continue
         if slot not in property_conflicts and relevant and _derived(slot, sentence, texts):
             derived.append("DERIVED_NUMBER:" + slot.value)
         else:
@@ -454,6 +475,8 @@ def _check_figures(sentence: str, relevant: list[str], texts: list[str]) -> tupl
         props = answer_properties.get(value, set()) - {None}
         source_props = date_properties.get(value, set())
         wrong_property = bool(props and source_props and None not in source_props and not props & source_props)
+        if value in question_parts[1] and not value.startswith("INVALID_DATE:"):
+            continue
         if value not in related_dates or value.startswith("INVALID_DATE:") or wrong_property:
             unsupported("date:" + value, value, value in all_dates, bool(related_dates))
     # Quantity values may also be expressed without their unit (e.g. table cells),
@@ -462,6 +485,7 @@ def _check_figures(sentence: str, relevant: list[str], texts: list[str]) -> tupl
               for m in _BARE_NUMBER.finditer(text)}
     all_digits = {Decimal(m[0].replace(",", ".")) for part in all_parts
                   for m in _BARE_NUMBER.finditer(part[0])}
+    digits.update(Decimal(m[0].replace(",", ".")) for m in _BARE_NUMBER.finditer(question_parts[0]))
     for value in bare:
         number = Decimal(value.replace(",", "."))
         if number not in digits:
@@ -484,7 +508,8 @@ def drop_unsupported_numbers(answer: str, evidence_texts: Iterable[str]) -> tupl
 
 
 def guard_answer(answer: str, *, status: str, evidence_texts: Iterable[str],
-                 source_label: str = "", cited_texts: Iterable[str] | None = None) -> GuardResult:
+                 source_label: str = "", cited_texts: Iterable[str] | None = None,
+                 question: str | None = None) -> GuardResult:
     """Apply G2 then G1 to an answer WITHOUT its 'Nguồn:' footer."""
     evidence = [t for t in evidence_texts if t]
     cited = [t for t in (cited_texts or []) if t]
@@ -497,14 +522,14 @@ def guard_answer(answer: str, *, status: str, evidence_texts: Iterable[str],
     removed_spans = []
     for start, end in _sentence_spans(body):
         sentence = body[start:end].strip()
-        bad, derived = _number_check(sentence, texts)
+        bad, derived = _number_check(sentence, texts, question)
         unverified = [n.removeprefix("FLAG_UNVERIFIED:") for n in derived
                       if n.startswith("FLAG_UNVERIFIED:")]
         cited_subject = any(_related(sentence, source) for text in cited for source in _source_windows(text))
         if (bad or unverified) and cited and cited_subject:
             # Re-run the same entity/property/version rules over all retrieval
             # evidence. Citation selection stays unchanged; this is auditable.
-            all_bad, all_notes = _number_check(sentence, list(dict.fromkeys(texts + evidence)))
+            all_bad, all_notes = _number_check(sentence, list(dict.fromkeys(texts + evidence)), question)
             # Uncited evidence may directly support a figure, but must not
             # complete a calculation whose operands were absent from citations.
             if not all_bad and not any(n.startswith(("FLAG_", "DERIVED_NUMBER:")) for n in all_notes):
@@ -630,9 +655,9 @@ class AnswerChecker:
     """Injected into the research pipeline so core code never imports review adapters."""
 
     @staticmethod
-    def guard(answer, *, status, evidence_texts, source_label="", cited_texts=None):
+    def guard(answer, *, status, evidence_texts, source_label="", cited_texts=None, question=None):
         return guard_answer(answer, status=status, evidence_texts=evidence_texts,
-                            source_label=source_label, cited_texts=cited_texts)
+                            source_label=source_label, cited_texts=cited_texts, question=question)
 
     @staticmethod
     def needs_verification(query, answer):

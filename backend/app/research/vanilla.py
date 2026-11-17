@@ -142,7 +142,7 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         ))
         checked = checker.guard(
             answer, status=status, evidence_texts=[_guard_evidence_text(c) for c in evidence],
-            source_label=source_label, cited_texts=cited_texts,
+            source_label=source_label, cited_texts=cited_texts, question=query,
         )
         answer, guard_notes = checked.answer, checked.notes
         removed_claims = list(checked.removed_claims)

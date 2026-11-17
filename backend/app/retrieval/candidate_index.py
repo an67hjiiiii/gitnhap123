@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 def no_full_load_enabled() -> bool:
-    return os.getenv("RETRIEVAL_NO_FULL_LOAD", "0").strip() == "1"
+    from app.retrieval.bm25_index import enabled
+    return os.getenv("RETRIEVAL_NO_FULL_LOAD", "0").strip() == "1" or enabled()
 
 
 _CORPORA: OrderedDict = OrderedDict()
@@ -100,6 +101,9 @@ def cached_rank(store, query, source_ids, top_k, min_score=0.0, *, bm25=False):
     Cache by database/owner/space and cheap corpus signature. Effective S4 and
     version filters are applied to statistics as well as final canonical reads.
     """
+    from app.retrieval.bm25_index import enabled, persistent_rank
+    if enabled():
+        return persistent_rank(store, query, source_ids, top_k, min_score, bm25=bm25)
     signature_reader = getattr(store, "retrieval_signature", None)
     if not no_full_load_enabled() or not callable(signature_reader):
         return None
