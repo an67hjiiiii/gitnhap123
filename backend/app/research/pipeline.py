@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 import unicodedata
@@ -31,6 +32,7 @@ from app.research.decomposer import (
     parse_task_plan_output,
     understand_request,
 )
+from app.research.query_normalize import normalize_query
 from app.research.normalizer import normalize_tasks
 from app.research.obligation_concern_extraction import extract_obligations_and_concerns
 from app.research.plan_verification import (
@@ -332,7 +334,12 @@ class ResearchPipeline:
         persist_lifecycle("RUNNING")
         event("lifecycle_transition", from_status="PENDING", to_status="RUNNING")
         try:
-            product_help = product_help_response(query) if product_mode else None
+            # Single query-normalization boundary: routing/retrieval only.
+            search_query = query
+            if product_mode and os.getenv("QUERY_NORMALIZE", "off").strip().lower() == "on":
+                search_query, transformations = normalize_query(query)
+                event("query_normalized", transformations=transformations)
+            product_help = product_help_response(search_query) if product_mode else None
             if product_help is not None:
                 intent, answer = product_help
                 task = Task(task_id="T1", goal=query, domain="general")
@@ -351,21 +358,21 @@ class ResearchPipeline:
                 event("run_finished", status="COMPLETE", lifecycle_status="COMPLETED")
                 return finalize("COMPLETE", answer, [task], [result])
 
-            understanding = understand_request(query) if product_mode else None
+            understanding = understand_request(search_query) if product_mode else None
             # Chỉ ở chế độ sản phẩm: câu hỏi tiếp nối ngắn được hiểu theo câu hỏi trước (không phải bằng chứng).
-            follow_up = resolve_follow_up(query, conversation_context) if product_mode else None
+            follow_up = resolve_follow_up(search_query, conversation_context) if product_mode else None
             if follow_up:
                 event("follow_up_resolved", previous_request=follow_up, is_rag_evidence=False)
             simple_retrieval_query = (
-                "\n".join((query, follow_up)) if follow_up
-                else _retrieval_query_with_conversation_context(query, conversation_context)
+                "\n".join((search_query, follow_up)) if follow_up
+                else _retrieval_query_with_conversation_context(search_query, conversation_context)
             )
             simple_product_request = bool(
                 product_mode
                 and condition != "A"
                 and not force_plan
                 and understanding is not None
-                and (multi_retrieval or is_simple_project_question(query, understanding.domains))
+                and (multi_retrieval or is_simple_project_question(search_query, understanding.domains))
             )
             if product_mode and condition != "A":
                 route = (
@@ -404,7 +411,7 @@ class ResearchPipeline:
                     retrieval_trace["backend"] = "version_diffs"
                 elif product_mode:
                     candidates = await product_retrieve(
-                        self, provider, metrics, query=query, retrieval_query=retrieval_query_text,
+                        self, provider, metrics, query=search_query, retrieval_query=retrieval_query_text,
                         chunks=all_chunks, cfg=cfg, source_ids=source_ids, trace=retrieval_trace, event=event,
                         multi=multi_retrieval, retry=True,
                     )
@@ -494,7 +501,7 @@ class ResearchPipeline:
                     trace: dict = {}
                     try:
                         candidates = await product_retrieve(
-                            self, provider, metrics, query=query, retrieval_query=retrieval_query,
+                            self, provider, metrics, query=search_query, retrieval_query=retrieval_query,
                             chunks=all_chunks, cfg=cfg, source_ids=source_ids, trace=trace,
                             event=event, multi=True, retry=True,
                         )

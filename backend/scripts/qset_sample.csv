@@ -1,0 +1,6 @@
+id,muc_hiem,nhom_noi_dung,kieu_cau,ma_chuoi,luot,cau_hoi,kieu_loi,dap_an_tham_khao,phien_ban_dung,do_chac
+Q01,thường,CS_DANGNHAP,trực tiếp,,1,Quy trình đăng nhập CS_DANGNHAP yêu cầu những thông tin nào?,bỏ sót,Email và mật khẩu,1,cao
+Q02,hiếm,CS_DANGNHAP,điều kiện,,1,Khi đăng nhập CS_DANGNHAP sai mật khẩu thì hệ thống xử lý thế nào?,suy diễn,Từ chối xác thực và yêu cầu thử lại,1,vừa
+Q03,thường,CS_API,trực tiếp,,1,CS_API giới hạn thời gian phản hồi tối đa bao lâu?,nhầm đơn vị,30 phút,2,cao
+Q04,thường,CS_API,nối tiếp,API-FOLLOW,1,CS_API có giới hạn thời gian phản hồi nào?,bỏ sót,Giới hạn là 30 phút,2,vừa
+Q05,thường,CS_API,nối tiếp,API-FOLLOW,2,Vậy con số đó tương đương bao nhiêu giờ?,mất ngữ cảnh,0,5 giờ,2,vừa
