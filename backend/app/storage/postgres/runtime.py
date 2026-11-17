@@ -11,7 +11,7 @@ from uuid import uuid4
 from sqlalchemy import cast, delete, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker, contains_eager
 
 from app.auth.store import (
     AUTH_SCHEMA_VERSION,
@@ -468,6 +468,9 @@ class PostgresSourceStore:
             "source_hash": hashlib.sha256(clean_text.encode("utf-8")).hexdigest(),
             "source_version": source_id,
         }
+        from app.retrieval.doc_route import enabled, build_doc_card
+        if enabled():
+            source_provenance["doc_card"] = build_doc_card(str(source_name).strip(), clean_text)
         metadata = source_provenance
         now = _now()
         with self.session_factory.begin() as db:
@@ -493,7 +496,7 @@ class PostgresSourceStore:
 
         try:
             chunks = make_chunks(
-                str(source_name).strip(), clean_text, provenance=source_provenance
+                str(source_name).strip(), clean_text, provenance={k: v for k, v in source_provenance.items() if k != "doc_card"}
             )
             if not chunks:
                 raise ValueError("text must not be empty")
@@ -601,6 +604,11 @@ class PostgresSourceStore:
     def _refresh_version_diffs(self, db: Session, source: KnowledgeSourceRecord) -> None:
         """Rebuild adjacency in the same owner/space transaction, including stale edges."""
         from app.ingestion.version_diff import diff_versions
+        from app.research.version_relations import relations_enabled
+
+        if relations_enabled():
+            self._rebuild_scoped_version_diffs(db, source.owner_user_id, source.space_id)
+            return
 
         scope = f"version-diff:{source.owner_user_id}:{source.space_id}"
         db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(scope, 0))))
@@ -639,6 +647,62 @@ class PostgresSourceStore:
                     db.add(VersionDiffRecord(id="vd_" + uuid4().hex, family_key=family,
                         old_source_id=old.source_id, new_source_id=new.source_id, **item))
 
+    def refresh_version_diffs(self) -> int:
+        """Rebuild all diffs for this store's owner/space, e.g. after SQL confirmation.
+
+        VERSION_DIFF=1 enables writes; VERSION_RELATIONS=1 adds legal relations.
+        Return the number of derived change rows in the rebuilt scope.
+        """
+        if os.getenv("VERSION_DIFF") != "1":
+            return 0
+        with self.session_factory.begin() as db:
+            return self._rebuild_scoped_version_diffs(db, self.owner_user_id, self.space_id)
+
+    def _rebuild_scoped_version_diffs(self, db: Session, owner: str, space: str | None) -> int:
+        from app.ingestion.version_diff import diff_versions
+        from app.research.version_relations import (
+            normalized_doc_number, relation_edges, relations_enabled,
+        )
+
+        scope = f"version-diff:{owner}:{space}"
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(scope, 0))))
+        db.flush()
+        sources = {s.source_id: s for s in db.scalars(select(KnowledgeSourceRecord).where(
+            KnowledgeSourceRecord.owner_user_id == owner, KnowledgeSourceRecord.space_id == space))}
+        db.execute(delete(VersionDiffRecord).where(or_(
+            VersionDiffRecord.old_source_id.in_(sources), VersionDiffRecord.new_source_id.in_(sources))))
+        versions = db.scalars(select(DocumentVersionRecord).where(
+            DocumentVersionRecord.source_id.in_(sources), DocumentVersionRecord.owner_user_id == owner,
+            DocumentVersionRecord.confirmed_at.is_not(None), DocumentVersionRecord.status == "issued"
+        ).order_by(DocumentVersionRecord.effective_from, DocumentVersionRecord.source_id)).all()
+        versions = [v for v in versions if sources[v.source_id].status == "READY"]
+        use_relations = relations_enabled()
+        pairs = {}
+        if use_relations:
+            metadata = [{c.name: getattr(v, c.name) for c in DocumentVersionRecord.__table__.columns}
+                        for v in versions]
+            for edge in relation_edges(metadata):
+                pairs[edge.old_source_id, edge.new_source_id] = edge.family_key
+        families = {}
+        for v in versions:
+            if (v.family_key and v.effective_from is not None
+                    and not (use_relations and normalized_doc_number(v.doc_number))):
+                families.setdefault(v.family_key, []).append(v)
+        for family, chain in families.items():
+            for old, new in zip(chain, chain[1:]):
+                pairs[old.source_id, new.source_id] = family
+        texts, count = {}, 0
+        for (old_id, new_id), family in sorted(pairs.items()):
+            for sid in (old_id, new_id):
+                if sid not in texts:
+                    texts[sid] = self._version_text(db, sources[sid])
+            for item in diff_versions(texts[old_id], texts[new_id], include_text=True):
+                item.pop("pair")
+                db.add(VersionDiffRecord(id="vd_" + uuid4().hex, family_key=family,
+                    old_source_id=old_id, new_source_id=new_id, **item))
+                count += 1
+        return count
+
     def version_diff_evidence(self, query: str, source_ids=None) -> list[SourceChunk] | None:
         """None means normal retrieval; [] means handled with no matching change.
 
@@ -647,8 +711,10 @@ class PostgresSourceStore:
         for topic matching and demonstrably equivalent unchanged items.
         """
         from app.ingestion.version_diff import canonical, compare_units, diff_intent, topic_units
+        from app.research.version_relations import normalized_doc_number, relations_enabled
 
         intent = diff_intent(query)
+        use_relations = relations_enabled()
         if os.getenv("VERSION_DIFF") != "1" or intent is None:
             return None
         allowed = self.effective_source_ids(query, source_ids)
@@ -669,10 +735,16 @@ class PostgresSourceStore:
                 old, new = versions.get(row.old_source_id), versions.get(row.new_source_id)
                 if old is None or new is None:
                     continue
+                if not use_relations and (old.family_key != row.family_key or new.family_key != row.family_key):
+                    # Turning the flag off also hides persisted cross-family edges.
+                    continue
                 if any(v.confirmed_at is None or v.status != "issued"
                        or (v.effective_from and v.effective_from > date.today()) for v in (old, new)):
                     continue
                 key = (sources[row.new_source_id].owner_user_id, sources[row.new_source_id].space_id, row.family_key)
+                if use_relations and normalized_doc_number(row.family_key):
+                    # Each legal relation is evidence, including amendment branches.
+                    key += (row.old_source_id, row.new_source_id)
                 pair = (old.effective_from or date.min, new.effective_from or date.min, old.source_id, new.source_id)
                 if key not in pairs or pair > pairs[key]:
                     pairs[key] = pair
@@ -770,6 +842,21 @@ class PostgresSourceStore:
                 "metadata": dict(source.display_metadata or {}),
             }
 
+    def retrieval_signature(self):
+        """Cheap READY corpus revision; include visible ids for ACL/status changes.
+
+        Chunks have no updated_at; source.updated_at is the write revision.
+        No text or provenance is selected by this aggregate.
+        """
+        with self.session_factory() as db:
+            visible = tuple(sorted(db.scalars(select(KnowledgeSourceRecord.source_id).where(
+                KnowledgeSourceRecord.source_id.in_(self.scope_source_ids()),
+                KnowledgeSourceRecord.status == "READY")).all()))
+            count, updated = db.execute(select(func.count(KnowledgeChunkRecord.chunk_id),
+                func.max(KnowledgeSourceRecord.updated_at)).select_from(KnowledgeSourceRecord)
+                .outerjoin(KnowledgeChunkRecord).where(KnowledgeSourceRecord.source_id.in_(visible))).one()
+            return count, _iso(updated), visible
+
     def chunks(self, source_ids: list[str] | None = None) -> list[SourceChunk]:
         with self.session_factory() as db:
             filters = [
@@ -817,10 +904,24 @@ class PostgresSourceStore:
             ]
             if source_ids is not None:
                 filters.append(KnowledgeChunkRecord.source_id.in_(source_ids))
-            rows = db.scalars(
-                select(KnowledgeChunkRecord).join(KnowledgeSourceRecord).where(*filters)
-            ).all()
+            statement = select(KnowledgeChunkRecord).join(KnowledgeSourceRecord).where(*filters)
+            if os.getenv("RETRIEVAL_NO_FULL_LOAD", "0").strip() == "1":
+                statement = statement.options(contains_eager(KnowledgeChunkRecord.source))
+            rows = db.scalars(statement).all()
             return [self._retrieval_chunk(db, row) for row in rows]
+
+    def doc_cards(self, source_ids=None) -> list[SourceChunk]:
+        from app.retrieval.doc_route import card_chunk
+        allowed = self.scope_source_ids()
+        if source_ids is not None:
+            allowed &= set(source_ids)
+        if not allowed:
+            return []
+        with self.session_factory() as db:
+            rows = db.execute(select(KnowledgeSourceRecord.source_id, KnowledgeSourceRecord.display_metadata).where(
+                KnowledgeSourceRecord.source_id.in_(allowed), KnowledgeSourceRecord.status == "READY")).all()
+            return [card_chunk(sid, metadata["doc_card"]) for sid, metadata in rows
+                    if isinstance((metadata or {}).get("doc_card"), dict) and metadata["doc_card"].get("text")]
 
     def list_sources(self) -> list[dict[str, Any]]:
         with self.session_factory() as db:
@@ -864,6 +965,9 @@ class PostgresSourceStore:
             return None if row is None else self._chunk(row).__dict__.copy()
 
     def snapshot_id(self) -> str:
+        if os.getenv("RETRIEVAL_NO_FULL_LOAD", "0").strip() == "1":
+            signature = repr(self.retrieval_signature())
+            return "corpus_" + hashlib.sha256(signature.encode("utf-8")).hexdigest()[:16]
         chunks = self.chunks()
         payload = "\n".join(
             f"{c.chunk_id}\0{c.source_id}\0{c.source_name}\0{c.index}\0{c.text}"

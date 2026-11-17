@@ -127,6 +127,10 @@ def extract_document(
     if suffix == ".pdf":
         provenance.update({"page_count": page_count, "parser": "pypdf-text-v1"})
 
+    from app.retrieval.doc_route import enabled, build_doc_card
+    if enabled():
+        provenance["doc_card"] = build_doc_card(clean_name, text)
+
     return ExtractedDocument(
         source_name=clean_name,
         text=text,

@@ -89,6 +89,9 @@ class SourceStore:
             "source_hash": source_hash,
             "source_version": source_id,
         }
+        from app.retrieval.doc_route import enabled, build_doc_card
+        if enabled():
+            source_provenance.pop("doc_card", None)
         chunks = [
             SourceChunk(
                 **{
@@ -111,6 +114,8 @@ class SourceStore:
         for replaced in replaced_sources:
             self._sources.pop(replaced, None)
         self._chunks.extend(chunks)
+        if enabled():
+            source_provenance["doc_card"] = build_doc_card(clean_name, clean_text)
         self._sources[source_id] = {
             "source_id": source_id,
             "source_name": clean_name,
@@ -149,6 +154,13 @@ class SourceStore:
                 for c in self._chunks if c.chunk_id in requested
                 and (selected is None or c.source_id in selected)
                 and self._sources.get(c.source_id, {}).get("status", "READY") == "READY"]
+
+    def doc_cards(self, source_ids=None) -> list[SourceChunk]:
+        from app.retrieval.doc_route import card_chunk
+        selected = None if source_ids is None else set(source_ids)
+        return [card_chunk(sid, row["provenance"]["doc_card"]) for sid, row in self._sources.items()
+                if (selected is None or sid in selected) and row.get("status", "READY") == "READY"
+                and row.get("provenance", {}).get("doc_card", {}).get("text")]
 
     def list_sources(self) -> list[dict]:
         grouped: dict[str, dict] = {}

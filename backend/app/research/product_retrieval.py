@@ -10,6 +10,7 @@ import os
 import re
 
 from app.core.types import RunMetrics, SourceChunk
+from app.retrieval.candidate_index import cached_rank
 from app.retrieval.hybrid import bm25_rank, rrf_merge, weakness
 from app.retrieval.text import retrieve
 
@@ -82,8 +83,21 @@ def _lists_for(pipeline, q: str, chunks, cfg, source_ids, top_k: int, fusion: st
         source_ids = sorted(scope_reader(q if version_query is None else version_query, source_ids))
         if chunks is not None:
             chunks = [c for c in chunks if c.source_id in source_ids]
+    from app.retrieval.doc_route import enabled as doc_route_enabled, route_source_ids
+    if doc_route_enabled():
+        source_ids = route_source_ids(pipeline, q if version_query is None else version_query, source_ids)
+        if not source_ids:
+            return [[]]
+        if chunks is not None:
+            chunks = [c for c in chunks if c.source_id in source_ids]
     lists = [_base(pipeline, q, chunks, cfg, source_ids, top_k, trace, version_query)]
     if fusion in {"bm25", "hybrid"}:
+        ranked = cached_rank(getattr(pipeline, "source_store", None), q, source_ids, top_k, bm25=True)
+        if ranked is not None:
+            lists += [ranked, ranked]
+            if pipeline.candidate_index is not None:
+                lists.append(cached_rank(pipeline.source_store, q, source_ids, top_k, cfg.retrieval_min_score))
+            return lists
         if chunks is None:  # lazy: only fusion needs the whole corpus
             chunks = pipeline.source_store.chunks(source_ids)
         ranked = bm25_rank(q, chunks, top_k=top_k)

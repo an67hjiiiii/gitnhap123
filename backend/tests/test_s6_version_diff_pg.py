@@ -23,8 +23,9 @@ pytestmark = pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="TEST
 DATA = Path(os.getenv("S6_TEST_DATA", "D:/CAP1-Orchestration/work/version_test"))
 
 
-@pytest.fixture
-def version_db(monkeypatch):
+@pytest.fixture(params=["0", "1"], ids=["legacy", "relations"])
+def version_db(monkeypatch, request):
+    monkeypatch.setenv("VERSION_RELATIONS", request.param)
     monkeypatch.setenv("VERSION_DIFF", "1")
     monkeypatch.setenv("VERSION_PROPOSE", "1")
     monkeypatch.setenv("VERSION_FILTER", "on")

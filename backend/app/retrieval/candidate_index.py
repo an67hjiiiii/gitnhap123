@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import os
-from collections import OrderedDict
+import threading
+from collections import Counter, OrderedDict
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable
@@ -26,6 +28,101 @@ from app.storage.vector_store import VectorMatch, VectorRecord, VectorStore
 
 
 logger = logging.getLogger(__name__)
+
+
+def no_full_load_enabled() -> bool:
+    return os.getenv("RETRIEVAL_NO_FULL_LOAD", "0").strip() == "1"
+
+
+_CORPORA: OrderedDict = OrderedDict()
+_CORPUS_LOCK = threading.RLock()
+
+
+class _LexicalCorpus:
+    """Derived terms only; canonical text/provenance are hydrated after ranking."""
+
+    def __init__(self, chunks):
+        from app.retrieval.hybrid import tokens
+        from app.retrieval.text import terms
+
+        self.sources = {}
+        self.lengths = {}
+        self.lexical = {}
+        self.postings = {}
+        for chunk in chunks:
+            cid = chunk.chunk_id
+            self.sources[cid] = chunk.source_id
+            counts = Counter(tokens(contextual_text(chunk)))
+            self.lengths[cid] = sum(counts.values())
+            self.lexical[cid] = terms(chunk.text)
+            for term, freq in counts.items():
+                self.postings.setdefault(term, {})[cid] = freq
+
+    def rank(self, query, source_ids, top_k, min_score, bm25):
+        from app.retrieval.hybrid import tokens
+        from app.retrieval.text import terms
+
+        selected = None if source_ids is None else set(source_ids)
+        ids = {cid for cid, sid in self.sources.items() if selected is None or sid in selected}
+        if not ids:
+            return []
+        scores = {}
+        if bm25:
+            n = len(ids)
+            avg = sum(self.lengths[cid] for cid in ids) / n or 1.0
+            for term in set(tokens(query)):
+                posting = self.postings.get(term, {})
+                matching = ids.intersection(posting)
+                df = len(matching)
+                idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
+                for cid in matching:
+                    freq = posting[cid]
+                    scores[cid] = scores.get(cid, 0.0) + idf * freq * 2.5 / (
+                        freq + 1.5 * (0.25 + 0.75 * self.lengths[cid] / avg))
+            scores = {cid: round(score, 6) for cid, score in scores.items() if score > 0}
+        else:
+            q = terms(query)
+            for cid in ids:
+                c = self.lexical[cid]
+                overlap = len(q & c)
+                score = round(0.8 * (overlap / max(1, len(q))) + 0.2 * (overlap / max(1, len(c))), 8)
+                if score > 0 and score >= min_score:
+                    scores[cid] = score
+        ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+        if bm25 and ranked:
+            ranked = [item for item in ranked if item[1] >= 0.4 * ranked[0][1]]
+        return ranked[:top_k]
+
+
+def cached_rank(store, query, source_ids, top_k, min_score=0.0, *, bm25=False):
+    """None selects legacy behavior; [] is an authoritative empty ranking.
+
+    Cache by database/owner/space and cheap corpus signature. Effective S4 and
+    version filters are applied to statistics as well as final canonical reads.
+    """
+    signature_reader = getattr(store, "retrieval_signature", None)
+    if not no_full_load_enabled() or not callable(signature_reader):
+        return None
+    if source_ids == []:
+        return []
+    signature = signature_reader()
+    factory = getattr(store, "session_factory", None)
+    database = factory.kw.get("bind") if factory is not None else store
+    key = (database, getattr(store, "owner_user_id", None), getattr(store, "space_id", None),
+           os.getenv("CHUNK_MODE", ""))
+    with _CORPUS_LOCK:
+        cached = _CORPORA.get(key)
+        if cached is None or cached[0] != signature:
+            corpus = _LexicalCorpus(store.chunks())
+            _CORPORA[key] = (signature, corpus)
+        else:
+            corpus = cached[1]
+        _CORPORA.move_to_end(key)
+        while len(_CORPORA) > 16:
+            _CORPORA.popitem(last=False)
+    ranked = corpus.rank(query, source_ids, top_k, min_score, bm25)
+    chunks = {c.chunk_id: c for c in store.chunks_by_ids([cid for cid, _ in ranked], source_ids=source_ids)}
+    return [replace(chunks[cid], score=score) for cid, score in ranked if cid in chunks]
 
 
 class CandidateIndex:

@@ -132,6 +132,20 @@ def filter_version_ids(visible_ids: set[str], versions, query: str, *, today: da
     allowed = set(visible_ids)
     if asks_other_versions(query):
         return allowed
+    from app.research.version_relations import (
+        normalized_doc_number, relation_current_ids, relations_enabled,
+    )
+    versions = list(versions)
+    if relations_enabled():
+        allowed = relation_current_ids(allowed, versions, today=today)
+        # Legal instruments use explicit relations; synthetic policy families
+        # continue to use the established date-based policy below.
+        legal = [v for v in versions if normalized_doc_number(v.get("doc_number"))]
+        for v in legal:
+            if (v["source_id"] in visible_ids and v.get("confirmed_at") is not None
+                    and v.get("status") == "draft"):
+                allowed.discard(v["source_id"])
+        versions = [v for v in versions if not normalized_doc_number(v.get("doc_number"))]
     confirmed = [v for v in versions if v["source_id"] in visible_ids
                  and v.get("confirmed_at") is not None and v.get("family_key")]
     latest = {}

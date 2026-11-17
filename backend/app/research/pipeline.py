@@ -53,6 +53,7 @@ from app.research.product_retrieval import product_retrieve, run_budget_exceeded
 from app.research.vanilla import answer_vanilla
 from app.research.worker import execute_task
 from app.retrieval.index_identity import IndexingError
+from app.retrieval.candidate_index import cached_rank, no_full_load_enabled
 from app.retrieval.multilingual import RetrievalQueryVariant, build_query_variants, detect_language
 from app.retrieval.text import apply_token_budget, estimate_tokens, retrieve, terms
 from app.storage.run_store import RunStore
@@ -104,11 +105,32 @@ class ResearchPipeline:
                 return []
             if chunks is not None:
                 chunks = [c for c in chunks if c.source_id in source_ids]
+        from app.retrieval.doc_route import enabled as doc_route_enabled, route_source_ids
+        if doc_route_enabled():
+            source_ids = route_source_ids(self, query if version_query is None else version_query, source_ids)
+            if not source_ids:
+                return []
+            if chunks is not None:
+                chunks = [c for c in chunks if c.source_id in source_ids]
         variants = build_query_variants(query)
         for extra in EXTRA_RETRIEVAL_QUERIES.get():  # translated question for a mixed-language corpus
             if extra and all(extra != v.text for v in variants):
                 variants.append(RetrievalQueryVariant("translated_query", extra, detect_language(extra)))
         if self.candidate_index is None:
+            cached = []
+            for variant in variants:
+                result = cached_rank(self.source_store, variant.text, source_ids, top_k, min_score)
+                if result is None:
+                    break
+                cached.append(result)
+            if len(cached) == len(variants):
+                merged = {}
+                for result in cached:
+                    for chunk in result:
+                        current = merged.get(chunk.chunk_id)
+                        if current is None or (chunk.score or 0.0) > (current.score or 0.0):
+                            merged[chunk.chunk_id] = chunk
+                return sorted(merged.values(), key=lambda c: c.score or 0.0, reverse=True)[:top_k]
             if chunks is None:
                 chunks = self.source_store.chunks(source_ids)
             merged: dict[str, SourceChunk] = {}
@@ -161,12 +183,15 @@ class ResearchPipeline:
         # The index is derived and can miss paraphrases. Fall back only over the
         # already owner-scoped canonical chunks supplied by the source store.
         # Keep the same top-k and score gate; normalize only generic query fillers.
-        if chunks is None:
+        if chunks is None and not (no_full_load_enabled() and callable(getattr(self.source_store, "retrieval_signature", None))):
             chunks = self.source_store.chunks(source_ids)
         fallback_map: dict[str, SourceChunk] = {}
         for variant in variants:
             lexical_query = " ".join(sorted(terms(variant.text) - _LEXICAL_FALLBACK_FILLERS)) or variant.text
-            for chunk in retrieve(lexical_query, chunks, top_k=top_k, min_score=min_score):
+            result = cached_rank(self.source_store, lexical_query, source_ids, top_k, min_score)
+            if result is None:
+                result = retrieve(lexical_query, chunks, top_k=top_k, min_score=min_score)
+            for chunk in result:
                 current = fallback_map.get(chunk.chunk_id)
                 if current is None or (chunk.score or 0.0) > (current.score or 0.0):
                     fallback_map[chunk.chunk_id] = chunk
@@ -400,6 +425,7 @@ class ResearchPipeline:
             diff_evidence = (await asyncio.to_thread(diff_reader, simple_retrieval_query, source_ids)
                              if callable(diff_reader) and (condition == "A" or simple_product_request) else None)
             all_chunks = (None if diff_evidence is not None or self.candidate_index is not None
+                          or (no_full_load_enabled() and callable(getattr(self.source_store, "retrieval_signature", None)))
                           else self.source_store.chunks(source_ids))
             budget_cut = False
             if condition == "A" or simple_product_request:
