@@ -92,7 +92,9 @@ def test_atomic_units_and_modal():
 def test_topic_equivalence_and_clause_addition(corpus):
     for policy, query, article, clause in [
         ("CS_DANGNHAP", "Thời gian mở khóa có thay đổi không?", "Điều 3", "2"),
+        ("CS_DANGNHAP", "Thời gian tự động mở khóa tài khoản có thay đổi không?", "Điều 3", "2"),
         ("CS_API", "Thời hạn API key có thay đổi không?", "Điều 4", "1"),
+        ("CS_API", "Thời hạn của API key có thay đổi không?", "Điều 4", "1"),
         ("CS_NHATKY", "Sao lưu có thay đổi không?", "Điều 6", "1"),
     ]:
         old, new = corpus[policy]
@@ -113,3 +115,12 @@ def test_dump_cli_exact_schema(corpus):
     assert len(rows) == 3
     assert all(set(row) == {"pair", "old_article", "new_article", "kind", "atoms_before", "atoms_after"} for row in rows)
     assert all(row["pair"] == "CS_API" for row in rows)
+
+
+def test_dump_cli_with_text(corpus):
+    result = subprocess.run([sys.executable, "-X", "utf8", "scripts/s6_dump_diff.py", "--with-text",
+        str(DATA / "CS_API_v1.txt"), str(DATA / "CS_API_v2.txt"), "CS_API"], capture_output=True, check=True)
+    rows = json.loads(result.stdout)
+    assert len(rows) == 3
+    assert all(len(r["text_before"]) <= 300 and len(r["text_after"]) <= 300 for r in rows)
+    assert any("100" in r["text_before"] and "300" in r["text_after"] for r in rows)

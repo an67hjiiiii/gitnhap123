@@ -45,6 +45,9 @@ def version_db(monkeypatch):
                 name = f"{policy}_v{v}.txt"
                 text = extract_document((DATA / name).read_bytes(), name).text
                 ids[policy, v] = stores[0].import_text(name, text)["source_id"]
+        assert stored(factory, stores[0]) == []
+        for sid in ids.values():
+            stores[0].confirm_version(sid, owners[0])
         yield factory, stores, ids, space
     finally:
         with factory.begin() as db:
@@ -115,6 +118,7 @@ def test_out_of_order_adjacency_and_idempotent_import(version_db):
     assert len(stored(factory, store)) == 12
     middle = text.replace("Phiên bản: 2.0", "Phiên bản: 1.5").replace("01/10/2026", "01/01/2026")
     mid_id = store.import_text("CS_API_v15.txt", middle)["source_id"]
+    store.confirm_version(mid_id, store.owner_user_id)
     rows = [r for r in stored(factory, store) if r.family_key == "CS-API-03"]
     assert len(rows) == 3
     assert {r.old_source_id for r in rows} == {ids["CS_API", 1]}
@@ -173,14 +177,81 @@ def test_quick_path_skips_retrieval_and_preserves_guard(version_db, monkeypatch,
     assert "100" in result["answer"] and "300" in result["answer"]
 
 
-def test_unchanged_prompt_and_two_citations(version_db):
+@pytest.mark.parametrize("query,before,after", [
+    ("Thời gian tự động mở khóa tài khoản có thay đổi không?", "30 phút", "0,5 giờ"),
+    ("Thời hạn của API key có thay đổi không?", "12 tháng", "một năm"),
+])
+def test_unchanged_template_and_two_citations(version_db, query, before, after):
     _, (store, _), _, _ = version_db
-    evidence = store.version_diff_evidence("Thời hạn API key có thay đổi không?")
+    evidence = store.version_diff_evidence(query)
     class Provider:
         async def generate(self, *, system, user):
-            assert "không đổi về nội dung" in user
-            assert "12 tháng" in user and "một năm" in user
-            return ProviderResult(json.dumps({"status": "COMPLETE", "answer": "Thời hạn API key không đổi về nội dung.",
-                "citations": [c.chunk_id for c in evidence]}, ensure_ascii=False))
-    result = asyncio.run(answer_vanilla(Provider(), "Thời hạn API key có thay đổi không?", evidence, RunMetrics()))
-    assert "không đổi về nội dung" in result.answer and len(result.citations) == 2
+            pytest.fail("unchanged answer must not call the model")
+    metrics = RunMetrics()
+    result = asyncio.run(answer_vanilla(Provider(), query, evidence, metrics))
+    assert result.answer.startswith("Không đổi về nội dung: bản 1.0 ghi '")
+    assert before in result.answer and after in result.answer
+    assert "(cùng giá trị sau chuẩn hóa)." in result.answer
+    assert len(result.citations) == 2 and metrics.llm_calls == 0
+    assert len({c.source_id for c in evidence}) == 2
+
+
+@pytest.fixture
+def unconfirmed_pair(version_db):
+    factory, (store, _), ids, _ = version_db
+    pair = [ids["CS_API", v] for v in (1, 2)]
+    with factory.begin() as db:
+        for sid in pair:
+            v = db.scalar(select(DocumentVersionRecord).where(DocumentVersionRecord.source_id == sid))
+            v.confirmed_at = v.confirmed_by = None
+            v.status = "unverified"
+        store._refresh_version_diffs(db, db.get(KnowledgeSourceRecord, pair[0]))
+    return factory, store, pair
+
+
+def api_rows(factory, store):
+    return [r for r in stored(factory, store) if r.family_key == "CS-API-03"]
+
+
+def test_unconfirmed_versions_have_no_diff(unconfirmed_pair):
+    factory, store, pair = unconfirmed_pair
+    store.confirm_version(pair[0], store.owner_user_id)
+    assert api_rows(factory, store) == []
+    assert not store.version_diff_evidence("So sánh chính sách API")
+
+
+def test_confirmed_draft_has_no_diff(unconfirmed_pair):
+    factory, store, pair = unconfirmed_pair
+    with factory.begin() as db:
+        v = db.scalar(select(DocumentVersionRecord).where(DocumentVersionRecord.source_id == pair[1]))
+        v.evidence = {**v.evidence, "proposed_status": "draft"}
+    for sid in pair:
+        store.confirm_version(sid, store.owner_user_id)
+    assert store.get_version(pair[1])["status"] == "draft"
+    assert api_rows(factory, store) == []
+
+
+def test_confirm_second_issued_version_creates_diff(unconfirmed_pair):
+    factory, store, pair = unconfirmed_pair
+    store.confirm_version(pair[0], store.owner_user_id)
+    assert api_rows(factory, store) == []
+    store.confirm_version(pair[1], store.owner_user_id)
+    assert len(api_rows(factory, store)) == 3
+
+
+def test_confirm_draft_preserves_existing_diff(version_db):
+    factory, (store, _), ids, _ = version_db
+    before = {(r.old_source_id, r.new_source_id, r.kind, r.text_before, r.text_after)
+              for r in stored(factory, store)}
+    with factory() as db:
+        text = store._version_text(db, db.get(KnowledgeSourceRecord, ids["CS_API", 2]))
+    draft = text.replace("Phiên bản: 2.0", "Phiên bản: 3.0")
+    draft = draft.replace("01/10/2026", "01/11/2026")
+    draft = draft.replace("Đã ban hành, đang có hiệu lực", "Dự thảo")
+    sid = store.import_text("CS_API_v3_draft.txt", draft)["source_id"]
+    store.confirm_version(sid, store.owner_user_id)
+    assert store.get_version(sid)["status"] == "draft"
+    after = {(r.old_source_id, r.new_source_id, r.kind, r.text_before, r.text_after)
+             for r in stored(factory, store)}
+    assert after == before
+    assert all(sid not in (r.old_source_id, r.new_source_id) for r in stored(factory, store))

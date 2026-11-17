@@ -52,6 +52,25 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
             missing_information=["relevant evidence"],
         )
 
+    if all(c.provenance.get("version_unchanged") for c in evidence):
+        sentences = []
+        for old, new in zip(evidence[::2], evidence[1::2]):
+            if (old.provenance.get("version_side") != "before"
+                    or new.provenance.get("version_side") != "after"
+                    or old.provenance.get("version_unit") != new.provenance.get("version_unit")):
+                break
+            sentences.append(
+                f"Không đổi về nội dung: bản {old.provenance['version_label']} ghi '{old.provenance['version_excerpt']}', "
+                f"bản {new.provenance['version_label']} ghi '{new.provenance['version_excerpt']}' "
+                "(cùng giá trị sau chuẩn hóa).")
+        else:
+            if len(evidence) % 2 == 0 and sentences:
+                citations = [c.chunk_id for c in evidence]
+                metrics.add_citations(citations, [])
+                return TaskResult(task_id="T1", domain="general", status="COMPLETE",
+                    answer="\n".join(sentences) + "\n\nNguồn: " + ", ".join(f"[{cid}]" for cid in citations),
+                    evidence_ids=citations, citations=citations)
+
     evidence_text = "\n\n".join(_format_evidence_chunk(c) for c in evidence)
     system = (
         "VANILLA_RAG_ANSWERER. Chỉ dùng bằng chứng được cấp. Chỉ trả JSON theo Schema. "

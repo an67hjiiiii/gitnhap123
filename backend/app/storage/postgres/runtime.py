@@ -608,10 +608,21 @@ class PostgresSourceStore:
         sources = {s.source_id: s for s in db.scalars(select(KnowledgeSourceRecord).where(
             KnowledgeSourceRecord.owner_user_id == source.owner_user_id,
             KnowledgeSourceRecord.space_id == source.space_id))}
-        db.execute(delete(VersionDiffRecord).where(or_(VersionDiffRecord.old_source_id.in_(sources),
-                                                     VersionDiffRecord.new_source_id.in_(sources))))
+        current = db.scalar(select(DocumentVersionRecord).where(
+            DocumentVersionRecord.source_id == source.source_id))
+        families_to_refresh = set(db.scalars(select(VersionDiffRecord.family_key).where(or_(
+            VersionDiffRecord.old_source_id == source.source_id,
+            VersionDiffRecord.new_source_id == source.source_id))))
+        if current and current.family_key:
+            families_to_refresh.add(current.family_key)
+        db.execute(delete(VersionDiffRecord).where(
+            VersionDiffRecord.family_key.in_(families_to_refresh),
+            or_(VersionDiffRecord.old_source_id.in_(sources),
+                VersionDiffRecord.new_source_id.in_(sources))))
         versions = db.scalars(select(DocumentVersionRecord).where(
-            DocumentVersionRecord.source_id.in_(sources), DocumentVersionRecord.family_key.is_not(None),
+            DocumentVersionRecord.source_id.in_(sources),
+            DocumentVersionRecord.family_key.in_(families_to_refresh),
+            DocumentVersionRecord.confirmed_at.is_not(None), DocumentVersionRecord.status == "issued",
             DocumentVersionRecord.effective_from.is_not(None)).order_by(
                 DocumentVersionRecord.effective_from, DocumentVersionRecord.source_id)).all()
         families = {}
@@ -658,7 +669,7 @@ class PostgresSourceStore:
                 old, new = versions.get(row.old_source_id), versions.get(row.new_source_id)
                 if old is None or new is None:
                     continue
-                if any((v.status if v.confirmed_at else (v.evidence or {}).get("proposed_status", v.status)) == "draft"
+                if any(v.confirmed_at is None or v.status != "issued"
                        or (v.effective_from and v.effective_from > date.today()) for v in (old, new)):
                     continue
                 key = (sources[row.new_source_id].owner_user_id, sources[row.new_source_id].space_id, row.family_key)
@@ -705,7 +716,10 @@ class PostgresSourceStore:
                         for sid, side in ((old_id, "before"), (new_id, "after")):
                             text = f"{label(sid)}\n{u['old_article' if side == 'before' else 'new_article']}\n{u['text_' + side]}"
                             evidence.append(SourceChunk(f"eq_{sid}_{len(evidence)}", sid, sources[sid].source_name,
-                                text, len(evidence), provenance={"version_diff": True, "version_unchanged": True}))
+                                text, len(evidence), provenance={"version_diff": True, "version_unchanged": True,
+                                    "version_label": versions[sid].version_label or versions[sid].doc_number or sid,
+                                    "version_excerpt": u["text_" + side], "version_side": side,
+                                    "version_unit": (u["old_article"], u["old_clause"], u["new_article"], u["new_clause"])}))
             return evidence
 
     def get_version(self, source_id: str) -> dict[str, Any] | None:
