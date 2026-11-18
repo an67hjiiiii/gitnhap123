@@ -55,3 +55,43 @@ def test_ordinary_questions_do_not_use_diff_route(query):
 ])
 def test_real_version_questions_keep_intent(query, intent):
     assert diff_intent(query) == intent
+
+
+from app.ingestion.version_diff import mentions_doc_number
+
+
+@pytest.mark.parametrize("query,numbers,expected", [
+    ("Điều 4 của Thông tư 50/2026/TT-BGDĐT thay đổi gì so với Thông tư 25/2021/TT-BGDĐT?", ["25/2021/TT-BGDĐT", "50/2026/TT-BGDĐT"], True),
+    ("Thông tư 25/2021 quy định gì?", ["25/2021/TT-BGDĐT"], True),
+    ("Điều 5 khoản 7 Thông tư 34/2026/TT-BGDĐT quy định gì?", ["25/2021/TT-BGDĐT", "50/2026/TT-BGDĐT"], False),
+    ("Thông tư 150/2026 quy định gì?", ["50/2026/TT-BGDĐT"], False),
+    ("Chính sách mật khẩu thay đổi gì?", ["CS-DN-01"], False),
+    ("Thông tư 50/2026/TT-BGDĐT thay đổi gì?", [None, ""], False),
+])
+def test_mentions_doc_number_both_sides(query, numbers, expected):
+    assert mentions_doc_number(query, numbers) is expected
+
+
+from app.ingestion.version_diff import topic_units
+
+
+def _unit(article, before, after):
+    return {"old_article": article, "new_article": article, "old_clause": "1", "new_clause": "1",
+            "text_before": before, "text_after": after, "kind": "DOI"}
+
+
+UNITS = [
+    _unit("Điều 24", "Điều khoản chuyển tiếp Thông tư này áp dụng cho khóa đã tuyển sinh trước ngày Thông tư này có hiệu lực",
+          "Điều khoản chuyển tiếp Thông tư này áp dụng cho khóa tuyển sinh trước khi Thông tư này có hiệu lực thi hành"),
+    _unit("Điều 2", "Giải thích từ ngữ Giảng viên cơ hữu là giảng viên của cơ sở cử đi",
+          "Giải thích từ ngữ Giảng viên cơ hữu là nhà giáo được tuyển dụng toàn thời gian"),
+]
+
+
+def test_topic_ignores_document_numbers_and_generic_words():
+    q = "Khái niệm giảng viên cơ hữu trong bản mới (Thông tư 50/2026/TT-BGDĐT) thay đổi gì so với bản cũ Thông tư 25/2021/TT-BGDĐT?"
+    assert [u["old_article"] for u in topic_units(q, UNITS)] == ["Điều 2"]
+
+
+def test_no_topic_beyond_document_numbers_keeps_all_units():
+    assert topic_units("Thông tư 50/2026/TT-BGDĐT thay đổi gì so với bản cũ Thông tư 25/2021/TT-BGDĐT?", UNITS) == UNITS

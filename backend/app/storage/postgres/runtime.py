@@ -713,7 +713,7 @@ class PostgresSourceStore:
         the S4 effective selection. Read stored changes; use source units only
         for topic matching and demonstrably equivalent unchanged items.
         """
-        from app.ingestion.version_diff import canonical, compare_units, diff_intent, topic_units
+        from app.ingestion.version_diff import canonical, compare_units, diff_intent, mentions_doc_number, topic_units
         from app.research.version_relations import normalized_doc_number, relations_enabled
 
         intent = diff_intent(query)
@@ -766,9 +766,13 @@ class PostgresSourceStore:
                 score = max((len(p) for p in phrases if p in q and p not in {"chính sách", "hệ thống", "sử dụng"}), default=0)
                 if re.search(r"\bapi\b", q) and "api" in canonical(label):
                     score = max(score, 3)
+                if mentions_doc_number(query, [versions[i].doc_number for i in pairs[key][2:4] if i in versions]):
+                    score = max(score, 100)  # câu hỏi nêu số hiệu của bản cũ/bản mới: chỉ lấy cặp đó
                 mentioned[key] = score
             best = max(mentioned.values(), default=0)
-            if best:
+            if best >= 100:  # có số hiệu văn bản trong câu hỏi: chỉ các cặp đó, tiêu đề chung không được kéo cặp khác vào
+                pairs = {k: v for k, v in pairs.items() if mentioned[k] >= 100}
+            elif best:
                 pairs = {k: v for k, v in pairs.items() if mentioned[k] > 0}
             evidence = []
             for key, (_, _, old_id, new_id) in pairs.items():

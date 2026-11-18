@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+import math
 import re
 import unicodedata
 
@@ -40,6 +41,16 @@ def diff_intent(query: str) -> str | None:
     if "mới" in text and not re.search(r"so sánh|so với|thay đổi|khác nhau|\bbỏ\b", text):
         return "NEW"
     return "ALL"
+
+
+def mentions_doc_number(query: str, doc_numbers) -> bool:
+    """True khi câu hỏi nêu số hiệu (vd "50/2026") của một trong các văn bản; không khớp phần của số khác."""
+    q = canonical(query)
+    for number in doc_numbers:
+        m = re.match(r"\d+/\d{4}", number or "")
+        if m and re.search(r"(?<![\d/])" + re.escape(m.group(0)) + r"(?!\d)", q):
+            return True
+    return False
 
 
 _QUANTITY = re.compile(
@@ -167,6 +178,9 @@ def diff_versions(old: str, new: str, pair: str = "", *, include_text: bool = Fa
 _STOP = set("chính sách có gì nào không đổi nội dung về so sánh thay khác nhau điểm mới thêm bị bỏ giữa các bản và với trước sau trong của mục một những đã còn hay như thế nào tài liệu quy định được phải là không thể cho biết ở v1 v2".split())
 
 
+_DOC_REF_WORDS = frozenset({"thông", "tư", "nghị", "định", "bản", "mới", "cũ", "gì", "so", "với", "tại", "ở", "của", "khái", "niệm", "nghĩa", "cho", "trong", "về"})
+
+
 def topic_units(query: str, units: list[dict], *, family_label: str = "") -> list[dict]:
     """Select the most specific item mentioned; no topic means all items."""
     query = canonical(query)
@@ -183,12 +197,20 @@ def topic_units(query: str, units: list[dict], *, family_label: str = "") -> lis
         query = query.replace(label, " ")
         if "api" in label:
             query = re.sub(r"chính sách\s+(?:sử dụng\s+)?api", " ", query)
-    tokens = set(re.findall(r"\w+", query)) - _STOP
+    query = re.sub(r"\d+/\d{4}(?:/[\w\-đ]+)?", " ", query)  # số hiệu văn bản chỉ chọn cặp, không phải chủ đề
+    tokens = set(re.findall(r"\w+", query)) - _STOP - _DOC_REF_WORDS
     family_tokens = set(re.findall(r"\w+", label)) - _STOP
     if tokens <= family_tokens:
         tokens = set()
     if not tokens:
         return units
-    scored = [(len(tokens & set(re.findall(r"\w+", canonical(r["text_before"] + " " + r["text_after"])))), r) for r in units]
+    unit_tokens = [set(re.findall(r"\w+", canonical(r["text_before"] + " " + r["text_after"]))) for r in units]
+    # Từ chỉ có ở ít mục thì nặng hơn: mục dài chứa nhiều từ chung không còn thắng mục nêu đúng chủ đề.
+    weight = {t: math.log(1 + len(units) / max(1, sum(t in u for u in unit_tokens))) for t in tokens}
+    order = [w for w in re.findall(r"\w+", query) if w in tokens]
+    pairs = [(a, b) for a, b in zip(order, order[1:])]
+    texts = [" ".join(re.findall(r"\w+", canonical(r["text_before"] + " " + r["text_after"]))) for r in units]
+    scored = [(round(sum(weight[t] for t in tokens & u) + sum(weight[a] + weight[b] for a, b in pairs if f"{a} {b}" in tx), 6), r)
+              for u, tx, r in zip(unit_tokens, texts, units)]
     best = max((score for score, _ in scored), default=0)
     return [row for score, row in scored if score == best] if best else []
