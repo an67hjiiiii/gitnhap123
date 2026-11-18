@@ -12,10 +12,27 @@ def canonical(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text).casefold()).strip()
 
 
+# Cụm từ thường KHÔNG nói về thay đổi giữa hai phiên bản: bị che trước khi nhận ý định.
+_NOT_VERSION_PHRASES = re.compile(
+    r"bãi bỏ|"
+    r"so với (?:số |lượng |mức )?(?:thực tuyển|năm (?:học |tuyển sinh )?trước|năm liền kề|năm ngoái)|"
+    r"(?:mở|thành lập|thành lập và mở) mới|mới (?:được )?(?:mở|thành lập)|"
+    r"(?:ngành|trường|cơ sở|phân hiệu|chương trình)(?: đào tạo| giáo dục)? mới|"
+    r"thêm nữa|thêm vào đó|bổ sung thêm")
+# Dấu hiệu hỏi về PHIÊN BẢN; thiếu chúng thì "so sánh/khác nhau/so với" chỉ là so hai đối tượng cùng một văn bản.
+_VERSION_CUE = re.compile(
+    r"phiên bản|\bbản\b|trước đây|hiện hành|\bcũ\b|sửa đổi|thay thế|trước và sau|trước khi|sau khi|"
+    r"thay đổi|điểm mới|\bthêm\b|\bbỏ\b|\bmới\b|hai (?:thông tư|văn bản|bản)")
+
+
 def diff_intent(query: str) -> str | None:
     text = canonical(query)
+    text = _NOT_VERSION_PHRASES.sub(" ", text)
     if not re.search(r"so sánh|so với|thay đổi|khác nhau|điểm mới|\bthêm\b|\bbỏ\b|\bmới\b", text):
         return None
+    if not _VERSION_CUE.search(text) and (len(text.split()) > 12
+            or re.search(r"(?:thông tư|nghị định|luật|quyết định|điều|khoản)\s*\d", text)):
+        return None  # so hai đối tượng trong cùng một văn bản, không phải hai phiên bản
     if re.search(r"\b(?:bị )?bỏ\b", text) and not re.search(r"so sánh|so với|thay đổi|khác nhau|thêm|mới", text):
         return "BO"
     if re.search(r"điểm mới|\bthêm\b", text) and not re.search(r"so sánh|so với|thay đổi|khác nhau|\bbỏ\b", text):

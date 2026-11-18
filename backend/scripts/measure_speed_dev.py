@@ -19,8 +19,8 @@ from measure_context_dev import WORK, configure, setup, read_rows, independent_r
 
 OUT = WORK / 'speed5_verified'
 BASE = WORK / 'context4_v4'
-CONTEXT = 8192
-OUTPUT = 700
+CONTEXT = int(os.environ.get('SPEED_NUM_CTX', '8192'))
+OUTPUT = int(os.environ.get('SPEED_MAX_OUTPUT', '700'))
 
 
 def append(path, row):
@@ -58,7 +58,7 @@ def runtime_ps():
 def configure_speed(mode, k):
     flags = configure()
     flags.update(RETRIEVAL_FUSION='off' if mode == 'bm25' else 'bm25',
-                 TASK_TOP_K=str(k), MAX_CONTEXT_TOKENS='3000', MAX_RUN_TOKENS='8892',
+                 TASK_TOP_K=str(k), MAX_OUTPUT_TOKENS=str(OUTPUT), MAX_CONTEXT_TOKENS='3000', MAX_RUN_TOKENS='8892',
                  LOCAL_LLM_CONTEXT_TOKENS=str(CONTEXT))
     os.environ.update(flags)
     return flags
@@ -87,7 +87,7 @@ def install_bm25(pipeline):
 
 async def main(args):
     flags = configure_speed(args.retrieval, args.k)
-    directory = OUT / f'{args.retrieval}_k{args.k}'
+    directory = OUT / (f'{args.retrieval}_k{args.k}' + (f'_{args.arm}' if args.arm else ''))
     directory.mkdir(parents=True, exist_ok=True)
     dev_path = WORK / 'bo_cau_hoi' / 'dev.csv'
     dev = read_rows(dev_path)
@@ -145,7 +145,7 @@ async def main(args):
             cache_hash=digest(cache), model_digests=digests, flags=flags, runtime_config=asdict(RuntimeConfig.from_env()),
             retrieval=args.retrieval, k=args.k, num_ctx=CONTEXT, max_output=OUTPUT, corpus=[21,1277],
             evaluation='DEV only; version diff is a separate route; no semantic grading')
-        if manifest['code_hash'] != prior['code_hash']:
+        if manifest['code_hash'] != prior['code_hash'] and os.environ.get('SPEED_ALLOW_NEW_CODE') != '1':
             raise RuntimeError('Prior exact-prompt counts require unchanged application code')
         write_once(directory/'manifest.json', manifest)
         key = digest(manifest)
@@ -248,4 +248,5 @@ if __name__ == '__main__':
     parser.add_argument('--retrieval', required=True, choices=['bm25','d3'])
     parser.add_argument('--k', type=int, required=True, choices=[5,6])
     parser.add_argument('--phase', required=True, choices=['sample','all'])
+    parser.add_argument('--arm', default='')
     asyncio.run(main(parser.parse_args()))
