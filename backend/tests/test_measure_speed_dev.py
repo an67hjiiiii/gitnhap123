@@ -51,5 +51,3 @@ def test_bm25_never_falls_back(monkeypatch):
     speed.install_bm25(pipeline)
     with pytest.raises(RuntimeError, match='refusing fallback'):
         pipeline._retrieve_candidates('q', None, top_k=5, min_score=0, source_ids=[])
-
-
