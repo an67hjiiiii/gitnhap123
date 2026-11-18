@@ -713,7 +713,8 @@ class PostgresSourceStore:
         the S4 effective selection. Read stored changes; use source units only
         for topic matching and demonstrably equivalent unchanged items.
         """
-        from app.ingestion.version_diff import canonical, compare_units, diff_intent, mentions_doc_number, topic_units
+        from app.ingestion.version_diff import (
+            canonical, compare_units, diff_intent, is_atomic, mentions_doc_number, rank_diff_rows, shorten_diff_text, topic_units)
         from app.research.version_relations import normalized_doc_number, relations_enabled
 
         intent = diff_intent(query)
@@ -775,6 +776,7 @@ class PostgresSourceStore:
             elif best:
                 pairs = {k: v for k, v in pairs.items() if mentioned[k] > 0}
             evidence = []
+            ranked_rows = []
             for key, (_, _, old_id, new_id) in pairs.items():
                 units = compare_units(self._version_text(db, sources[old_id]), self._version_text(db, sources[new_id]))
                 selected = topic_units(query, units, family_label=labels[key])
@@ -786,10 +788,17 @@ class PostgresSourceStore:
                     v = versions[sid]
                     return f"Tài liệu: {sources[sid].source_name}\nPhiên bản: {v.version_label or v.doc_number or sid}"
                 for r in changes:
-                    text = (f"{label(old_id)}\n{r.old_article or 'Không có Điều cũ'} / khoản {r.old_clause or '-'}\nTrước: {r.text_before or 'Không có'}\n"
-                            f"{label(new_id)}\n{r.new_article or 'Không có Điều mới'} / khoản {r.new_clause or '-'}\nSau: {r.text_after or 'Không còn'}\nLoại: {r.kind}")
-                    evidence.append(SourceChunk(r.id, new_id, sources[new_id].source_name, text, len(evidence),
-                        provenance={"version_diff": True, "family_key": r.family_key}))
+                    before = shorten_diff_text(r.text_before or "", r.old_article)
+                    after = shorten_diff_text(r.text_after or "", r.new_article)
+                    text = (f"{label(old_id)}\n{r.old_article or 'Không có Điều cũ'} / khoản {r.old_clause or '-'}\nTrước: {before or 'Không có'}\n"
+                            f"{label(new_id)}\n{r.new_article or 'Không có Điều mới'} / khoản {r.new_clause or '-'}\nSau: {after or 'Không còn'}\nLoại: {r.kind}")
+                    ranked_rows.append(({"text_before": r.text_before, "text_after": r.text_after}, labels[key], SourceChunk(
+                        r.id, new_id, sources[new_id].source_name, text, 0,
+                        provenance={"version_diff": True, "family_key": r.family_key, "diff_kind": r.kind,
+                                    "diff_old_label": versions[old_id].version_label or versions[old_id].doc_number,
+                                    "diff_new_label": versions[new_id].version_label or versions[new_id].doc_number,
+                                    "diff_old_unit": (r.old_article, r.old_clause), "diff_new_unit": (r.new_article, r.new_clause),
+                                    "diff_before": before, "diff_after": after})))
                 if not changes and selected and intent == "ALL" and all(u["kind"] is None for u in selected):
                     for u in selected:
                         for sid, side in ((old_id, "before"), (new_id, "after")):
@@ -799,6 +808,31 @@ class PostgresSourceStore:
                                     "version_label": versions[sid].version_label or versions[sid].doc_number or sid,
                                     "version_excerpt": u["text_" + side], "version_side": side,
                                     "version_unit": (u["old_article"], u["old_clause"], u["new_article"], u["new_clause"])}))
+            if ranked_rows:
+                rows = [row for row, _, _ in ranked_rows]
+                has_topic, scored = rank_diff_rows(query, rows, sorted({lab for _, lab, _ in ranked_rows}))
+                best = max((sc for sc, _ in scored), default=0.0)
+                score_of = {id(row): sc for sc, row in scored}
+                chunk_of = {id(row): chunk for row, _, chunk in ranked_rows}
+
+                def order(row):
+                    atomic = is_atomic((row["text_before"] or "") + " " + (row["text_after"] or ""))
+                    return -(score_of[id(row)] + (0.25 * best if atomic and has_topic else 0.0))
+
+                ordered = sorted(rows, key=order)
+                if has_topic:  # giữ tối đa 3 mục khớp nhất, bỏ mục trùng nội dung (hàng bảng lặp)
+                    kept, seen_text = [], set()
+                    for row in ordered:
+                        sig = (row["text_before"], row["text_after"])
+                        if score_of[id(row)] >= 0.5 * best and sig not in seen_text:
+                            seen_text.add(sig)
+                            kept.append(row)
+                    ordered = kept[:3]
+                else:
+                    ordered = ordered[:12]
+                for position, row in enumerate(ordered):
+                    chunk_of[id(row)].provenance["diff_topic"] = has_topic
+                    evidence.insert(position, chunk_of[id(row)])
             return evidence
 
     def get_version(self, source_id: str) -> dict[str, Any] | None:

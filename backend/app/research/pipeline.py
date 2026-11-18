@@ -505,6 +505,8 @@ class ResearchPipeline:
                         )
                     if checker is not None and checker.budget_cut:
                         budget_cut = True
+                if diff_evidence is not None and not diff_evidence and result.status == "NO_EVIDENCE":
+                    result.answer = "Không tìm thấy khác biệt phù hợp giữa các phiên bản trong tài liệu đã tải lên."
                 if result.guard_notes:
                     event("answer_guard", notes=list(result.guard_notes))
                 if result.status == "NO_EVIDENCE":

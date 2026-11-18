@@ -53,6 +53,50 @@ def mentions_doc_number(query: str, doc_numbers) -> bool:
     return False
 
 
+_NORMATIVE = re.compile(r"\b(?:phải|không được|được|cấm|bắt buộc|tối thiểu|tối đa|không quá|ít nhất)\b")
+_TABLE_LIKE = re.compile(r"\bSTT\b|họ và tên|ngày sinh|mẫu số|phụ lục", re.I)
+
+
+def is_atomic(text: str) -> bool:
+    """Mục có số, ngày hoặc từ khóa quy phạm: thay đổi kiểm chứng được."""
+    t = canonical(text or "")
+    return bool(re.search(r"\d", t) or _NORMATIVE.search(t))
+
+
+def shorten_diff_text(text: str, article: str | None = None, limit: int = 450) -> str:
+    """Rút gọn mục dài; bảng/phụ lục chỉ ghi nơi xem, không đưa nguyên văn vào lời nhắc."""
+    text = (text or "").strip()
+    if len(text) > 700 and len(_TABLE_LIKE.findall(text)) >= 2:
+        return f"[bảng/phụ lục thay đổi, xem {article or 'điều tương ứng'}]"
+    return text if len(text) <= limit else text[:limit].rstrip() + " …"
+
+
+def rank_diff_rows(query: str, rows: list[dict], family_label="") -> tuple[bool, list[tuple[float, dict]]]:
+    """Xếp hạng mục diff theo độ khớp chủ đề câu hỏi (từ hiếm nặng hơn, cụm liền kề được cộng).
+
+    Trả (có_chủ_đề, [(điểm, mục)] giảm dần). Không có chủ đề: giữ nguyên thứ tự, điểm 0.
+    """
+    q = canonical(query).replace("thời gian", " ")
+    q = re.sub(r"\d+/\d{4}(?:/[\w\-đ]+)?", " ", q)
+    labels = [canonical(x).split(" và ")[0] for x in ([family_label] if isinstance(family_label, str) else family_label) if x]
+    for label in labels:
+        if "chính sách" in q:
+            q = q.replace(label, " ")
+    tokens = set(re.findall(r"\w+", q)) - _STOP - _DOC_REF_WORDS
+    if tokens <= {w for label in labels for w in re.findall(r"\w+", label)} - _STOP:
+        tokens = set()
+    if not tokens:
+        return False, [(0.0, r) for r in rows]
+    texts = [" ".join(re.findall(r"\w+", canonical((r.get("text_before") or "") + " " + (r.get("text_after") or "")))) for r in rows]
+    sets = [set(t.split()) for t in texts]
+    weight = {t: math.log(1 + len(rows) / max(1, sum(t in u for u in sets))) for t in tokens}
+    order = [w for w in re.findall(r"\w+", q) if w in tokens]
+    pairs = list(zip(order, order[1:]))
+    scored = [(sum(weight[t] for t in tokens & u) + sum(weight[a] + weight[b] for a, b in pairs if f"{a} {b}" in tx), r)
+              for u, tx, r in zip(sets, texts, rows)]
+    return True, sorted(scored, key=lambda x: -x[0])
+
+
 _QUANTITY = re.compile(
     r"(?<!\w)(\d+(?:[.,]\d+)?|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)\s*"
     r"(yêu cầu\s*(?:mỗi\s+|/\s*)phút|ký tự|mật khẩu|phút|giờ|tháng|năm|ngày|%|lần)(?!\w)")

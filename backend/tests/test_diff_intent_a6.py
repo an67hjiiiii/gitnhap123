@@ -95,3 +95,35 @@ def test_topic_ignores_document_numbers_and_generic_words():
 
 def test_no_topic_beyond_document_numbers_keeps_all_units():
     assert topic_units("Thông tư 50/2026/TT-BGDĐT thay đổi gì so với bản cũ Thông tư 25/2021/TT-BGDĐT?", UNITS) == UNITS
+
+
+from app.core.types import SourceChunk
+from app.ingestion.version_diff import is_atomic, rank_diff_rows, shorten_diff_text
+from app.research.version_table import build_table
+
+
+def test_rank_puts_topic_row_first_and_no_topic_keeps_all():
+    rows = [{"text_before": "Điều khoản chuyển tiếp Thông tư này áp dụng", "text_after": "Điều khoản chuyển tiếp áp dụng khóa mới"},
+            {"text_before": "Giảng viên cơ hữu là giảng viên của cơ sở cử đi", "text_after": "Giảng viên cơ hữu là nhà giáo toàn thời gian"}]
+    has_topic, ranked = rank_diff_rows("Giảng viên cơ hữu thay đổi gì so với bản cũ?", rows)
+    assert has_topic and ranked[0][1] is rows[1] and ranked[0][0] > ranked[1][0]
+    has_topic, ranked = rank_diff_rows("Thông tư 50/2026/TT-BGDĐT thay đổi gì so với bản cũ?", rows)
+    assert not has_topic and [r for _, r in ranked] == rows
+
+
+def test_shorten_and_atomic():
+    table = "Phụ lục STT Họ và tên Ngày sinh " * 40
+    assert shorten_diff_text(table, "Điều 16").startswith("[bảng/phụ lục thay đổi, xem Điều 16")
+    assert len(shorten_diff_text("a " * 600)) <= 452
+    assert shorten_diff_text("ngắn") == "ngắn"
+    assert is_atomic("tối thiểu 12 ký tự") and is_atomic("phải có") and not is_atomic("Giải thích từ ngữ chung")
+
+
+def test_build_table_from_provenance_only():
+    chunk = SourceChunk("c1", "s1", "doc", "text", 0, provenance={
+        "version_diff": True, "diff_kind": "DOI", "diff_old_label": "25/2021", "diff_new_label": "50/2026",
+        "diff_old_unit": ("Điều 2", "3"), "diff_new_unit": ("Điều 2", "3"), "diff_before": "cũ | x", "diff_after": "mới"})
+    table = build_table([chunk])
+    assert table.splitlines()[0] == "| Cũ | Mới | Thay đổi | Nguồn |"
+    assert "cũ / x" in table and "Đổi" in table and "25/2021 Điều 2 khoản 3 → 50/2026 Điều 2 khoản 3" in table
+    assert build_table([SourceChunk("c2", "s1", "doc", "t", 0)]) == ""

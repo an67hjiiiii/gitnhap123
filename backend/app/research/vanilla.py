@@ -98,9 +98,9 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
     if reply_language in REPLY_LANGUAGE_HINT:
         user += "\n\n" + REPLY_LANGUAGE_HINT[reply_language]
     if any(c.provenance.get("version_diff") for c in evidence):
-        diff_instruction = ("\nĐây là bằng chứng từ bảng diff đã chuẩn hóa. Viết MỘT câu cho mỗi thay đổi, "
-                 "nêu Điều cũ/mới và giá trị trước/sau, trích chunk ID tương ứng; liệt kê đủ mọi thay đổi "
-                 "được cấp, không giới hạn 4 câu. Không suy diễn thay đổi ngoài bảng diff.")
+        diff_instruction = ("\nĐây là bằng chứng từ bảng diff đã chuẩn hóa. Chỉ viết 1-2 câu tóm tắt các thay đổi, "
+                 "nêu Điều/khoản và giá trị trước/sau; KHÔNG ghi chunk ID trong câu (ID chỉ đưa vào citations); "
+                 "không chép lại bảng, bảng chi tiết do hệ thống tự thêm. Không suy diễn thay đổi ngoài bảng diff.")
         system += diff_instruction
         user += diff_instruction
         if all(c.provenance.get("version_unchanged") for c in evidence):
@@ -169,6 +169,14 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
             if family in cited_families and len(sources) >= 2 and not any(sources.values()):
                 answer = answer.rstrip() + f"\n\nLưu ý: chưa xác nhận bản hiện hành của {family}."
 
+    if any(c.provenance.get("version_diff") for c in evidence):
+        from app.research.version_table import build_table
+        table = build_table(evidence)
+        if table:  # bảng dựng bằng mã từ mục diff; câu tóm tắt (đã qua guard) chỉ là lời dẫn
+            lead = answer.strip() or "Các khác biệt tìm thấy giữa hai phiên bản:"
+            answer = lead + "\n\n" + table
+            if status == "NO_EVIDENCE":
+                status = "PARTIAL"
     if valid:
         answer = answer.rstrip() + "\n\nNguồn: " + ", ".join(f"[{cid}]" for cid in valid)
 

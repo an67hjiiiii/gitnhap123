@@ -155,7 +155,7 @@ def test_quick_path_skips_retrieval_and_preserves_guard(version_db, monkeypatch,
     class Provider:
         name, model = "fake", "s6"
         async def generate(self, *, system, user):
-            assert "MỘT câu" in system and "Trước:" in user and "Sau:" in user
+            assert "1-2 câu tóm tắt" in system and "Trước:" in user and "Sau:" in user
             return ProviderResult(json.dumps({"status": "COMPLETE", "answer": "Giới hạn tăng từ 100 lên 300 yêu cầu mỗi phút.",
                 "citations": [c.chunk_id for c in evidence]}, ensure_ascii=False))
     class Checker:
