@@ -92,6 +92,13 @@ export function orgNoteText(n: OrgNotification, t: OrgTerms): string {
     case 'source_shared': return `${p.by} chia sẻ "${p.source_name}" với bạn (${p.space_name})`;
     case 'drafts_handed_over': return `Bạn nhận bàn giao ${p.count} bản nháp của ${p.from} (${p.space_name})`;
     case 'source_published': return `${p.by} tải lên "${p.source_name}" (${level(p)}) trong ${p.space_name}`;
+    case 'doc_watch': {
+      const found = [p.replaces?.length ? `thay thế ${p.replaces.join(', ')}` : '', p.replaced_by ? `đã bị thay thế (${p.replaced_by})` : '',
+        p.conflicts ? `${p.conflicts} cặp câu có thể mâu thuẫn với tài liệu cũ, mở Kiểm tra mâu thuẫn để xác nhận` : ''].filter(Boolean);
+      return `Tài liệu mới "${p.source_name}": ${found.join('; ')}`;
+    }
+    case 'request_submitted': return `${p.user} gửi đơn "${p.title}" chờ bạn duyệt (${p.space_name})`;
+    case 'request_decided': return `Đơn "${p.title}" đã được ${p.decision === 'APPROVED' ? 'duyệt' : 'từ chối'} bởi ${p.by} (${p.space_name})`;
     case 'source_access_granted': return `Bạn giờ xem được "${p.source_name}": ${p.by} đổi sang ${level(p)}`;
     default: return 'Thông báo từ tổ chức';
   }

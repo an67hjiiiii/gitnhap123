@@ -645,3 +645,30 @@ class OrgSecretAccessRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class OrgRequestRecord(Base):
+    """Đơn từ và duyệt theo cấp (đợt 10): đơn của một thành viên, chuyển tới Trưởng phòng hoặc Ban giám đốc duyệt."""
+
+    __tablename__ = "org_requests"
+    __table_args__ = (
+        CheckConstraint("approver_level IN ('MANAGER', 'EXECUTIVE')", name="ck_org_requests_level"),
+        CheckConstraint("status IN ('PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN')", name="ck_org_requests_status"),
+        CheckConstraint("approver_level = 'EXECUTIVE' OR department_id IS NOT NULL", name="ck_org_requests_department"),
+        Index("ix_org_requests_space_status", "space_id", "status", "created_at"),
+    )
+
+    request_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    space_id: Mapped[str] = mapped_column(String(64), ForeignKey("org_spaces.space_id", ondelete="CASCADE"), nullable=False)
+    requester_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    department_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    details: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    days: Mapped[float | None] = mapped_column(nullable=True)
+    approver_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING")
+    check_result: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    history: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -26,6 +27,7 @@ from app.research.pipeline import ResearchPipeline
 from app.research.progress import bound_emit, ndjson_run
 from app.research.run_queue import product_runs
 from app.core.secret_audit import log_secret_access, run_read_source_ids, source_ids_of_chunks
+from app.analysis.watch import notify_findings, watch_findings
 from app.research.registry import PACKS, WORK_PACK
 from app.research.conversation_context import build_conversation_context
 from app.storage.run_store import RunStore
@@ -172,6 +174,18 @@ def _configured_vector_store():
     return store
 
 
+def _watch_new_source(user: dict, source_store, imported: dict) -> dict:
+    """Theo dõi tài liệu mới (đợt 10): kiểm hiệu lực và mâu thuẫn với tài liệu cũ bằng luật, báo qua chuông nếu có phát hiện."""
+    source_id = str(imported.get("source_id") or "")
+    try:
+        findings = watch_findings(source_id, source_store.chunks())
+        imported = {**imported, "watch": findings}
+        notify_findings(app.state.session_factory, str(user["user_id"]), str(imported.get("source_name") or source_id), findings)
+    except Exception:  # theo dõi là phụ: không làm hỏng việc tải tài liệu
+        logging.getLogger(__name__).exception("doc watch failed")
+    return imported
+
+
 def _index_imported_source(user: dict, source_store, imported: dict) -> dict:
     """Index a READY source only when an explicit derived backend is enabled."""
 
@@ -218,6 +232,8 @@ class ChatRequest(BaseModel):
     reply_in_query_language: bool = False
     # lĩnh vực của không gian đang mở; bỏ trống = Phần mềm (prompt nghiên cứu như cũ, dùng cho script thực nghiệm)
     domain_pack: Literal[tuple(PACKS)] | None = None  # type: ignore[valid-type]
+    # ô chat Tự động: người dùng chọn một cách hiểu khi được hỏi lại (tác tử theo loại việc)
+    agent: Literal["conditions", "procedure", "terms", "figures"] | None = None
 
 class SourceTextRequest(BaseModel):
     source_name: str
@@ -316,7 +332,7 @@ def import_text(body: SourceTextRequest, request: Request):
                 "origin": "text_api",
             },
         )
-        return _index_imported_source(user, store, imported)
+        return _watch_new_source(user, store, _index_imported_source(user, store, imported))
     except IndexingError as exc:
         raise HTTPException(503, "DERIVED_INDEX_FAILED") from exc
 
@@ -362,7 +378,7 @@ async def import_file(request: Request, file: UploadFile = File(...)):
             document.text,
             provenance=document.provenance,
         )
-        return _index_imported_source(user, store, imported)
+        return _watch_new_source(user, store, _index_imported_source(user, store, imported))
     except IndexingError as exc:
         raise HTTPException(503, "DERIVED_INDEX_FAILED") from exc
 
@@ -440,6 +456,7 @@ async def _chat(body: ChatRequest, request: Request):
             product_mode=body.product_mode,
             reply_in_query_language=body.reply_in_query_language,
             domain_pack=body.domain_pack or (WORK_PACK if body.product_mode else None),  # ô chat sản phẩm: tác tử theo loại việc
+            forced_agent=body.agent if body.product_mode else None,
         )
         if body.product_mode:  # ô chat sản phẩm xếp hàng theo thứ tự; thực nghiệm không qua hàng đợi
             say = bound_emit()  # báo thứ tự vào luồng của chính người đang chờ, kể cả khi người trước gọi lúc nhường chỗ

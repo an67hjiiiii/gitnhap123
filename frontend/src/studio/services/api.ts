@@ -389,8 +389,8 @@ async function chatInWorkspace(body: Record<string, unknown>, ws?: WorkspaceId, 
   if (run.conversation_id && run.conversation_id !== conversationId) await assignToWorkspace(ws ?? '', 'conversation', run.conversation_id);
   return run;
 }
-export async function sendChat(message: string, conversationId: string | null, ws?: WorkspaceId, only?: string[], onEvent?: (e: ChatStreamEvent) => void): Promise<Cap1Run> {
-  return chatInWorkspace({ message, product_mode: true }, ws, conversationId, only, onEvent);
+export async function sendChat(message: string, conversationId: string | null, ws?: WorkspaceId, only?: string[], onEvent?: (e: ChatStreamEvent) => void, agent?: string): Promise<Cap1Run> {
+  return chatInWorkspace({ message, product_mode: true, agent }, ws, conversationId, only, onEvent);
 }
 
 // Ô chat sản phẩm: /api/chat/stream gửi từng dòng JSON (bước đang làm, chữ trả lời đang viết) rồi kết quả cuối.
@@ -842,7 +842,8 @@ export const SKILL_LIST: { key: SkillKey; label: string; hint: string; needs?: s
   { key: 'contract_review', label: 'Rà soát hợp đồng', hint: 'Điều khoản rủi ro kèm nguyên văn', needs: ['contract'] },
   { key: 'validity', label: 'Hiệu lực văn bản', hint: 'Số hiệu, ngày hiệu lực, bị thay thế chưa', needs: ['legal_doc', 'regulation'] },
 ];
-export type SkillRoute = { route: 'pipeline' } | { route: 'skill'; skill: SkillKey; label: string; reason: string; source_ids: string[] };
+export type SkillRoute = { route: 'pipeline' } | { route: 'skill'; skill: SkillKey; label: string; reason: string; source_ids: string[] }
+  | { route: 'clarify'; question: string; options: { agent: string; label: string }[] };  // hỏi lại khi mơ hồ (mục 3.4)
 export type SkillOutput =
   | { skill: 'conditions'; data: ConditionResult }
   | { skill: 'procedure'; data: ProcedureResult }
@@ -877,3 +878,17 @@ export async function saveSkillCard(conversationId: string | null, question: str
 // Nhật ký truy cập tài liệu mức Mật (đợt 9): chỉ Ban giám đốc và chủ tổ chức xem được.
 export interface SecretAccess { source_id: string; source_name: string; user: string; action: 'VIEW' | 'ASK'; at: string | null }
 export const getSecretAccess = (spaceId: string) => call<SecretAccess[]>(`/org/spaces/${encodeURIComponent(spaceId)}/secret-access`);
+
+// ---------------- Đơn từ và duyệt theo cấp (đợt 10)
+export interface OrgRequest {
+  request_id: string; kind: 'leave' | 'purchase' | 'other'; title: string; details: string; days: number | null;
+  approver_level: 'MANAGER' | 'EXECUTIVE'; department_id: string | null; status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN';
+  requester: string; mine: boolean; can_decide: boolean; check_result: Record<string, any>;
+  history: { at: string; by: string; action: string; note?: string }[]; created_at: string; decided_at: string | null;
+}
+export const listRequests = (spaceId: string) => call<{ mine: OrgRequest[]; to_me: OrgRequest[] }>(`/org/spaces/${encodeURIComponent(spaceId)}/requests`);
+export const createRequest = (spaceId: string, body: { kind: string; title: string; details: string; days: number | null; approver_level: string; check_result: Record<string, unknown> }) =>
+  post<OrgRequest>(`/org/spaces/${encodeURIComponent(spaceId)}/requests`, body);
+export const decideRequest = (spaceId: string, id: string, decision: 'APPROVED' | 'REJECTED', note: string) =>
+  post<OrgRequest>(`/org/spaces/${encodeURIComponent(spaceId)}/requests/${encodeURIComponent(id)}/decide`, { decision, note });
+export const withdrawRequest = (spaceId: string, id: string) => post<OrgRequest>(`/org/spaces/${encodeURIComponent(spaceId)}/requests/${encodeURIComponent(id)}/withdraw`, {});

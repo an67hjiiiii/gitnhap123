@@ -321,3 +321,13 @@ def can_view_source_id(db: Session, user_id: str, source_id: str) -> bool:
     if row is None:
         return False
     return source_id in visible_source_ids(db, user_id, row.space_id)
+
+
+# ---------------- Đơn từ và duyệt theo cấp (đợt 10)
+def can_decide_request(actor: Member | None, approver_level: str, department_id: str | None, requester_id: str) -> bool:
+    """Ban giám đốc duyệt mọi đơn; Trưởng phòng duyệt đơn cấp phòng của chính phòng mình. Không tự duyệt đơn của mình."""
+    if actor is None or not actor.active or actor.user_id == requester_id:
+        return False
+    if actor.executive:
+        return True
+    return approver_level == "MANAGER" and actor.manages(department_id)

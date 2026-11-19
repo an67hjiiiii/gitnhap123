@@ -497,7 +497,8 @@ function DashboardWorkspace({
           onAsk={(sourceId, name) => { setActiveConversationId(null); setPrefill({ text: `Nội dung chính của tài liệu ${name} là gì?`, key: Date.now(), sourceId, sourceName: name }); setActiveTab('orchestration'); }} />}
         {activeTab === 'results' && <SavedResultsView onOpen={tab => setActiveTab(tab)} />}
         {activeTab === 'tasks' && currentWs?.kind === 'org' && <TasksView spaceId={String(currentWorkspaceId)} spaceName={currentWs.name}
-          noteText={n => orgNoteText(n, orgTerms(currentWs))} onOpenOrg={() => setActiveTab('organization')} />}
+          noteText={n => orgNoteText(n, orgTerms(currentWs))} onOpenOrg={() => setActiveTab('organization')}
+          docIds={documents.map(d => String(d.id))} levelName={{ MANAGER: orgTerms(currentWs).level.MANAGER, EXECUTIVE: orgTerms(currentWs).level.EXECUTIVE }} />}
         {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
           onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} />}
         {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}-${currentWs?.domain_pack ?? 'software'}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} />}
