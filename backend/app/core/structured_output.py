@@ -50,6 +50,18 @@ def parse_answer_json(text: str) -> dict:
             "missing_information": ["model output truncated"]}
 
 
+def partial_answer(text: str) -> str | None:
+    """Phần "answer" đọc được của JSON đang sinh dở (hiện chữ dần); None khi chưa tới trường answer."""
+    match = _ANSWER_FIELD.search(text)
+    if not match:
+        return None
+    body = re.sub(r"\\(?:u[0-9a-fA-F]{0,3})?$", "", match.group(1))  # bỏ ký tự thoát bị cắt dở
+    try:
+        return json.loads(f'"{body}"')
+    except ValueError:
+        return body.replace('\\"', '"').replace("\\n", "\n")
+
+
 def is_placeholder_answer(answer: str) -> bool:
     """Mô hình nhỏ đôi khi chép nguyên mẫu "answer":"..." trong schema."""
     return _PLACEHOLDER.fullmatch(answer or "") is not None

@@ -620,3 +620,28 @@ class NotificationRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class OrgSecretAccessRecord(Base):
+    """Nhật ký truy cập tài liệu mức Mật (đợt 9): ai mở hoặc hỏi AI dùng tới tài liệu nào, lúc nào. Không ghi nội dung."""
+
+    __tablename__ = "org_secret_access"
+    __table_args__ = (
+        CheckConstraint("action IN ('VIEW', 'ASK')", name="ck_org_secret_access_action"),
+        Index("ix_org_secret_access_space_time", "space_id", "created_at"),
+    )
+
+    access_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    space_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("org_spaces.space_id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(128), ForeignKey("knowledge_sources.source_id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(8), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

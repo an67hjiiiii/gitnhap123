@@ -1,0 +1,143 @@
+"""Đợt 2b (19/11): hiện chữ dần và tiến trình từng bước ở ô chat sản phẩm (/api/chat/stream).
+
+Không có người nghe (thực nghiệm, /api/chat) thì không gửi gì và provider không nhận on_text.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+
+from app.core.structured_output import partial_answer
+from app.core.types import ProviderResult, RunMetrics, TaskResult, Usage
+from app.research.progress import answer_streamer, emit, ndjson_run, progress_sink
+from app.research.synthesizer import synthesize
+
+
+def test_partial_answer_reads_unfinished_json():
+    assert partial_answer('{"status":"COMPLETE","ans') is None
+    assert partial_answer('{"answer": "Thử việc tối đa 60') == "Thử việc tối đa 60"
+    assert partial_answer('{"answer": "Dòng 1\\nDòng 2 \\"trích\\" \\') == 'Dòng 1\nDòng 2 "trích" '
+
+
+def test_no_listener_means_no_streaming_kwargs():
+    class P:
+        supports_streaming = True
+
+    assert answer_streamer(P()) == {}
+    emit({"type": "progress", "stage": "x"})  # không có người nghe: không lỗi, không làm gì
+
+
+class StreamingProvider:
+    supports_per_call_output_tokens = True
+    supports_streaming = True
+
+    def __init__(self):
+        self.got_on_text = False
+
+    async def generate_structured(self, *, system, user, response_schema, max_output_tokens=None, on_text=None):
+        full = '{"answer": "Ý 1 [c1]. Ý 2 [c1]."}'
+        if on_text:
+            self.got_on_text = True
+            for i in range(5, len(full) + 1, 6):
+                on_text(full[:i])
+        return ProviderResult(text=full, usage=Usage(1, 1), request_id="r", model="m")
+
+
+def _results():
+    return [TaskResult(task_id="T1", domain="general", status="COMPLETE", answer="a", citations=["c1"], evidence_ids=["c1"])]
+
+
+def test_synthesis_streams_growing_answer_only_with_listener():
+    items: list[dict] = []
+
+    async def go():
+        progress_sink.set(items.append)
+        return await synthesize(StreamingProvider(), "q", _results(), RunMetrics(), max_output_tokens=1800)
+
+    assert asyncio.run(go()) == "Ý 1 [c1]. Ý 2 [c1]."
+    texts = [i["text"] for i in items if i["type"] == "answer"]
+    assert texts and texts[-1].startswith("Ý 1 [c1]. Ý 2")
+    assert all(b.startswith(a) for a, b in zip(texts, texts[1:]))  # chữ chỉ dài thêm, không lặp bản trùng
+    assert len(set(texts)) == len(texts)
+
+    quiet = StreamingProvider()
+    asyncio.run(synthesize(quiet, "q", _results(), RunMetrics(), max_output_tokens=1800))
+    assert quiet.got_on_text is False
+
+
+async def _collect(factory):
+    return [json.loads(line) async for line in ndjson_run(factory)]
+
+
+def test_ndjson_run_sends_progress_then_done():
+    async def run():
+        emit({"type": "progress", "stage": "vanilla_retrieval"})
+        emit({"type": "answer", "text": "Th"})
+        return {"run_id": "r1", "status": "COMPLETE"}
+
+    lines = asyncio.run(_collect(run))
+    assert [line["type"] for line in lines] == ["progress", "answer", "done"]
+    assert lines[-1]["run"]["run_id"] == "r1"
+
+
+def test_ndjson_run_reports_errors_instead_of_cutting_stream():
+    class Http(Exception):
+        status_code = 404
+        detail = "conversation not found"
+
+    async def not_found():
+        raise Http()
+
+    async def boom():
+        raise RuntimeError("x")
+
+    assert asyncio.run(_collect(not_found)) == [{"type": "error", "status": 404, "detail": "conversation not found"}]
+    assert asyncio.run(_collect(boom)) == [{"type": "error", "status": 500, "detail": "RuntimeError"}]
+
+
+def test_ollama_stream_assembles_text_and_reads_usage(monkeypatch):
+    from app.providers import ollama as mod
+
+    chunks = [
+        {"message": {"content": '{"answer": "Xin '}},
+        {"message": {"content": 'chào"}'}},
+        {"message": {"content": ""}, "done": True, "prompt_eval_count": 12, "eval_count": 7},
+    ]
+    sent: list[dict] = []
+
+    class Resp:
+        def raise_for_status(self):
+            pass
+
+        async def aiter_lines(self):
+            for c in chunks:
+                yield json.dumps(c)
+
+    class Ctx:
+        async def __aenter__(self):
+            return Resp()
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, method, url, json):
+            sent.append(json)
+            return Ctx()
+
+    monkeypatch.setattr(mod.httpx, "AsyncClient", Client)
+    seen: list[str] = []
+    result = asyncio.run(mod.OllamaProvider(model="m").generate_structured(
+        system="s", user="u", response_schema={"type": "object"}, on_text=seen.append))
+    assert sent[0]["stream"] is True
+    assert result.text == '{"answer": "Xin chào"}' and seen[-1] == result.text
+    assert (result.usage.input_tokens, result.usage.output_tokens) == (12, 7)

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, ChevronDown, CornerDownRight, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
-import { ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions } from '../services/api';
+import { ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, CornerDownRight, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
+import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions } from '../services/api';
 import { ExportButtons } from './analysis/exporters';
 import { AnswerFeedback, GroundingButton, GroundingPanel } from './AnswerTools';
 import { adaptRun, answerText, Cap1Run, CONDITION_LABEL } from '../services/adapt';
@@ -12,14 +12,17 @@ import { RobotState } from './robot/robotEngine';
 import { PIPELINE_STEPS, PipelineStep } from './ExecutionFlowGraph';
 import { NodeTraceModal } from './NodeTraceModal';
 import { StudioModal } from './StudioModal';
-import { useDismiss } from './Header';
 import { ModeExecutionResult } from '../types';
 import { motionAllowed } from '../utils/motion';
+import { citeLabel, inlineCites } from '../utils/citations';
+import { SkillCard } from './SkillCard';
+import { parseSkillMessage, summarizeSkill } from '../utils/skillMessage';
+import { progressLabel } from '../utils/progress';
 
 // Không gian làm việc duy nhất: hỏi nhanh (nhiều lượt) và phân tích sâu (A/B/C, 8 bước) trong cùng một cuộc trò chuyện.
 type Mode = 'quick' | 'A' | 'B' | 'C';
 const MODE_INFO: Record<Mode, { label: string; hint: string }> = {
-  quick: { label: 'Hỏi nhanh', hint: 'Trả lời ngắn từ tài liệu, nhớ ngữ cảnh các câu trước.' },
+  quick: { label: 'Tự động', hint: 'Hệ thống tự chọn: trả lời thẳng, gọi một kỹ năng hay chia việc cho các tác tử. Gõ "/" để chọn kỹ năng.' },
   A: { label: 'Vanilla RAG', hint: 'Điều kiện A: một lượt truy xuất, một lần sinh.' },
   B: { label: 'Multi-Agent cơ bản', hint: 'Điều kiện B: chia việc, chưa tối ưu.' },
   C: { label: 'Điều phối đầy đủ', hint: 'Điều kiện C: lập kế hoạch có kiểm tra, chuẩn hóa, tối ưu ngữ cảnh.' },
@@ -39,15 +42,6 @@ const PRESETS = [
 const stripSources = (t: string) => t.replace(/\n?\s*Nguồn:\s*(\[[^\]]+\][,\s]*)+$/u, '').trim();
 const isPlanRejected = (run?: Cap1Run) => run?.status === 'FAILED' && /failed verification/i.test(String(run?.answer ?? ''));
 const isQuick = (run?: Cap1Run) => !!run?.events?.some((e: any) => e.stage === 'product_request_routing');
-// "src_ab12_c0004" → "Tên tài liệu · đoạn 5"; tài liệu ngoài không gian đang mở thì giữ mã rút gọn như cũ.
-const citeLabel = (chunkId: string, docs: { id?: number | string; source_file: string }[]) => {
-  const m = chunkId.match(/^(.*)_c(\d+)$/);
-  const doc = m && docs.find(d => String(d.id) === m[1]);
-  return doc ? `${doc.source_file.replace(/\.[^.]+$/, '').replace(/_/g, ' ')} · đoạn ${Number(m![2]) + 1}` : chunkId.split('_').slice(-2).join('_');
-};
-// Mã đoạn chèn trong câu văn ("chunk [src_ab12_c0004]") đổi thành nhãn đọc được.
-const inlineCites = (text: string, docs: { id?: number | string; source_file: string }[]) =>
-  text.replace(/(?:chunk(?:_id)?:?\s*)?\[?(src_[0-9a-f]+_c\d+)\]?/gi, (_, id: string) => `(${citeLabel(id, docs)})`).replace(/\(\(([^()]*)\)\)/g, '($1)');
 const citationsOf = (run?: Cap1Run) => [...new Set((run?.task_results || []).flatMap((r: any) => r.citations || []))] as string[];
 const ago = (iso?: string) => {
   if (!iso) return '';
@@ -98,12 +92,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const [runs, setRuns] = useState<Record<string, Cap1Run>>({});
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<Mode>('quick');
-  const [methodOpen, setMethodOpen] = useState(false);
-  const closeMethod = useCallback(() => setMethodOpen(false), []);
-  const methodRef = useDismiss(methodOpen, closeMethod);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<{ text: string; mode: Mode } | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // tiến trình gửi dần từ /api/chat/stream: các bước đã qua và chữ trả lời đang viết
+  const [live, setLive] = useState<{ steps: string[]; answer: string }>({ steps: [], answer: '' });
+  // thẻ kết quả kỹ năng (bản làm thử: chỉ giữ trong phiên, chưa lưu vào cuộc trò chuyện); after = số tin nhắn lúc tạo
+  const [cards, setCards] = useState<{ id: number; convo: string; after: number; question: string; label: string; reason: string; out?: SkillOutput; error?: string }[]>([]);
+  const [forced, setForced] = useState<SkillKey | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [allDocs, setAllDocs] = useState<{ id?: number | string; source_file: string }[]>([]);
   const [trace, setTrace] = useState<{ result: ModeExecutionResult; step: PipelineStep } | null>(null);
@@ -175,6 +171,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   }, [conversationId, load]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }, [messages.length, pending]);
+  useEffect(() => { if (live.answer) endRef.current?.scrollIntoView({ block: 'end' }); }, [live.answer.length > 0, live.steps.length]);
   useEffect(() => {
     if (!pending) return;
     const start = performance.now(); setElapsed(0);
@@ -199,12 +196,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     if (open) return;
     closedH.current = formRef.current?.offsetHeight ?? 0;
     setOpen(true);
-    speak(`Chào ${firstName(userName) || 'bạn'}! Hỏi nhanh về tài liệu, hoặc chọn Phân tích để mình chia việc cho các tác tử chuyên môn.`);
-  };
-  const pickMode = (m: Mode) => {
-    setMode(m); setMethodOpen(false);
-    speak(m === 'quick' ? 'Chế độ hỏi nhanh: mình trả lời ngắn và nhớ ngữ cảnh.' : `Phân tích sâu, ${MODE_INFO[m].hint}`);
-    inputRef.current?.focus();
+    speak(`Chào ${firstName(userName) || 'bạn'}! Cứ hỏi về tài liệu, mình tự chọn cách làm: trả lời thẳng, gọi kỹ năng hay chia việc cho các tác tử.`);
   };
 
   const send = async (e?: React.FormEvent) => {
@@ -217,13 +209,48 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     speak(mode === 'quick' ? 'Đang tìm trong tài liệu…' : 'Đang lập kế hoạch và chia việc cho các tác tử…');
     try {
       const scope = only ? [only.id] : undefined;
-      let run = mode === 'quick' ? await sendChat(text, conversationId, workspaceId, scope) : await sendAnalysis(text, mode, conversationId, workspaceId, scope);
+      if (mode === 'quick') {
+        // Tự động: câu khớp rõ một kỹ năng (hoặc chọn bằng "/") thì gọi kỹ năng, không thì để pipeline tự chọn
+        const ids = await chatScope(workspaceId, scope);
+        const pick = forced; setForced(null);
+        const r = await routeSkill(text, ids, pick ?? undefined).catch(() => ({ route: 'pipeline' } as SkillRoute));
+        if (r.route === 'skill') {
+          setLive({ steps: [r.reason, `Đang chạy kỹ năng ${r.label}`], answer: '' });
+          speak(`Mình dùng kỹ năng ${r.label} cho câu này…`);
+          const card = { id: Date.now(), convo: conversationId ?? '', after: messages.length, question: text, label: r.label, reason: r.reason };
+          let out: SkillOutput;
+          try { out = await runSkill(r.skill, text, r.source_ids); }
+          catch (err: any) { setCards(c => [...c, { ...card, error: err.message }]); setState('error'); speak('Kỹ năng chưa chạy được.'); return; }
+          try {
+            // lưu vào cuộc trò chuyện để tải lại trang vẫn còn; lưu không được thì vẫn hiện thẻ trong phiên
+            const cid = await saveSkillCard(conversationId, text, summarizeSkill(out.skill, r.label, out.data), { skill: out.skill, label: r.label, reason: r.reason, data: out.data }, workspaceId);
+            await load(cid);
+            if (cid !== conversationId) { skipLoad.current = cid; onConversation(cid); }
+            onChanged();
+          } catch { setCards(c => [...c, { ...card, out }]); }
+          setState('completed'); speak(`Xong kỹ năng ${r.label}.`);
+          return;
+        }
+      }
+      setLive({ steps: [], answer: '' });
+      const onEvent = (e: ChatStreamEvent) => setLive(prev => {
+        if (e.type === 'answer') return { ...prev, answer: e.text };
+        if (e.type === 'queue') {  // máy đang trả lời người khác: báo thứ tự chờ, thay dòng chờ cũ
+          const waiting = `Đang chờ lượt, thứ tự ${e.position}`;
+          const rest = prev.steps.filter(st => !st.startsWith('Đang chờ lượt'));
+          return { ...prev, steps: [...rest, waiting] };
+        }
+        const label = progressLabel(e);
+        return !label || prev.steps[prev.steps.length - 1] === label ? prev : { ...prev, steps: [...prev.steps, label] };
+      });
+      let run = mode === 'quick' ? await sendChat(text, conversationId, workspaceId, scope, onEvent) : await sendAnalysis(text, mode, conversationId, workspaceId, scope);
       setRuns(prev => ({ ...prev, [run.run_id]: run }));
       // Kế hoạch bị bước kiểm tra của CAP1 từ chối (hành vi nghiên cứu, giữ nguyên): lượt thất bại vẫn lưu và hiện,
       // rồi trả lời lại bằng Hỏi nhanh trong cùng cuộc trò chuyện để người dùng không phải tự gửi lại.
       if (mode !== 'quick' && isPlanRejected(run)) {
-        setPending({ text, mode: 'quick' }); setState('searching'); speak('Kế hoạch chưa qua bước kiểm tra, mình trả lời bằng Hỏi nhanh nhé…');
-        const quickRun = await sendChat(text, run.conversation_id ?? conversationId, workspaceId, scope);
+        setPending({ text, mode: 'quick' }); setState('searching'); speak('Kế hoạch chưa qua bước kiểm tra, mình trả lời bằng chế độ Tự động nhé…');
+        setLive({ steps: [], answer: '' });
+        const quickRun = await sendChat(text, run.conversation_id ?? conversationId, workspaceId, scope, onEvent);
         setRuns(prev => ({ ...prev, [quickRun.run_id]: quickRun }));
         run = quickRun;
       }
@@ -286,7 +313,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     catch (err: any) { setChunk({ id, error: err.message }); }
   };
 
-  const fresh = messages.length === 0 && !pending;
+  const myCards = cards.filter(c => c.convo === (conversationId ?? ''));
+  const fresh = messages.length === 0 && !pending && myCards.length === 0;
+  const docsForCite = allDocs.length ? allDocs : docs;
+  const cardsAt = (i: number) => myCards.filter(c => (i < 0 ? c.after >= messages.length : c.after === i)).map(c => (
+    <React.Fragment key={`card-${c.id}`}>
+      <div className="ws-msg is-user"><p>{c.question}</p></div>
+      <div className="ws-msg is-bot is-card">
+        {c.out ? <SkillCard label={c.label} reason={c.reason} out={c.out} citeLabel={id => citeLabel(id, docsForCite)} onCite={showChunk} />
+          : c.error ? <p className="note is-error" role="alert">Kỹ năng {c.label} chưa chạy được: {c.error}</p>
+          : null}
+      </div>
+    </React.Fragment>));
+  const slashQ = !forced && draft.startsWith('/') ? draft.slice(1).trim().toLowerCase() : null;
+  const slashHits = slashQ === null ? [] : SKILL_LIST.filter(k => !slashQ || k.label.toLowerCase().includes(slashQ));
+  const pickSlash = (k: SkillKey) => { setForced(k); setDraft(''); inputRef.current?.focus(); };
   const busyNow = busy(state) || !!pending;
 
   const composer = (
@@ -298,27 +339,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
       ) : <>
         {listening && <div className="ws-only is-live"><Mic size={13} /><span>Đang nghe… nói câu hỏi rồi dừng lại. Giọng nói do trình duyệt nhận dạng.</span><button type="button" onClick={() => recRef.current?.stop()}>Xong</button></div>}
         {only && <div className="ws-only"><FileText size={13} /><span>Chỉ hỏi trong <b>{only.name}</b></span><button type="button" onClick={() => setOnly(null)} aria-label="Bỏ giới hạn tài liệu">Hỏi cả kho</button></div>}
+        {slashHits.length > 0 && <div className="ws-slash" role="listbox" aria-label="Chọn kỹ năng">
+          {slashHits.map((k, i) => <button key={k.key} type="button" role="option" aria-selected={i === 0} className={i === 0 ? 'is-on' : ''} onClick={() => pickSlash(k.key)}>
+            <Sparkles size={16} /><b>{k.label}</b><small>{k.hint}</small></button>)}
+        </div>}
+        {forced && <div className="ws-only"><Sparkles size={13} /><span>Kỹ năng: <b>{SKILL_LIST.find(k => k.key === forced)?.label}</b></span><button type="button" onClick={() => setForced(null)}>Bỏ chọn</button></div>}
         <textarea ref={inputRef} rows={fresh ? 3 : 1} value={draft} aria-label="Câu hỏi hoặc yêu cầu"
-          placeholder={mode === 'quick' ? 'Hỏi bất kỳ điều gì trong kho tài liệu…' : 'Mô tả yêu cầu cần phân tích…'}
+          placeholder={mode === 'quick' ? (forced ? 'Mô tả trường hợp hoặc yêu cầu cho kỹ năng…' : 'Hỏi bất kỳ điều gì, hoặc gõ "/" để chọn kỹ năng…') : 'Mô tả yêu cầu cần phân tích…'}
           onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} />
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (slashHits.length) pickSlash(slashHits[0].key); else void send(); }
+            else if (e.key === 'Escape' && slashHits.length) setDraft('');
+          }} />
         <div className="ws-bar">
-          <div className="ws-seg" role="group" aria-label="Cách trả lời">
-            <button type="button" className={mode === 'quick' ? 'is-on' : ''} onClick={() => pickMode('quick')} title={MODE_INFO.quick.hint}><Zap size={14} />Hỏi nhanh</button>
-            <div className="ws-pop" ref={methodRef}>
-              <button type="button" className={mode !== 'quick' ? 'is-on' : ''} onClick={() => setMethodOpen(v => !v)} aria-expanded={methodOpen} aria-haspopup="menu" title="Phân tích sâu với các tác tử chuyên môn">
-                <Microscope size={14} />{mode === 'quick' ? 'Phân tích' : `Phân tích · ${mode}`}<ChevronDown size={13} />
-              </button>
-              {methodOpen && <div className="pop is-up-left" role="menu">
-                {(['C', 'B', 'A'] as Mode[]).map(m => (
-                  <button key={m} type="button" role="menuitem" className="pop-item" onClick={() => pickMode(m)}>
-                    <b className={`mode-key${m === 'C' ? ' is-a' : ''}`}>{m}</b>
-                    <span className="pop-text"><b>{MODE_INFO[m].label}</b><small>{MODE_INFO[m].hint}</small></span>
-                  </button>
-                ))}
-              </div>}
-            </div>
-          </div>
+          {/* Tự động: hệ thống tự chọn trả lời thẳng / kỹ năng / nhiều tác tử. A/B/C chỉ còn ở trang Thực nghiệm (đợt 4, đã duyệt 19/11). */}
+          <span className="ws-auto" title={MODE_INFO.quick.hint}><Sparkles size={14} />Tự động · gõ "/" để chọn kỹ năng</span>
           {Recognition && <button type="button" className={`ws-mic${listening ? ' is-on' : ''}`} onClick={listen} disabled={!!pending} aria-pressed={listening}
             aria-label={listening ? 'Dừng nghe' : 'Hỏi bằng giọng nói'} title="Nói thay vì gõ (tiếng Việt). Trình duyệt nhận dạng giọng nói; Chrome và Edge có thể gửi âm thanh lên máy chủ của họ để nhận dạng."><Mic size={17} /></button>}
           <button type="submit" className="send" disabled={!!pending || !draft.trim()} aria-label="Gửi">{pending ? <span className="spin" /> : <ArrowUp size={18} />}</button>
@@ -388,14 +423,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
       ) : (
         <div className="ws-thread">
           <div className="ws-msgs">
-            {messages.map((m, i) => {
+            {messages.flatMap((m, i) => [...cardsAt(i), ((): React.ReactNode => {
               if (m.role === 'USER') {
                 const prev = messages[i - 1], asked = messages[i - 2];
                 // Câu hỏi được gửi lại tự động sau lượt Phân tích bị từ chối: thay bằng một dòng ghi chú.
                 if (prev?.run_id && isPlanRejected(runs[prev.run_id]) && asked?.role === 'USER' && asked.content === m.content)
-                  return <p key={m.message_id} className="note ws-fallback">Đã tự trả lời lại bằng Hỏi nhanh.</p>;
+                  return <p key={m.message_id} className="note ws-fallback">Đã tự trả lời lại bằng chế độ Tự động.</p>;
                 return <div key={m.message_id} className="ws-msg is-user"><p>{m.content}</p></div>;
               }
+              const stored = parseSkillMessage(m.content);
+              if (stored) return (
+                <div key={m.message_id} className="ws-msg is-bot is-card">
+                  <SkillCard label={stored.card.label} reason={stored.card.reason} out={{ skill: stored.card.skill, data: stored.card.data } as SkillOutput}
+                    citeLabel={id => citeLabel(id, docsForCite)} onCite={showChunk} />
+                </div>);
               const run = m.run_id ? runs[m.run_id] : undefined;
               const quick = isQuick(run);
               const cites = citationsOf(run);
@@ -405,7 +446,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
               return (
                 <article key={m.message_id} className="ws-msg is-bot">
                   <header>
-                    <span className="ws-tag">{quick ? <><Zap size={12} />Hỏi nhanh</> : <><Microscope size={12} />{CONDITION_LABEL[run?.condition] ?? 'Phân tích'}</>}</span>
+                    <span className="ws-tag">{quick ? <><Sparkles size={12} />Tự động</> : <><Microscope size={12} />{CONDITION_LABEL[run?.condition] ?? 'Phân tích'}</>}</span>
                     {run?.status && <span className={`cht-status is-${String(run.status).toLowerCase()}`}>{STATUS_LABEL[run.status] ?? run.status}</span>}
                     {(() => { const fu = run?.events?.find((e: any) => e.stage === 'follow_up_resolved'); return fu ? <span className="ws-fu" title="Câu hỏi ngắn được hiểu theo câu hỏi trước trong cuộc trò chuyện (chỉ để hiểu ý, không phải nguồn)"><CornerDownRight size={12} />Hiểu tiếp theo: “{String(fu.previous_request).slice(0, 70)}”</span> : null; })()}
                   </header>
@@ -427,10 +468,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                   </div>}
                 </article>
               );
-            })}
+            })()])}
+            {cardsAt(-1)}
             {pending && <>
               <div className="ws-msg is-user"><p>{pending.text}</p></div>
-              <div className="ws-msg is-bot is-wait"><span className="ws-dots"><i /><i /><i /></span>{pending.mode === 'quick' ? 'Đang tìm trong tài liệu' : 'Các tác tử đang làm việc'} · {elapsed}s</div>
+              <div className="ws-msg is-bot is-wait is-live">
+                <div className="ws-live-head" aria-live="polite"><span className="ws-dots"><i /><i /><i /></span>
+                  {live.answer ? 'Đang viết câu trả lời' : live.steps[live.steps.length - 1] ?? (pending.mode === 'quick' ? 'Đang tìm trong tài liệu' : 'Các tác tử đang làm việc')} · {elapsed}s</div>
+                {live.steps.length > (live.answer ? 0 : 1) && <ol className="ws-live-steps">{live.steps.slice(-5, live.answer ? undefined : -1).map((st, i) => <li key={i}><Check size={12} />{st}</li>)}</ol>}
+                {live.answer && <div className="md ws-live-answer"><Markdown text={inlineCites(stripSources(live.answer), allDocs.length ? allDocs : docs)} /></div>}
+              </div>
             </>}
             <div ref={endRef} />
           </div>

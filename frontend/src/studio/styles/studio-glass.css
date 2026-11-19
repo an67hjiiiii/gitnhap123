@@ -630,3 +630,15 @@ html[data-bot-flying] .st-main .ws-bot{opacity:0}
 .ov-head-r{grid-template-columns:auto auto auto}
 .ov-head-r .ov-updated{grid-column:auto;grid-row:1;order:-1}
 @media (max-width:640px){.ov-head-r{grid-template-columns:auto auto}.ov-head-r .ov-updated{grid-column:1/-1;grid-row:auto;order:0}}
+
+/* Điện thoại: vùng bấm tối thiểu 44 px (WCAG 2.5.5). Chỉ nới kích thước, không đổi hình dạng nút. */
+@media (max-width:767px){
+  html .st-app :is(button,[role="button"],select,a.btn,.sb-link,.sb-search,.hist-row){min-height:44px}
+  html .st-app :is(.icon-btn,.sb-icon,.sb-x,.pgd-bot){min-width:44px;min-height:44px}
+  html .st-app .hist-row :is(button,[role="button"]),
+  html .st-app :is(button,[role="button"])[aria-label]:not(:has(span,strong,em)):empty,
+  html .st-app :is(button,[role="button"])[aria-label]:has(> svg:only-child){min-width:44px}
+  html .st-app .sb-x{order:3;flex:none}  /* nút đóng ra cuối hàng, không đè chữ logo */
+  html .st-app .sb-brand .sb-tools{margin-left:auto}
+  html .st-app .md :is(button,a){min-height:0}  /* chữ trong câu trả lời giữ nguyên dòng */
+}

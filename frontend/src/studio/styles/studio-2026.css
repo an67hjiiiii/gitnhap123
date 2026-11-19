@@ -1140,3 +1140,46 @@
 .br-notes li{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--text)}
 .br-notes .chip{flex:none;font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--muted)}
 .note.is-ok{background:var(--ok-soft);color:var(--ok-ink)}
+/* Đang trả lời (stream): bước hiện tại, các bước đã qua, chữ trả lời hiện dần */
+.ws-msg.is-wait.is-live{flex-direction:column;align-items:stretch;gap:8px;width:100%}
+.ws-live-head{display:flex;align-items:center;gap:10px}
+.ws-live-steps{list-style:none;margin:0;padding:0;display:grid;gap:3px;font-size:12.5px;color:var(--faint)}
+.ws-live-steps li{display:flex;align-items:center;gap:6px}
+.ws-live-steps svg{color:#167a50;flex:none}
+.ws-live-answer{color:var(--ink)}
+/* Thẻ kết quả kỹ năng trong chat (đợt 4, bản làm thử) */
+.skc{border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#fff,#f6f9fe);box-shadow:0 10px 30px -18px rgba(20,48,92,.35);padding:14px 16px;display:grid;gap:10px}
+.skc header{display:flex;gap:10px;align-items:center}
+.skc header div{display:grid}
+.skc header small{color:var(--faint);font-size:12px}
+.skc-ico{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,#1d66c9,#4f8ff0);box-shadow:0 6px 14px -6px rgba(29,102,201,.6);flex:none}
+.skc-verdict{margin:0;font-weight:700;font-size:15px;padding:8px 12px;border-radius:12px}
+.skc-verdict.is-ok{background:#e7f6ee;color:#13704a}.skc-verdict.is-bad{background:#fdecec;color:#a52f2f}.skc-verdict.is-warn{background:#fff4e2;color:#94570c}
+.skc-rows,.skc-steps{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+.skc-rows li,.skc-steps li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.7);border:1px solid var(--line)}
+.skc-steps{counter-reset:s}.skc-steps li{grid-template-columns:28px 1fr auto}
+.skc-steps li::before{counter-increment:s;content:counter(s);width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:#e8f0fb;color:#1d5fc4;font-weight:700;font-size:12px}
+.skc-rows div,.skc-steps div{display:grid;gap:2px;min-width:0}
+.skc-rows small,.skc-steps small{color:var(--text);font-size:12.5px}
+.skc-rows q{font-style:italic;color:var(--ink)}
+.skc-badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.skc-badge.is-ok{background:#e7f6ee;color:#13704a}.skc-badge.is-bad{background:#fdecec;color:#a52f2f}.skc-badge.is-warn{background:#fff4e2;color:#94570c}
+.skc-cite{border:1px solid #cfdcf0;background:#f2f6fd;color:#1d5fc4;border-radius:8px;font-size:11.5px;padding:2px 7px;cursor:pointer;white-space:nowrap;font-family:var(--mono,monospace)}
+.skc-none{font-size:11.5px;color:var(--faint)}
+.skc-docs ul{margin:6px 0 0;padding-left:18px}
+.skc-rule{margin:0;font-size:13.5px}
+.skc-note,.skc-warn{margin:0;font-size:12.5px;color:#94570c;display:flex;gap:6px;align-items:center}
+.skc footer{font-size:11.5px;color:var(--faint);display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between;border-top:1px dashed var(--line);padding-top:8px}
+@media (max-width:767px){.skc-rows li,.skc-steps li{grid-template-columns:auto 1fr}.skc-rows li>:last-child,.skc-steps li>:last-child{grid-column:2}}
+.st-app[data-theme="dark"] .skc{background:linear-gradient(180deg,#16212f,#121b27)}
+.st-app[data-theme="dark"] .skc-rows li,.st-app[data-theme="dark"] .skc-steps li{background:rgba(255,255,255,.03)}
+/* menu kỹ năng khi gõ "/" */
+.ws-slash{position:absolute;left:12px;right:12px;bottom:calc(100% + 8px);z-index:20;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 40px -16px rgba(20,48,92,.4);padding:6px;display:grid;gap:2px}
+.ws-slash button{display:grid;grid-template-columns:30px 1fr;gap:2px 10px;text-align:left;border:0;background:transparent;border-radius:10px;padding:8px;cursor:pointer;min-height:44px}
+.ws-slash button.is-on,.ws-slash button:hover{background:#eef4fd}
+.ws-slash button svg{grid-row:span 2;align-self:center;color:#1d5fc4}
+.ws-slash small{color:var(--faint);font-size:12px}
+.st-app[data-theme="dark"] .ws-slash{background:#16212f}
+.ws-msg.is-card{width:100%;max-width:100%;padding:0;background:none;border:0;box-shadow:none}
+.ws-auto{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#1d5fc4;background:#eef4fd;border-radius:999px;padding:6px 12px;margin-right:auto}
+.st-app[data-theme="dark"] .ws-auto{background:rgba(29,102,201,.18);color:#9cc2f5}
