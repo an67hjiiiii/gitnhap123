@@ -40,6 +40,7 @@ from app.research.plan_verification import (
 from app.research.planning_retrieval import PlanningRetriever, PLANNING_SCORER_VERSION
 from app.research.registry import active_pack, active_pack_name, use_pack
 from app.research.worker import execute_task
+from app.research.progress import emit
 from app.research.synthesizer import synthesize
 from app.research.vanilla import answer_vanilla
 from app.retrieval.text import retrieve, apply_token_budget, estimate_tokens, terms
@@ -197,6 +198,8 @@ class ResearchPipeline:
         }
         policy = context_policy()
         effective["context_policy"] = policy
+        if product_mode:
+            effective["synthesis_max_output_tokens"] = cfg.synthesis_max_output_tokens
         embedder = getattr(self.candidate_index, "embedder", None)
         provenance = build_provenance(
             provider_name=provider.name,
@@ -207,6 +210,11 @@ class ResearchPipeline:
 
         def event(stage: str, **data):
             events.append({"stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **data})
+            # ô chat sản phẩm (stream): báo bước đang làm; chỉ gửi tên bước và mã nhiệm vụ, không gửi nội dung
+            brief = {k: data[k] for k in ("task_id", "classification") if k in data}
+            if isinstance(data.get("result"), dict) and data["result"].get("task_id"):
+                brief["task_id"] = data["result"]["task_id"]
+            emit({"type": "progress", "stage": stage, **brief})
 
         def make_run(status: str | None, answer: str, tasks: list[Task], task_results: list[TaskResult]) -> dict:
             return {
@@ -704,7 +712,9 @@ class ResearchPipeline:
                         event("run_budget_exceeded", total_tokens=metrics.input_tokens + metrics.output_tokens)
                         break
                 g0 = time.perf_counter()
-                answer = await synthesize(provider, query, task_results, metrics, reply_language=answer_language)
+                # Ô chat sản phẩm: nới giới hạn để câu trả lời nhiều ý không bị cắt; thực nghiệm giữ nguyên.
+                synth_limit = cfg.synthesis_max_output_tokens if product_mode else None
+                answer = await synthesize(provider, query, task_results, metrics, reply_language=answer_language, max_output_tokens=synth_limit)
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
 
             status = "COMPLETE" if task_results and all(r.status == "COMPLETE" for r in task_results) else "PARTIAL"

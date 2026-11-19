@@ -15,6 +15,7 @@ from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFil
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from app.analysis.skill_router import SKILLS, route_skill
 from app.analysis import blind_rating, casework, consistency, domain_tools, design, evaluation, grounding, insights, reading, req_quality, security_review
 from app.analysis.traceability import (Requirement, assign_agent, check_requirement, extract_checklist, extract_requirements, missing_term_groups,
                                        evidence_for, requirement_query)
@@ -121,6 +122,12 @@ class EmployeeIn(BaseModel):
 class PayComputeBody(BaseModel):
     rates: dict[str, float | None] = Field(default_factory=dict)
     employees: list[EmployeeIn] = Field(min_length=1, max_length=500)
+
+
+class RouteBody(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    source_ids: list[str] | None = Field(default=None, max_length=200)
+    skill: str | None = Field(default=None, max_length=32)  # người dùng gọi bằng "/": bỏ qua luật nhận ý định
 
 
 class ProcedureBody(BaseModel):
@@ -327,6 +334,26 @@ def build_router(
             raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.")
         return evidence_for(pipeline, query, chunks, top_k=6, min_score=RuntimeConfig.from_env().retrieval_min_score,
                             source_ids=source_ids)
+
+    @router.post("/route")
+    def route(body: RouteBody, request: Request) -> dict:
+        """Ô chat Tự động: chọn một kỹ năng nếu câu hỏi khớp rõ; không thì để pipeline (trả lời thẳng/nhiều tác tử)."""
+        listed = owner_pipeline(current_user(request)).source_store.list_sources()
+        wanted = set(body.source_ids) if body.source_ids is not None else None
+        rows = [s for s in listed if wanted is None or s["source_id"] in wanted]
+        if body.skill is not None:
+            if body.skill not in SKILLS:
+                raise HTTPException(400, "Kỹ năng không có.")
+            label, _, needs = SKILLS[body.skill]
+            hit = {"skill": body.skill, "label": label, "reason": 'Bạn chọn bằng lệnh "/"', "doc_types": sorted(needs) if needs else None}
+        else:
+            hit = route_skill(body.message, [s.get("doc_type") for s in rows])
+        if hit is None:
+            return {"route": "pipeline"}
+        need = set(hit.pop("doc_types") or [])
+        # kỹ năng cần loại tài liệu: chỉ đưa tài liệu đúng loại (hợp đồng, văn bản pháp quy) vào kỹ năng
+        ids = [s["source_id"] for s in rows if not need or s.get("doc_type") in need]
+        return {"route": "skill", **hit, "source_ids": ids}
 
     @router.post("/casework/conditions")
     async def conditions(body: ConditionBody, request: Request) -> dict:

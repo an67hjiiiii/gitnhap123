@@ -12,6 +12,7 @@ import {
 import { DocumentInfo } from '../types';
 import { ToolHeader } from './analysis/shared';
 import { Avatar } from './Avatar';
+import { SecretAccessPanel } from './SecretAccessPanel';
 import { useDismiss } from './Header';
 import { StudioModal } from './StudioModal';
 import { LABEL_FIELDS, OrgWizard, PRESET_ICON, coverOf } from './OrgWizard';
@@ -356,6 +357,7 @@ function SpaceManager({ spaceId, docs, onOpenSpace, onChanged, onAsk, onShowAll 
             onChange={(id, classification) => run(async () => { await updateSource(spaceId, id, { classification }); return `Đã đổi mức mật thành ${t.cls[classification]}.`; }, true)}
             onMove={(id, dep) => run(async () => { await updateSource(spaceId, id, { department_id: dep }); return `Đã chuyển tài liệu sang ${depName[dep] ?? t.unit}.`; }, true)}
             onShare={(id, target) => run(async () => { await shareSource(spaceId, id, target); return 'Đã chia sẻ. Người nhận được báo qua chuông thông báo.'; })} />}
+          {tab === 'docs' && (exec || me.is_owner) && <SecretAccessPanel spaceId={spaceId} secretLabel={t.cls.SECRET} />}
 
           {tab === 'settings' && <>
             {exec && <NamingPanel space={space} busy={busy}

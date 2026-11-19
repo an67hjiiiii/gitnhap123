@@ -37,6 +37,7 @@ const CELL = 20;                  // độ mịn của bản đồ chỗ trống
 const ROBOT_COLORS = { shell: '#1d344a', trim: '#d5dde6', screen: '#8fdcff' }; // hằng số: object mới mỗi lần vẽ sẽ làm robot khởi động lại vòng vẽ
 // thẻ luôn tính là nội dung; ngoài ra khối nào có nền, viền, đổ bóng hay chữ trực tiếp cũng tính
 const SOLID = 'button,a,input,select,textarea,h1,h2,h3,h4,p,li,label,table,img,svg,canvas,summary';
+const CONTROL = 'button,a[href],input,select,textarea,[role="button"]';
 type Pt = { x: number; y: number };
 type Side = 'left' | 'right';
 type Vert = 'up' | 'down' | 'mid';
@@ -73,10 +74,11 @@ function scan() {
   const rows = Math.max(1, Math.ceil((bottom - main.top) / CELL));
   const grid = new Uint8Array(rows * cols);
   // tô các ô có tâm nằm trong khung
-  const paint = (x0: number, y0: number, x1: number, y1: number) => {
+  // v: trọng số ô (chữ, khung = 1; nút, ô nhập = 10) để khi buộc phải che thì robot che chữ chứ không che nút
+  const paint = (x0: number, y0: number, x1: number, y1: number, v = 1) => {
     const c0 = Math.max(0, Math.ceil((x0 - main.left) / CELL - 0.5)), c1 = Math.min(cols - 1, Math.floor((x1 - main.left) / CELL - 0.5));
     const r0 = Math.max(0, Math.ceil((y0 - main.top) / CELL - 0.5)), r1 = Math.min(rows - 1, Math.floor((y1 - main.top) / CELL - 0.5));
-    for (let r = r0; r <= r1; r++) grid.fill(1, r * cols + c0, r * cols + c1 + 1);
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) if (grid[r * cols + c] < v) grid[r * cols + c] = v;
   };
   type Clip = { l: number; t: number; r: number; b: number };
   // trang mới đang trượt vào (StudioMotion dịch dọc vài chục px): trừ phần dịch đó để đo đúng vị trí trang khi dừng hẳn
@@ -91,7 +93,13 @@ function scan() {
       const top = rc.top - d, bot = rc.bottom - d;
       const l = Math.max(rc.left, clip.l), t = Math.max(top, clip.t), r = Math.min(rc.right, clip.r), b = Math.min(bot, clip.b);
       if (rc.width && rc.height && (l >= r || t >= b)) continue; // nằm ngoài vùng nhìn thấy
-      if (rc.width && rc.height && paints(child)) { paint(l, t, r, b); continue; }
+      if (rc.width && rc.height && paints(child)) {
+        // nút, liên kết, ô nhập: nới nửa ô mỗi phía để robot không chồng lên mép (ô chỉ tính theo tâm)
+        const ctl = child.matches(CONTROL);
+        const pad = ctl ? CELL / 2 : 0;
+        paint(l - pad, t - pad, r + pad, b + pad, ctl ? 10 : 1);
+        continue;
+      }
       const ov = rc.width && rc.height ? getComputedStyle(child).overflow : 'visible';
       walk(child, ov === 'visible' ? clip : { l, t, r, b }, d);
     }
@@ -110,11 +118,12 @@ function scan() {
     const r0 = cr(Math.round((bx.y - main.top) / CELL)), r1 = cr(Math.round((bx.y + bx.h - main.top) / CELL));
     return S[r1 * W + c1] - S[r0 * W + c1] - S[r1 * W + c0] + S[r0 * W + c0];
   };
-  // thân robot hẹp hơn khung một chút (hai bên tai/chân trong suốt)
-  const robot = (s: Spot) => area({ x: s.x + BOT * 0.1, y: s.y + 4, w: BOT * 0.8, h: BOT - 4 });
+  // cả khung robot (khung nhận cú bấm, kể cả góc trong suốt) để không chặn góc nút bên cạnh
+  const robot = (s: Spot) => area({ x: s.x, y: s.y, w: BOT, h: BOT });
   const cost = (s: Spot) => robot(s) + area(bubbleRect(s.x, s.y, s.side, s.vert));
   // không có chỗ trống hoàn toàn (màn hình hẹp): robot đứng lâu nên tránh che là chính, bong bóng chỉ hiện vài giây
-  const rank = (s: Spot) => { const all = cost(s); return all === 0 ? 0 : 100000 + robot(s) * 1000 + (all - robot(s)) * 20; };
+  // mỗi ô robot che phạt 5000 (> ngưỡng 2000 của recheck) để che dù một ô nút cũng làm robot dời đi
+  const rank = (s: Spot) => { const all = cost(s); return all === 0 ? 0 : 100000 + robot(s) * 5000 + (all - robot(s)) * 20; };
   if (import.meta.env.DEV) dbgGrid = { grid, cols, rows };
   return { main, bottom, cost, rank };
 }

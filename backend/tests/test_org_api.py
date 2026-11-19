@@ -489,3 +489,36 @@ def test_space_list_preview_shows_members_and_my_visible_doc_count(env):
     chi = {s["space_id"]: s for s in u["chi"].get("/api/org/spaces").json()}[sp]
     assert an["members_preview"][0]["user_id"] == "an" and len(an["members_preview"]) == 3
     assert an["doc_count"] == 2 and chi["doc_count"] == 1  # số tài liệu theo đúng quyền xem của từng người
+
+
+def test_secret_access_log_records_only_secret_docs_and_only_executives_read_it(env):
+    """Đợt 9: ai mở hoặc hỏi AI dùng tới tài liệu Mật được ghi; Ban giám đốc xem, nhân viên không xem được."""
+    from app.core.secret_audit import log_secret_access, run_read_source_ids
+
+    factory, u = env
+    sp, kd, kt = _setup_company(factory, u)
+    secret = _upload(factory, "an", "ke_hoach_sap_nhap.txt")
+    company = _upload(factory, "an", "noi_quy.txt")
+    personal = _upload(factory, "chi", "ghi_chu.txt")
+    assert u["an"].post(f"/api/org/spaces/{sp}/sources/{secret}/publish", json={"classification": "SECRET"}).status_code == 200
+    assert u["an"].post(f"/api/org/spaces/{sp}/sources/{company}/publish", json={"classification": "COMPANY"}).status_code == 200
+
+    run = {"task_results": [{"evidence_ids": [f"{secret}_c0000", f"{company}_c0000"], "citations": [f"{secret}_c0000"]}]}
+    assert run_read_source_ids(run) == {secret, company}
+    assert log_secret_access(factory, "an", run_read_source_ids(run), "ASK") == 1  # chỉ tài liệu Mật
+    assert log_secret_access(factory, "binh", [secret, personal], "VIEW") == 1  # tài liệu cá nhân không ghi
+
+    rows = u["an"].get(f"/api/org/spaces/{sp}/secret-access").json()
+    assert [(r["user"], r["action"], r["source_name"]) for r in rows] == [("Binh", "VIEW", "ke_hoach_sap_nhap.txt"), ("An", "ASK", "ke_hoach_sap_nhap.txt")]
+    assert u["chi"].get(f"/api/org/spaces/{sp}/secret-access").status_code == 403
+    assert u["binh"].get(f"/api/org/spaces/{sp}/secret-access").status_code == 403  # Trưởng phòng cũng không
+
+
+def test_secret_access_log_failure_never_blocks_user():
+    from app.core.secret_audit import log_secret_access
+
+    class Broken:
+        def begin(self):
+            raise RuntimeError("db down")
+
+    assert log_secret_access(Broken(), "an", ["src_x"], "VIEW") == 0

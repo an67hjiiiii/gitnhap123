@@ -1,9 +1,11 @@
 from __future__ import annotations
-
 import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping
+
+# Thẻ kết quả kỹ năng lưu trong tin nhắn (ô chat Tự động): dữ liệu thẻ không đưa vào ngữ cảnh mô hình.
+SKILL_CARD_MARK = re.compile(r"<!--skill-card:.*?-->", re.S)
 
 
 DEFAULT_MAX_MESSAGES = 6
@@ -63,7 +65,7 @@ def build_conversation_context(
     last_user_request = ""
     for item in reversed(selected):
         role = str(item.get("role") or "").upper()
-        content = str(item.get("content") or "").strip()
+        content = SKILL_CARD_MARK.sub("", str(item.get("content") or "")).strip()  # thẻ kỹ năng: chỉ giữ dòng tóm tắt
         line = f"[{role}] {content}"
         remaining = char_limit - used
         if remaining <= 0:

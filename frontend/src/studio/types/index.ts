@@ -156,6 +156,7 @@ export interface DocumentInfo {
   status?: 'indexed' | 'processing' | 'failed' | string;
   created_at?: string;
   workspace_id?: number;
+  doc_type?: string | null;  // loại tài liệu hệ thống tự nhận (sửa được), khóa trong DOC_TYPES
   // chỉ có ở tài liệu thuộc không gian tổ chức
   classification?: 'PRIVATE' | 'COMPANY' | 'DEPARTMENT' | 'RESTRICTED' | 'SECRET';
   department_id?: string | null;

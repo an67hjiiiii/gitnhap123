@@ -46,6 +46,7 @@ from app.storage.postgres.models import (
     OrgDepartmentRecord,
     OrgInviteRecord,
     OrgMemberRecord,
+    OrgSecretAccessRecord,
     OrgSourceShareRecord,
     OrgSpaceRecord,
     UserRecord,
@@ -742,6 +743,24 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             dep = db.get(OrgDepartmentRecord, unit) if unit else None
             return {"counts": counts, "total": len(members), "unit_name": dep.name if dep else None}
 
+    @router.get("/spaces/{space_id}/secret-access")
+    def secret_access(space_id: str, request: Request, limit: int = 200) -> list[dict]:
+        """Nhật ký truy cập tài liệu mức Mật (đợt 9). Chỉ Ban giám đốc và chủ tổ chức xem được."""
+        uid = _uid(request)
+        with _db() as db:
+            me = _actor(db, uid, space_id)
+            if not (me.executive or me.is_owner):
+                raise HTTPException(403, "Chỉ Ban giám đốc xem được nhật ký truy cập tài liệu Mật.")
+            rows = db.execute(
+                select(OrgSecretAccessRecord, KnowledgeSourceRecord.source_name)
+                .join(KnowledgeSourceRecord, KnowledgeSourceRecord.source_id == OrgSecretAccessRecord.source_id)
+                .where(OrgSecretAccessRecord.space_id == space_id)
+                .order_by(OrgSecretAccessRecord.created_at.desc(), OrgSecretAccessRecord.access_id.desc())
+                .limit(max(1, min(int(limit), 1000)))
+            ).all()
+            return [{"source_id": r.source_id, "source_name": name, "user": _user_label(db, r.user_id),
+                     "action": r.action, "at": _iso(r.created_at)} for r, name in rows]
+
     @router.get("/spaces/{space_id}/sources")
     def list_sources(space_id: str, request: Request) -> list[dict]:
         uid = _uid(request)
@@ -758,7 +777,8 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
                      "chunk_count": int(counts.get(r.source_id, 0)),
                      "classification": r.classification, "department_id": r.department_id,
                      "owner": _user_label(db, r.owner_user_id), "mine": r.owner_user_id == uid,
-                     "can_delete": can_delete(uid, me, _source(r)), "created_at": _iso(r.created_at)} for r in rows]
+                     "can_delete": can_delete(uid, me, _source(r)), "created_at": _iso(r.created_at),
+                     "doc_type": (r.display_metadata or {}).get("doc_type")} for r in rows]
 
     @router.post("/spaces/{space_id}/sources/{source_id}/publish")
     def publish(space_id: str, source_id: str, body: PublishBody, request: Request) -> dict:

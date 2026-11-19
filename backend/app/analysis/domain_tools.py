@@ -405,6 +405,28 @@ def compute_pay(rates: dict[str, float | None], employees: list[dict]) -> dict:
 
 
 # ------------------------------------------------------------------ Nhân sự: cấp duyệt đơn từ
+_DAYS = re.compile(r"(\d+(?:[.,]\d+)?)\s*ngày", re.I)
+_LEVEL_HI = re.compile(r"từ\s+(\d+)\s+ngày\s+trở\s+lên[^;.\n]*?\b(?:do|bởi)\s+([^;.,\n]+?)\s+(?:phê\s+)?duyệt", re.I)
+_LEVEL_LO = re.compile(r"dưới\s+(\d+)\s+ngày[^;.\n]*?\b(?:do|bởi)\s+([^;.,\n]+?)\s+(?:phê\s+)?duyệt", re.I)
+
+
+def approver_by_days(request: str, text: str) -> str | None:
+    """Ngưỡng ngày trong quy định ("từ N ngày trở lên do X duyệt; dưới N ngày do Y duyệt") so với số ngày của đơn.
+
+    Phép so sánh do luật cố định làm (chạy thật 19/11: mô hình chọn Trưởng phòng cho đơn 6 ngày dù ngưỡng là 5).
+    Không đủ dữ kiện (đơn không nêu số ngày, quy định không có ngưỡng) thì trả None để giữ câu trả lời có căn cứ của mô hình.
+    """
+    asked = _DAYS.search(request)
+    hi = _LEVEL_HI.search(text)
+    if not asked or not hi:
+        return None
+    days = float(asked.group(1).replace(",", "."))
+    if days >= int(hi.group(1)):
+        return hi.group(2).strip()
+    lo = _LEVEL_LO.search(text)
+    return lo.group(2).strip() if lo and int(lo.group(1)) == int(hi.group(1)) else None
+
+
 async def find_approver(provider, request: str, evidence: list[SourceChunk]) -> dict:
     """Ai duyệt loại đơn này theo nội quy (kèm ngưỡng nếu có). Tên người/đơn vị duyệt phải có trong đoạn được dẫn."""
     started = time.perf_counter()
@@ -431,6 +453,13 @@ async def find_approver(provider, request: str, evidence: list[SourceChunk]) -> 
         usage = {k: usage[k] + v for k, v in _usage(response).items()}
     cite, approver, rule = _cited(obj.get("citation"), evidence), _text(obj.get("approver"), 160), _text(obj.get("rule"), 400)
     by_id = {c.chunk_id: c for c in evidence}
+    for c in ([by_id[cite]] if cite else []) + [c for c in evidence if c.chunk_id != cite]:
+        ruled = approver_by_days(request, c.text)
+        if ruled:  # quy định có ngưỡng ngày và đơn nêu số ngày: kết luận theo phép so sánh, dẫn đúng đoạn chứa ngưỡng
+            if _fold(ruled) != _fold(approver):
+                rule = (rule + " " if rule else "") + "(Cấp duyệt xác định theo ngưỡng số ngày trong quy định.)"
+            cite, approver = c.chunk_id, ruled
+            break
     if not (cite and approver and _fold(approver) in _fold(by_id[cite].text)):  # nguyên cụm, không chỉ trùng vài chữ
         return {**base, **usage, "latency_ms": _ms(started)}  # không có căn cứ: không nêu người duyệt
     return {**base, **usage, "approver": approver, "rule": rule, "citation": cite, "latency_ms": _ms(started)}

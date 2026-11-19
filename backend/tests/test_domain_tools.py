@@ -155,7 +155,7 @@ def test_pay_rates_grounded_and_compute():
 def test_approver_must_appear_in_rule():
     with use_pack("business_hr"):
         ok = run(dt.find_approver(Provider({"approver": "Giám đốc khối", "rule": "từ 5 ngày trở lên do Giám đốc khối duyệt", "citation": "h1"}), "Nghỉ phép 6 ngày", [HR]))
-        bad = run(dt.find_approver(Provider({"approver": "Tổng giám đốc", "rule": "", "citation": "h1"}), "Nghỉ phép 6 ngày", [HR]))
+        bad = run(dt.find_approver(Provider({"approver": "Tổng giám đốc", "rule": "", "citation": "h1"}), "Xin nghỉ phép", [HR]))  # không nêu số ngày: luật ngưỡng không áp dụng
     assert ok["approver"] == "Giám đốc khối" and ok["citation"] == "h1"
     assert bad["approver"] == "" and bad["citation"] is None
 
@@ -325,3 +325,21 @@ def test_lookup_distinguishes_same_article_number_in_two_documents():
     with use_pack("education"):
         out = run(dt.lookup_articles(Provider({"answer": "Từ 3,5 trở lên.", "articles": ["A1", "A2"]}), "Học bổng từ bao nhiêu điểm?", a + b))
     assert set(out["cited"]) == {"quy_che_A.md#10", "quy_che_B.md#10"} and out["flags"] == []
+
+
+def test_approver_level_decided_by_day_threshold_not_by_model():
+    """Chạy thật 19/11: đơn nghỉ 6 ngày, quy định "từ 5 ngày trở lên do Giám đốc khối duyệt", mô hình trả Trưởng phòng."""
+    wrong = {"approver": "Trưởng phòng", "rule": "dưới 5 ngày do Trưởng phòng duyệt", "citation": "h1"}
+    with use_pack("business_hr"):
+        six = run(dt.find_approver(Provider(wrong), "Xin nghỉ phép 6 ngày thì ai duyệt?", [HR]))
+        three = run(dt.find_approver(Provider({**wrong, "approver": "Giám đốc khối"}), "Nghỉ 3 ngày ai duyệt?", [HR]))
+    assert six["approver"] == "Giám đốc khối" and six["citation"] == "h1" and "ngưỡng" in six["rule"]
+    assert three["approver"] == "Trưởng phòng"
+
+
+def test_approver_by_days_rule_parser():
+    text = "Đơn xin nghỉ phép từ 5 ngày trở lên phải gửi trước ít nhất 7 ngày và do Giám đốc khối duyệt; dưới 5 ngày do Trưởng phòng duyệt."
+    assert dt.approver_by_days("nghỉ 5 ngày", text) == "Giám đốc khối"
+    assert dt.approver_by_days("nghỉ 4,5 ngày", text) == "Trưởng phòng"
+    assert dt.approver_by_days("nghỉ phép", text) is None  # đơn không nêu số ngày: không đoán
+    assert dt.approver_by_days("nghỉ 6 ngày", "Trưởng phòng duyệt mọi đơn.") is None

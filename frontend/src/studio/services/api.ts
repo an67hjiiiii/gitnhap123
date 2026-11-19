@@ -196,7 +196,7 @@ export async function getDocuments(ws?: WorkspaceId): Promise<DocumentInfo[]> {
       id: s.source_id, source_file: s.source_name, chunks_count: s.chunk_count, file_type: (s.source_name.split('.').pop() || '').toLowerCase(),
       domain_tags: [], status: String(s.status || '').toLowerCase() === 'failed' ? 'failed' : 'indexed',
       classification: s.classification, department_id: s.department_id, owner: s.owner, mine: s.mine, can_delete: s.can_delete,
-      created_at: s.created_at ?? undefined,
+      created_at: s.created_at ?? undefined, doc_type: s.doc_type ?? null,
     })) as unknown as DocumentInfo[];
   }
   const [data, items] = await Promise.all([call<any>('/sources'), wsReady(ws) ? workspaceItems(ws!) : Promise.resolve(null)]);
@@ -204,9 +204,17 @@ export async function getDocuments(ws?: WorkspaceId): Promise<DocumentInfo[]> {
   data.sources = (data.sources || []).filter((s: any) => !allow || allow.has(s.source_id));
   return (data.sources || []).map((s: any) => ({
     id: s.source_id, source_file: s.source_name, chunks_count: s.chunk_count, file_type: (s.source_name.split('.').pop() || '').toLowerCase(),
-    domain_tags: [], status: String(s.status || '').toLowerCase() === 'failed' ? 'failed' : 'indexed',
+    domain_tags: [], status: String(s.status || '').toLowerCase() === 'failed' ? 'failed' : 'indexed', doc_type: s.doc_type ?? null,
   })) as unknown as DocumentInfo[];
 }
+
+// Loại tài liệu hệ thống tự nhận khi tải lên (backend ingestion/doc_type.py); người tải lên sửa được.
+export const DOC_TYPES: Record<string, string> = {
+  contract: 'Hợp đồng', regulation: 'Quy chế', internal_rules: 'Nội quy', transcript: 'Bảng điểm',
+  legal_doc: 'Văn bản pháp quy', software_spec: 'Đặc tả phần mềm', lecture: 'Bài giảng', other: 'Khác',
+};
+export const setDocType = (sourceId: string, docType: string) =>
+  call<{ source_id: string; doc_type: string }>(`/sources/${encodeURIComponent(sourceId)}/doc-type`, { method: 'PUT', body: JSON.stringify({ doc_type: docType }) });
 
 export async function getDocumentChunks(docId: number | string): Promise<ChunkInfo[]> {
   const data = await call<any>(`/sources/${encodeURIComponent(String(docId))}`);
@@ -373,14 +381,44 @@ export const getChunk = (id: string) => call<{ chunk_id: string; source_name: st
 
 // Mỗi câu hỏi chỉ dùng tài liệu của không gian đang mở; cuộc trò chuyện mới được gán vào không gian đó.
 // only: chỉ hỏi trong các tài liệu này (ví dụ từ Hồ sơ tài liệu → Hỏi ngay), thay cho phạm vi của không gian.
-async function chatInWorkspace(body: Record<string, unknown>, ws?: WorkspaceId, conversationId?: string | null, only?: string[]): Promise<Cap1Run> {
+async function chatInWorkspace(body: Record<string, unknown>, ws?: WorkspaceId, conversationId?: string | null, only?: string[], onEvent?: (e: ChatStreamEvent) => void): Promise<Cap1Run> {
   const scope = only?.length ? only : wsReady(ws) ? (await workspaceItems(ws!)).source_ids : undefined;
-  const run = await post<Cap1Run>('/chat', { ...body, conversation_id: conversationId ?? undefined, source_ids: scope, domain_pack: domainPack ?? undefined });
+  const payload = { ...body, conversation_id: conversationId ?? undefined, source_ids: scope, domain_pack: domainPack ?? undefined };
+  const run = onEvent ? await postStream(payload, onEvent) : await post<Cap1Run>('/chat', payload);
   if (run.conversation_id && run.conversation_id !== conversationId) await assignToWorkspace(ws ?? '', 'conversation', run.conversation_id);
   return run;
 }
-export async function sendChat(message: string, conversationId: string | null, ws?: WorkspaceId, only?: string[]): Promise<Cap1Run> {
-  return chatInWorkspace({ message, product_mode: true }, ws, conversationId, only);
+export async function sendChat(message: string, conversationId: string | null, ws?: WorkspaceId, only?: string[], onEvent?: (e: ChatStreamEvent) => void): Promise<Cap1Run> {
+  return chatInWorkspace({ message, product_mode: true }, ws, conversationId, only, onEvent);
+}
+
+// Ô chat sản phẩm: /api/chat/stream gửi từng dòng JSON (bước đang làm, chữ trả lời đang viết) rồi kết quả cuối.
+export type ChatStreamEvent = { type: 'progress'; stage: string; task_id?: string; classification?: string } | { type: 'answer'; text: string } | { type: 'queue'; position: number };
+async function postStream(payload: Record<string, unknown>, onEvent: (e: ChatStreamEvent) => void): Promise<Cap1Run> {
+  const res = await fetch(`${API}${scoped('/chat/stream')}`, {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+  if (res.status === 404) return post<Cap1Run>('/chat', payload); // backend cũ chưa có stream
+  if (!res.ok || !res.body) {
+    const body = await res.json().catch(() => null);
+    throw new Error(viError(typeof body?.detail === 'string' ? body.detail : '') || `Lỗi máy chủ (HTTP ${res.status})`);
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (value) buf += value;
+    let nl: number;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line) continue;
+      const item = JSON.parse(line);
+      if (item.type === 'done') return item.run as Cap1Run;
+      if (item.type === 'error') throw new Error(viError(typeof item.detail === 'string' ? item.detail : '') || `Lỗi máy chủ (HTTP ${item.status})`);
+      onEvent(item);
+    }
+    if (done) throw new Error('Kết nối bị ngắt trước khi có câu trả lời. Câu hỏi vẫn được giữ, bạn thử gửi lại nhé.');
+  }
 }
 
 // Phân tích sâu trong cùng cuộc trò chuyện (điều kiện A/B/C, không dùng chế độ sản phẩm).
@@ -638,7 +676,7 @@ export interface OrgMember { user_id: string; display_name: string; email: strin
 export interface OrgDetail extends OrgNaming { space_id: string; name: string; description: string; me: { level: MemberLevel; department_id: string | null; is_owner: boolean }; departments: OrgDepartment[]; members: OrgMember[] }
 export interface OrgInvite { invite_id: string; kind: 'USER' | 'LINK' | 'CODE'; invitee: string | null; level: MemberLevel; department_id: string | null; expires_at: string | null; max_uses: number | null; use_count: number; revoked: boolean }
 export interface MyInvite extends OrgNaming { invite_id: string; space_id: string; space_name: string; inviter: string; level: MemberLevel; department_id: string | null; expires_at: string | null }
-export interface OrgSource { source_id: string; source_name: string; status: string; chunk_count: number; classification: Classification; department_id: string | null; owner: string; mine: boolean; can_delete: boolean; created_at: string | null }
+export interface OrgSource { source_id: string; source_name: string; status: string; chunk_count: number; classification: Classification; department_id: string | null; owner: string; mine: boolean; can_delete: boolean; created_at: string | null; doc_type?: string | null }
 export interface OrgShare { share_id: string; user_id: string | null; user: string | null; department_id: string | null; shared_by: string }
 export interface OrgNotification { notification_id: string; kind: string; space_id: string | null; payload: Record<string, any>; read: boolean; created_at: string }
 
@@ -792,3 +830,48 @@ export const findApprover = (request: string, sourceIds: string[]) =>
 export const contractCriteria = () => call<{ criteria: TraceRequirement[] }>('/studio/tools/contract-criteria');
 export const contractRisks = (sourceIds: string[]) => post<ToolMeasured & { risks: ContractRisk[]; looks_like_contract: boolean }>('/studio/tools/contract-risks', { source_ids: sourceIds, domain_pack: pk() });
 export const documentValidity = (sourceIds: string[]) => post<{ today: string; documents: DocValidity[] }>('/studio/tools/validity', { source_ids: sourceIds });
+
+// ---------------- Ô chat Tự động (đợt 4, bản làm thử): chọn một kỹ năng khi câu hỏi khớp rõ, không thì để pipeline
+export type SkillKey = 'conditions' | 'procedure' | 'approver' | 'contract_review' | 'validity';
+export const SKILL_LIST: { key: SkillKey; label: string; hint: string; needs?: string[] }[] = [
+  { key: 'conditions', label: 'Kiểm tra điều kiện', hint: 'Một trường hợp có đủ điều kiện theo quy định không' },
+  { key: 'procedure', label: 'Quy trình từng bước', hint: 'Các bước, người làm, thời hạn, giấy tờ' },
+  { key: 'approver', label: 'Ai duyệt', hint: 'Cấp duyệt theo quy định cho một yêu cầu' },
+  { key: 'contract_review', label: 'Rà soát hợp đồng', hint: 'Điều khoản rủi ro kèm nguyên văn', needs: ['contract'] },
+  { key: 'validity', label: 'Hiệu lực văn bản', hint: 'Số hiệu, ngày hiệu lực, bị thay thế chưa', needs: ['legal_doc', 'regulation'] },
+];
+export type SkillRoute = { route: 'pipeline' } | { route: 'skill'; skill: SkillKey; label: string; reason: string; source_ids: string[] };
+export type SkillOutput =
+  | { skill: 'conditions'; data: ConditionResult }
+  | { skill: 'procedure'; data: ProcedureResult }
+  | { skill: 'approver'; data: Awaited<ReturnType<typeof findApprover>> }
+  | { skill: 'contract_review'; data: Awaited<ReturnType<typeof contractRisks>> }
+  | { skill: 'validity'; data: Awaited<ReturnType<typeof documentValidity>> };
+
+/** Phạm vi tài liệu của một câu hỏi: tài liệu chọn riêng, hoặc tài liệu của không gian cá nhân đang mở (tổ chức: backend tự lọc). */
+export async function chatScope(ws?: WorkspaceId, only?: string[]): Promise<string[] | undefined> {
+  return only?.length ? only : wsReady(ws) ? (await workspaceItems(ws!)).source_ids : undefined;
+}
+export const routeSkill = (message: string, sourceIds?: string[], skill?: SkillKey) => post<SkillRoute>('/studio/route', { message, source_ids: sourceIds, skill });
+
+export async function runSkill(skill: SkillKey, message: string, sourceIds: string[]): Promise<SkillOutput> {
+  if (!sourceIds.length) throw new Error('Chưa có tài liệu phù hợp trong phạm vi hỏi cho kỹ năng này.');
+  switch (skill) {
+    case 'conditions': return { skill, data: await checkConditions(message, message, sourceIds) };
+    case 'procedure': return { skill, data: await extractProcedure(message, sourceIds) };
+    case 'approver': return { skill, data: await findApprover(message, sourceIds) };
+    case 'contract_review': return { skill, data: await contractRisks(sourceIds) };
+    case 'validity': return { skill, data: await documentValidity(sourceIds) };
+  }
+}
+
+/** Lưu câu hỏi và thẻ kết quả kỹ năng vào cuộc trò chuyện (tạo mới nếu chưa có), gán vào không gian đang mở. */
+export async function saveSkillCard(conversationId: string | null, question: string, summary: string, card: { skill: string; label: string; reason: string; data: unknown }, ws?: WorkspaceId): Promise<string> {
+  const r = await post<{ conversation_id: string }>('/conversations/skill-card', { conversation_id: conversationId ?? undefined, question, summary, card });
+  if (r.conversation_id !== conversationId) await assignToWorkspace(ws ?? '', 'conversation', r.conversation_id);
+  return r.conversation_id;
+}
+
+// Nhật ký truy cập tài liệu mức Mật (đợt 9): chỉ Ban giám đốc và chủ tổ chức xem được.
+export interface SecretAccess { source_id: string; source_name: string; user: string; action: 'VIEW' | 'ASK'; at: string | null }
+export const getSecretAccess = (spaceId: string) => call<SecretAccess[]>(`/org/spaces/${encodeURIComponent(spaceId)}/secret-access`);

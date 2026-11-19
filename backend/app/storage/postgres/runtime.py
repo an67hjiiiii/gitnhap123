@@ -32,6 +32,7 @@ from app.auth.store import (
 )
 from app.core.access import REDACTED_ANSWER, redact_run, referenced_source_ids, visible_source_ids
 from app.core.types import SourceChunk
+from app.ingestion.doc_type import DOC_TYPES, classify_document
 from app.retrieval.text import make_chunks, normalize_text
 from app.storage.postgres.models import (
     ConversationMessageRecord,
@@ -454,10 +455,13 @@ class PostgresSourceStore:
             "source_hash": hashlib.sha256(clean_text.encode("utf-8")).hexdigest(),
             "source_version": source_id,
         }
-        metadata = source_provenance
+        metadata = {**source_provenance, "doc_type": classify_document(str(source_name), clean_text), "doc_type_by": "auto"}
         now = _now()
         with self.session_factory.begin() as db:
             source = db.get(KnowledgeSourceRecord, source_id)
+            old_meta = dict(source.display_metadata or {}) if source is not None else {}
+            if old_meta.get("doc_type_by") == "user":  # nhãn người dùng đã sửa thì giữ khi nạp lại
+                metadata = {**metadata, "doc_type": old_meta.get("doc_type"), "doc_type_by": "user"}
             if source is None:
                 db.add(
                     KnowledgeSourceRecord(
@@ -620,8 +624,38 @@ class PostgresSourceStore:
                 .group_by(KnowledgeSourceRecord.source_id)
                 .order_by(KnowledgeSourceRecord.source_name, KnowledgeSourceRecord.source_id)
             ).all()
-            return [{"source_id": source.source_id, "source_name": source.source_name,
-                     "chunk_count": int(count), "status": source.status} for source, count in rows]
+            labels = {source.source_id: (source.display_metadata or {}).get("doc_type") for source, _ in rows}
+        missing = [sid for sid, label in labels.items() if not label]
+        if missing:
+            labels.update(self._label_unlabelled(missing))
+        return [{"source_id": source.source_id, "source_name": source.source_name,
+                 "chunk_count": int(count), "status": source.status,
+                 "doc_type": labels.get(source.source_id)} for source, count in rows]
+
+    def _label_unlabelled(self, source_ids: list[str]) -> dict[str, str]:
+        """Tài liệu nạp trước đợt 3 chưa có nhãn: phân loại từ 3 đoạn đầu rồi lưu (một lần)."""
+        out: dict[str, str] = {}
+        with self.session_factory.begin() as db:
+            for source in db.scalars(select(KnowledgeSourceRecord).where(KnowledgeSourceRecord.source_id.in_(source_ids))):
+                text = "\n".join(db.scalars(select(KnowledgeChunkRecord.content).where(
+                    KnowledgeChunkRecord.source_id == source.source_id
+                ).order_by(KnowledgeChunkRecord.chunk_index).limit(3)).all())
+                if not text:
+                    continue
+                out[source.source_id] = classify_document(source.source_name, text)
+                source.display_metadata = {**(source.display_metadata or {}), "doc_type": out[source.source_id], "doc_type_by": "auto"}
+        return out
+
+    def set_doc_type(self, source_id: str, doc_type: str) -> dict[str, Any]:
+        """Người dùng sửa nhãn loại tài liệu. Chỉ người tải lên được sửa."""
+        if doc_type not in DOC_TYPES:
+            raise ValueError("doc_type is invalid")
+        with self.session_factory.begin() as db:
+            source = db.get(KnowledgeSourceRecord, source_id)
+            if source is None or source.owner_user_id != self.owner_user_id:
+                raise LookupError(source_id)
+            source.display_metadata = {**(source.display_metadata or {}), "doc_type": doc_type, "doc_type_by": "user"}
+        return {"source_id": source_id, "doc_type": doc_type, "doc_type_by": "user"}
 
     def source(self, source_id: str) -> dict[str, Any] | None:
         with self.session_factory() as db:

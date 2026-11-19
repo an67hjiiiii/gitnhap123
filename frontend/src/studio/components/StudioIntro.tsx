@@ -1,4 +1,4 @@
-// Màn mở đầu mỗi lần vào Studio (bấm Mở Studio, đăng nhập xong): nền đêm có quầng sáng, Robot C27 hiện giữa màn hình như logo,
+// Màn mở đầu lần đầu vào Studio trong phiên trình duyệt (bấm Mở Studio, đăng nhập xong): nền đêm có quầng sáng, Robot C27 hiện giữa màn hình như logo,
 // bay về đúng chỗ logo ở thanh bên rồi một vòng tròn mở rộng từ chính chỗ đó để lộ Studio (~1,4 giây).
 // Bấm hoặc nhấn phím bất kỳ để vào ngay; tắt khi chọn "Hiệu ứng: theo thiết bị" và thiết bị bật giảm chuyển động.
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
@@ -6,8 +6,14 @@ import gsap from 'gsap';
 import { AssistantRobot } from './robot/AssistantRobot';
 import { motionAllowed } from '../utils/motion';
 
+const INTRO_KEY = 'oq-intro-played';
+
 export function shouldPlayIntro() {
-  // chạy mỗi lần vào Studio (bấm Mở Studio, đăng nhập xong, mở lại trang)
+  // chỉ chạy lần đầu trong phiên trình duyệt (tải lại trang không chạy lại)
+  try {
+    if (sessionStorage.getItem(INTRO_KEY)) return false;
+    sessionStorage.setItem(INTRO_KEY, '1');
+  } catch { /* chặn lưu trữ: vẫn chạy như cũ */ }
   return motionAllowed();
 }
 

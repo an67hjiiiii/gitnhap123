@@ -2,6 +2,7 @@ from __future__ import annotations
 from app.core.citations import validate_citations
 from app.core.structured_output import is_placeholder_answer, parse_answer_json
 from app.core.types import RunMetrics, SourceChunk, TaskResult
+from app.research.progress import answer_streamer
 
 
 def _extract_json(text: str) -> dict:
@@ -45,7 +46,7 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         user += "\n\n" + REPLY_LANGUAGE_HINT[reply_language]
     grounded = getattr(provider, "generate_grounded", None)
     result = (
-        await grounded(system=system, user=user, evidence_ids=[c.chunk_id for c in evidence])
+        await grounded(system=system, user=user, evidence_ids=[c.chunk_id for c in evidence], **answer_streamer(provider))
         if callable(grounded)
         else await provider.generate(system=system, user=user)
     )

@@ -184,6 +184,56 @@ Trước đây planner chỉ có 3 tác tử phần mềm (Security, Database, A
   - Kiểm tra: `test_casework.py`, `test_domain_tools.py` (luật nghiệp vụ, kể cả các lỗi gặp khi chạy thật). Chạy thật trên tài liệu mẫu tự viết: 9/9 công cụ cho kết quả đúng kỳ vọng ở lần chạy cuối; đây là kiểm tra kỹ thuật, chưa phải đánh giá chất lượng.
 - Để sau: bộ Y tế, Tài chính (cần chuyên gia kiểm tra); cắt tài liệu theo Điều/Khoản; đo rồi mới cân nhắc đổi embedding (bge-m3); bộ câu hỏi đánh giá đa ngành và chấm mù; viết lại trang giới thiệu.
 
+## Lộ trình hệ thống đích, theo đợt (19/11/2026)
+
+Theo mục 12 tài liệu `MO_TA_HE_THONG_DICH_VA_QUY_TRINH_NGUOI_DUNG_2026-11-19.docx`. Việc 0: đã commit phần đa ngành và phần tổ chức (`9faaf3e`, chỉ trên máy).
+
+### Đợt 1: câu trả lời nhiều ý không bị cắt
+
+- Nguyên nhân gốc: prompt SYNTHESIZER có chữ "validated by workers", trùng dấu hiệu `WORKER` trong `providers/ollama.py`, nên bước tổng hợp bị ép ra JSON tự do; câu trả lời dài chạm giới hạn 700 token thì JSON bị cắt giữa chừng (có từ code gốc CAP1).
+- Sửa, chỉ cho ô chat sản phẩm (`product_mode`): bước tổng hợp dùng khuôn JSON chỉ một trường `answer`, giới hạn riêng `SYNTHESIS_MAX_OUTPUT_TOKENS` (mặc định 1800, ghi vào `effective_config`), rồi lấy trường `answer`. Không có khuôn thì qwen3:4b viết cả phần suy nghĩ bằng tiếng Anh vào câu trả lời, nên không bỏ JSON được.
+- Thực nghiệm A/B/C không đổi: vẫn đi nhánh cũ (ép JSON tự do, 700 token) để tái lập kết quả đã có. Có nên sửa cả nhánh thực nghiệm hay không là việc của nhóm, vì nó thay đổi đầu ra của B/C.
+- Kiểm tra: `test_synthesis_limit.py` (5 kiểm thử). Toàn bộ backend: 290 đạt. Chạy thật với qwen3:4b, điều kiện C, câu "trình bày đầy đủ ba ý" trên nội quy mẫu: đủ 3 ý, có nguồn, 30 giây, 1464 token đầu ra cho cả lượt. Trước khi sửa, cùng câu này cho ra JSON chép lại đầu vào.
+
+### Đợt 2a: lỗi hiển thị nhỏ
+
+- Màn hình mở đầu chỉ chạy lần đầu trong phiên trình duyệt (`sessionStorage`), tải lại trang không chạy lại.
+- Tên nguồn không lặp: hàm đổi mã đoạn thành nhãn tách ra `utils/citations.ts`. Mô hình viết "noi-quy-mau.txt [src_…]" thì chỉ hiện "(đoạn 1)"; một đoạn dẫn hai lần liền thì hiện một nhãn. Kiểm thử `frontend/tests/citations.test.mjs` (`npm test`, 4 đạt).
+- Robot không che nút: trên máy tính, bản đồ chỗ trống của robot nới nút, ô nhập thêm nửa ô mỗi phía và cho nặng gấp 10 lần ô chữ; robot tính theo cả khung nhận cú bấm 64 px; che một ô nút là đủ làm robot dời chỗ. Trước khi sửa, trang Hồ sơ tài liệu bị robot đè nút "Kiểm tra cả kho". Kiểm tra trên trình duyệt 1024 px với bản sửa cuối: 6 trang (Hồ sơ tài liệu, Kiểm tra mâu thuẫn, Bộ công cụ, Tổng quan, Tổ chức, Thực nghiệm) không còn nút nào bị chồng. Trên điện thoại robot đậu ở thanh trên cùng, không chồng nút.
+- Nút trên điện thoại (dưới 768 px) có vùng bấm tối thiểu 44 px; nút đóng thanh bên chuyển ra cuối hàng để không đè chữ logo. Đo trên khổ 375 px: chỉ còn ô tìm tài liệu cao 20 px nằm trong khung 32 px.
+- `npx tsc -b` và `npm run build` đạt.
+
+### Đợt 2b: hiện chữ dần và tiến trình từng bước
+
+- Backend: `POST /api/chat/stream` (chỉ cho `product_mode`) chạy đúng luồng `/api/chat` nhưng trả từng dòng JSON: `progress` (tên bước và mã nhiệm vụ, không có nội dung), `answer` (chữ trả lời đang viết), rồi `done` (kèm lượt chạy) hoặc `error`. Tiến trình đi qua ContextVar `research/progress.py`; không có người nghe thì pipeline, `/api/chat` và thực nghiệm không đổi. Ollama trả chữ theo luồng (`stream=True`) chỉ khi có người nghe, ở bước tổng hợp (nhánh sản phẩm) và bước trả lời thẳng. Người dùng đóng trang giữa chừng thì lượt chạy vẫn chạy xong và được lưu.
+- Frontend: ô chat hiện bước đang làm, các bước đã qua và chữ trả lời hiện dần (`utils/progress.ts`, kiểm thử `tests/progress.test.mjs`). Backend cũ chưa có stream (404) thì quay về `/api/chat`; luồng bị ngắt thì báo lỗi và giữ câu hỏi để gửi lại. Phân tích A/B/C chọn tay vẫn dùng `/api/chat`.
+- Mã đoạn mô hình chép sai, ví dụ "(chunk_id: src_…: c0000)", được bỏ khỏi câu văn; nút nguồn bên dưới vẫn còn.
+- Kiểm tra: `test_chat_stream.py` (6 đạt: đọc JSON dở, không người nghe thì không stream, chữ chỉ dài thêm, thứ tự progress → done, báo lỗi 404/500 thay vì cắt luồng, Ollama ghép chữ và đọc token từ dòng cuối). Frontend `npm test` 6 đạt. Backend toàn bộ 295 đạt, 1 lỗi ở `test_rename_keeps_order_and_activity_time` (kiểm thử chập chờn đã biết; chạy riêng thì đạt).
+- Chạy thật với qwen3:4b. Câu ngắn: tiến trình đến ngay, chữ đầu tiên sau khoảng 4 giây, xong sau khoảng 6 giây. Câu 3 ý (điều kiện C): 8 bước tiến trình, chữ đầu tiên ở giây thứ 14, xong ở giây thứ 17–18, đủ 3 ý. Đã xem trên trình duyệt khổ 1024 px và 375 px: không tràn ngang.
+
+### Đợt 3: tự phân loại tài liệu
+
+- `backend/app/ingestion/doc_type.py`: luật nhận dạng cố định, không gọi mô hình. Dựa vào tiêu đề (8 dòng đầu, tên tệp) và dấu hiệu trong thân như "Bên A/Bên B", "Căn cứ", "Số: 12/2020/", "Điều", "MSSV", "ĐTB", "FR-01". Có 8 nhãn: Hợp đồng, Quy chế, Nội quy, Bảng điểm, Văn bản pháp quy, Đặc tả phần mềm, Bài giảng, Khác. Không đủ dấu hiệu thì trả "Khác", không đoán.
+- Nhãn lưu ở `knowledge_sources.display_metadata` (`doc_type`, `doc_type_by` = `auto` hoặc `user`), không cần migration. Ghi lúc tải lên; tài liệu nạp trước đợt này được phân loại bù từ 3 đoạn đầu khi liệt kê (một lần). Nhãn người dùng đã sửa được giữ khi nạp lại cùng tệp.
+- Sửa nhãn: `PUT /api/sources/{id}/doc-type`, chỉ người tải lên; trên giao diện là ô chọn ở nhãn loại, trang Hồ sơ tài liệu. Danh sách tài liệu cá nhân và tổ chức trả thêm `doc_type`. Chưa dùng mô hình đọc trang đầu như mục 3.4 mô tả, và chưa "học từ người dùng".
+- Kiểm tra: `test_doc_type.py` (7 đạt: 6 loại chính, tên tệp chung chung, trường hợp không chắc, bài giảng, lưu và giữ nhãn sửa tay, chỉ người tải lên được sửa, phân loại bù tài liệu cũ). Backend toàn bộ 302 đạt, 1 lỗi ở kiểm thử chập chờn đã biết. Chạy thật qua API với 6 tài liệu mẫu: 6/6 đúng loại, gồm `noi-quy-mau.txt` nạp từ trước. Trên trình duyệt: đổi nhãn rồi tải lại trang thì nhãn mới vẫn giữ; khổ 375 px không tràn ngang.
+
+### Đợt 4: ô chat Tự động, lệnh "/", thẻ kết quả (chủ dự án duyệt bản làm thử 19/11)
+
+- `analysis/skill_router.py` + `POST /api/studio/route`: luật cố định. Câu khớp đúng một kỹ năng (Kiểm tra điều kiện, Quy trình từng bước, Ai duyệt, Rà soát hợp đồng, Hiệu lực văn bản), và có tài liệu đúng loại khi kỹ năng cần, thì gọi kỹ năng đó. Khớp nhiều kỹ năng hoặc không khớp thì để pipeline sản phẩm tự chọn trả lời thẳng hay dùng nhiều tác tử. Trường `skill` dùng khi người dùng gọi bằng "/". Thực nghiệm A/B/C không đi qua đây.
+- Ô chat chỉ còn chế độ "Tự động"; menu Phân tích A/B/C đã bỏ khỏi ô chat (A/B/C còn ở trang Thực nghiệm). Gõ "/" để chọn kỹ năng. Kết quả kỹ năng hiện thành thẻ (`components/SkillCard.tsx`), căn cứ bấm được.
+- Thẻ lưu vào cuộc trò chuyện (`POST /api/conversations/skill-card`): tin nhắn trợ lý gồm dòng tóm tắt và dữ liệu thẻ trong `<!--skill-card:…-->`. Ngữ cảnh hội thoại cho mô hình chỉ lấy dòng tóm tắt (`conversation_context.py`). Tải lại trang thẻ vẫn còn; câu hỏi tiếp nối hiểu đúng ngữ cảnh. Chưa có sửa thẻ bằng lời.
+- Lỗi gặp khi chạy thật: kỹ năng Ai duyệt trả "Trưởng phòng" cho đơn nghỉ 6 ngày, trong khi quy định là "từ 5 ngày trở lên do Giám đốc khối duyệt". Đã sửa: ngưỡng số ngày do luật cố định so sánh (`approver_by_days`), có kiểm thử chặn tái phát.
+- Kiểm tra: `test_skill_router.py` (7), `test_domain_tools.py` thêm 2. Backend toàn bộ 312 đạt. Chạy thật trên trình duyệt: Ai duyệt (6 ngày, ra Giám đốc khối), Kiểm tra điều kiện (ĐTB 3,4 và rèn luyện 65, ra Không đủ điều kiện, từng điều kiện có căn cứ), "/Rà soát hợp đồng" (1 điều khoản rủi ro Cao kèm nguyên văn). Khổ 375 px không tràn ngang. Sau khi lưu thẻ: tải lại trang thẻ vẫn còn; câu tiếp nối "Quyết định này do cơ quan nào ban hành?" đi qua pipeline, trả lời đúng, có nguồn. Kỹ năng Quy trình từng bước trên quyết định mẫu chỉ ra 1 bước, vì tài liệu mẫu không mô tả thủ tục (giới hạn của tài liệu thử, không phải của bộ định tuyến).
+- Kiểm tra cuối đợt: `test_skill_card_context.py` (2), frontend `tests/skillMessage.test.mjs` (2). Backend toàn bộ 314 đạt; frontend `npm test` 8 đạt, `tsc` và `build` đạt.
+
+### Đợt 9: hàng đợi khi nhiều người hỏi, nhật ký truy cập tài liệu Mật
+
+- Hàng đợi (`research/run_queue.py`): ô chat sản phẩm giới hạn số lượt chạy đồng thời (`PRODUCT_MAX_CONCURRENT_RUNS`, mặc định 1). Người đến sau xếp hàng theo thứ tự, luồng stream báo `{"type":"queue","position":N}` và giao diện hiện "Đang chờ lượt, thứ tự N". Người bỏ đi khi đang chờ thì rời hàng, người sau lên một bậc; lượt bị lỗi vẫn trả chỗ. Hàng đợi ở cấp lượt chạy (không ở từng lời gọi mô hình) nên thời gian đo không lẫn thời gian chờ; thực nghiệm A/B/C và các kỹ năng gọi riêng chưa đi qua hàng đợi.
+- Lỗi gặp khi chạy thật: lời báo thứ tự lọt vào luồng của người vừa chạy xong, vì `emit` đọc ngữ cảnh của bên gọi. Đã sửa bằng `bound_emit()` (gắn với người đang chờ lúc vào hàng); có kiểm thử 3 người chặn tái phát.
+- Nhật ký tài liệu Mật (`core/secret_audit.py`, bảng `org_secret_access`, migration `20261119_15`, chỉ thêm bảng): ghi khi mở tài liệu hoặc đoạn (VIEW) và khi AI được đưa đoạn của tài liệu đó trong một lượt trả lời (ASK). Chỉ tài liệu mức Mật của tổ chức; không ghi nội dung câu hỏi. Xem ở trang Tổ chức, tab Tài liệu, chỉ Ban giám đốc và chủ tổ chức (`GET /api/org/spaces/{id}/secret-access`; Trưởng phòng và nhân viên nhận 403). Ghi nhật ký lỗi thì không chặn người dùng (chỉ ghi log lỗi). Chưa ghi khi kỹ năng (Rà soát hợp đồng…) đọc tài liệu Mật.
+- Kiểm tra: `test_run_queue.py` (5), `test_org_api.py` thêm 2. Backend toàn bộ 321 đạt; frontend `tsc`, `build`, `npm test` 8 đạt. Chạy thật 3 người hỏi cùng lúc: người 1 không chờ, người 2 thứ 1, người 3 thứ 2 rồi thứ 1, cả 3 có câu trả lời, không lỗi. Chạy thật tổ chức thử có tài liệu Mật: 1 lượt VIEW và 1 lượt ASK được ghi và hiện trên trang Tổ chức.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

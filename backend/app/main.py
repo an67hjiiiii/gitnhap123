@@ -1,9 +1,10 @@
 from __future__ import annotations
+import json
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from app.api.auth import router as auth_router
@@ -22,6 +23,9 @@ from app.retrieval.embeddings import make_embedder
 from typing import Literal
 
 from app.research.pipeline import ResearchPipeline
+from app.research.progress import bound_emit, ndjson_run
+from app.research.run_queue import product_runs
+from app.core.secret_audit import log_secret_access, run_read_source_ids, source_ids_of_chunks
 from app.research.registry import PACKS
 from app.research.conversation_context import build_conversation_context
 from app.storage.run_store import RunStore
@@ -258,16 +262,38 @@ def list_sources(request: Request):
 
 @app.get("/api/sources/{source_id}")
 def get_source(source_id: str, request: Request):
-    item = owner_source_store(current_principal(request)).source(source_id)
+    user = current_principal(request)
+    item = owner_source_store(user).source(source_id)
     if not item:
         raise HTTPException(404, "source not found")
+    log_secret_access(app.state.session_factory, str(user["user_id"]), [source_id], "VIEW")
     return item
+
+
+class DocTypeBody(BaseModel):
+    doc_type: str
+
+
+@app.put("/api/sources/{source_id}/doc-type")
+def set_source_doc_type(source_id: str, body: DocTypeBody, request: Request):
+    """Sửa nhãn loại tài liệu hệ thống tự nhận (đợt 3). Chỉ người tải lên; nhãn sửa tay được giữ khi nạp lại."""
+    setter = getattr(owner_source_store(current_principal(request)), "set_doc_type", None)
+    if not callable(setter):
+        raise HTTPException(501, "doc type requires PostgreSQL storage")
+    try:
+        return setter(source_id, body.doc_type)
+    except LookupError as exc:
+        raise HTTPException(404, "source not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 @app.get("/api/chunks/{chunk_id}")
 def get_chunk(chunk_id: str, request: Request):
-    item = owner_source_store(current_principal(request)).chunk(chunk_id)
+    user = current_principal(request)
+    item = owner_source_store(user).chunk(chunk_id)
     if not item:
         raise HTTPException(404, "chunk not found")
+    log_secret_access(app.state.session_factory, str(user["user_id"]), source_ids_of_chunks([chunk_id]), "VIEW")
     return item
 
 @app.post("/api/sources/text")
@@ -342,6 +368,22 @@ async def import_file(request: Request, file: UploadFile = File(...)):
 
 @app.post("/api/chat")
 async def chat(body: ChatRequest, request: Request):
+    return await _chat(body, request)
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(body: ChatRequest, request: Request):
+    """Như /api/chat nhưng gửi dần từng dòng JSON: {"type":"progress"|"answer"} rồi {"type":"done","run"} hoặc {"type":"error"}.
+
+    Chỉ dành cho ô chat sản phẩm; tiến trình qua ContextVar nên pipeline và thực nghiệm không đổi.
+    Người dùng đóng trang giữa chừng thì lượt chạy vẫn chạy xong và được lưu như /api/chat.
+    """
+    if not body.product_mode:
+        raise HTTPException(400, "STREAM_ONLY_FOR_PRODUCT_MODE")
+    return StreamingResponse(ndjson_run(lambda: _chat(body, request)), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+async def _chat(body: ChatRequest, request: Request):
     if not body.message.strip():
         raise HTTPException(400, "message is required")
     try:
@@ -388,7 +430,7 @@ async def chat(body: ChatRequest, request: Request):
         if callable(validator) and selected_source_ids is not None:
             validator(selected_source_ids)
         conversations.add_message(conversation_id, "USER", body.message.strip())
-        run = await owner_pipeline(user, conversation_id).run(
+        run_call = lambda: owner_pipeline(user, conversation_id).run(  # chỉ tạo lượt chạy khi tới lượt
             body.message.strip(),
             condition,
             provider_name,
@@ -399,12 +441,20 @@ async def chat(body: ChatRequest, request: Request):
             reply_in_query_language=body.reply_in_query_language,
             domain_pack=body.domain_pack,
         )
+        if body.product_mode:  # ô chat sản phẩm xếp hàng theo thứ tự; thực nghiệm không qua hàng đợi
+            say = bound_emit()  # báo thứ tự vào luồng của chính người đang chờ, kể cả khi người trước gọi lúc nhường chỗ
+            async with product_runs.slot(lambda n: say({"type": "queue", "position": n})):
+                run = await run_call()
+        else:
+            run = await run_call()
         conversations.add_message(
             conversation_id,
             "ASSISTANT",
             str(run.get("answer") or run.get("status") or "Run completed"),
             run_id=run["run_id"],
         )
+        # nhật ký Mật: tài liệu mức Mật có đoạn được đưa cho AI trong lượt này (chỉ thao tác, không ghi câu hỏi)
+        log_secret_access(app.state.session_factory, str(user["user_id"]), run_read_source_ids(run), "ASK")
         run = {**run, "conversation_id": conversation_id}
         if run["status"] == "FAILED":
             return run
@@ -452,6 +502,36 @@ def patch_conversation(conversation_id: str, body: ConversationPatch, request: R
         raise HTTPException(404, "conversation not found") from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+class SkillCardBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: str | None = Field(default=None, max_length=128)
+    question: str = Field(min_length=1, max_length=4000)
+    summary: str = Field(min_length=1, max_length=2000)
+    card: dict
+
+
+@app.post("/api/conversations/skill-card")
+def save_skill_card(body: SkillCardBody, request: Request):
+    """Ô chat Tự động: lưu câu hỏi và thẻ kết quả kỹ năng vào cuộc trò chuyện (tải lại trang vẫn còn).
+
+    Tin nhắn trợ lý = dòng tóm tắt + dữ liệu thẻ trong <!--skill-card:...-->; ngữ cảnh hội thoại chỉ lấy dòng tóm tắt.
+    """
+    payload = json.dumps(body.card, ensure_ascii=False, separators=(",", ":"))
+    if len(payload) > 60_000:
+        raise HTTPException(413, "Thẻ kết quả quá lớn để lưu.")
+    conversations = owner_conversation_store(current_principal(request))
+    conversation_id = body.conversation_id
+    if conversation_id:
+        if conversations.get(conversation_id) is None:
+            raise HTTPException(404, "conversation not found")
+    else:
+        conversation_id = conversations.create(body.question.strip()[:120])["conversation_id"]
+    conversations.add_message(conversation_id, "USER", body.question.strip())
+    marked = payload.replace(">", "\u003e")  # chuỗi thoát JSON: "-->" trong dữ liệu không đóng dấu đánh dấu sớm
+    conversations.add_message(conversation_id, "ASSISTANT", body.summary.strip() + "\n\n<!--skill-card:" + marked + "-->")
+    return {"conversation_id": conversation_id}
 
 
 @app.get("/api/conversations/{conversation_id}")

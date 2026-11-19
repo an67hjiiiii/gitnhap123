@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Hash, LayoutGrid,
 import {
   buildMindmap, compareDocs, DocCompare, getReport, GlossaryTerm, libraryQuality, LibraryQuality, listReports, Measured, MindMap, profileGlossary, profileLocal,
   ProfileLocal, profileMasked, profileQuestions, profileSummary, ProfileSummary, SavedReport, saveReport, SuggestedQuestion, updateReport,
+  DOC_TYPES, setDocType,
 } from '../services/api';
 import { DocumentReader } from './DocumentReader';
 import { DocCover, Marked, ProfilePreview, QualityRing, Stat, useProfileMotion } from './profile/ProfileParts';
@@ -28,6 +29,17 @@ export const DocumentProfileView: React.FC<{ docs: Doc[]; onAsk: (question: stri
   const viewer = useChunkViewer();
   const pickable = allDocs.length ? allDocs : docs;
   const [sourceId, setSourceId] = useState('');
+  // nhãn loại tài liệu (tự nhận khi tải lên, người tải lên sửa được); sửa xong giữ tại chỗ tới khi tải lại danh sách
+  const [typeEdits, setTypeEdits] = useState<Record<string, string>>({});
+  const [typeError, setTypeError] = useState('');
+  const curDoc = pickable.find(d => docId(d) === sourceId) as (Doc & { doc_type?: string | null; mine?: boolean; classification?: string }) | undefined;
+  const docType = typeEdits[sourceId] ?? curDoc?.doc_type ?? '';
+  const canEditType = !!curDoc && (curDoc.classification === undefined || curDoc.mine === true);
+  const changeType = async (t: string) => {
+    setTypeError('');
+    try { await setDocType(sourceId, t); setTypeEdits(m => ({ ...m, [sourceId]: t })); }
+    catch (e: any) { setTypeError(e.message || 'Không đổi được loại tài liệu.'); }
+  };
   const [profile, setProfile] = useState<Profile | null>(null);
   const [step, setStep] = useState(-1);
   const [tab, setTab] = useState<Tab>('overview');
@@ -130,7 +142,15 @@ export const DocumentProfileView: React.FC<{ docs: Doc[]; onAsk: (question: stri
             <DocCover ext={curName.split('.').pop() || ''} />
             <div className="pf-id">
               <div className="pf-tags">
-                {profile?.summary?.doc_type && !/loại tài liệu/i.test(profile.summary.doc_type) && <span className="pf-tag is-type">{profile.summary.doc_type}</span>}
+                {docType ? (canEditType
+                  ? <label className="pf-tag is-type pf-doctype" title="Hệ thống tự nhận khi tải lên; bấm để sửa nếu nhận sai">
+                      <span className="sr">Loại tài liệu</span>
+                      <select value={docType} onChange={e => changeType(e.target.value)} disabled={running}>
+                        {Object.entries(DOC_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select><ChevronDown size={12} aria-hidden="true" />
+                    </label>
+                  : <span className="pf-tag is-type">{DOC_TYPES[docType] ?? docType}</span>)
+                  : profile?.summary?.doc_type && !/loại tài liệu/i.test(profile.summary.doc_type) && <span className="pf-tag is-type">{profile.summary.doc_type}</span>}
                 {local && <span className="pf-tag">{local.quality.chunks} đoạn</span>}
                 {profile && savedFor && !running && <span className="pf-tag is-ok"><CheckCircle2 size={13} />Đã lưu</span>}
                 {running && <span className="pf-tag is-run"><span className="spin is-dark" />{STEPS[step]}…</span>}
@@ -143,6 +163,7 @@ export const DocumentProfileView: React.FC<{ docs: Doc[]; onAsk: (question: stri
                 </select>
                 <ChevronDown size={20} aria-hidden="true" />
               </label>
+              {typeError && <p className="note is-error" role="alert">{typeError}</p>}
               <p className="pf-meta">{profile
                 ? <>Lập lúc {new Date(profile.created_at).toLocaleString('vi-VN')}{profile.measured.latency_ms > 0 && <> · mô hình dùng <b>{profile.measured.input_tokens + profile.measured.output_tokens > 0 ? (profile.measured.input_tokens + profile.measured.output_tokens).toLocaleString('vi-VN') : 0}</b> token trong <b>{fmtSeconds(profile.measured.latency_ms)}</b> giây</>}</>
                 : loadingSaved ? 'Đang mở hồ sơ đã lưu…' : 'Tài liệu này chưa có hồ sơ.'}</p>

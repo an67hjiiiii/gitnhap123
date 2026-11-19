@@ -30,6 +30,8 @@ class RuntimeConfig:
     retry_limit: int
     retrieval_min_score: float
     task_plan_max_output_tokens: int = 700
+    # Chỉ dùng cho ô chat sản phẩm; thực nghiệm A/B/C giữ max_output_tokens như cũ.
+    synthesis_max_output_tokens: int = 1800
 
     @classmethod
     def from_env(cls) -> "RuntimeConfig":
@@ -50,6 +52,10 @@ class RuntimeConfig:
             task_plan_max_output_tokens=max(
                 64,
                 int(os.getenv("TASK_PLAN_MAX_OUTPUT_TOKENS", "700")),
+            ),
+            synthesis_max_output_tokens=max(
+                64,
+                int(os.getenv("SYNTHESIS_MAX_OUTPUT_TOKENS", "1800")),
             ),
         )
 
