@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { SpellCheck, Users, LogOut, LogIn, X, AlertCircle, UserCheck, ChevronsUpDown, UserPlus, Plus, Check, MessagesSquare, FlaskConical, Database, Trash2, ClipboardCheck, GitCompareArrows, FileSearch, BarChart3, EyeOff, Search, Sun, Moon, Sparkles } from 'lucide-react';
 import { HealthResponse, ExecutionMode, NavigationTab, User, Workspace } from '../types';
 import { ActivityRow, getActivity, getNotifications, markNotificationsRead, answerInvite, myInvites, OrgNotification, OrgTerms, orgTerms, DOMAIN_PACKS, DomainPack, packLabel } from '../services/api';
-import { Building2, Wrench } from 'lucide-react';
+import { Archive, Building2, ClipboardList, Library, Settings2, Wrench } from 'lucide-react';
+import { RESEARCH_EVENT, researchMode } from '../utils/researchMode';
 import '../styles/org.css';
 import { Activity, Bell, Network, Palette, PanelLeftClose, PanelLeftOpen, Save, Upload } from 'lucide-react';
 import '../styles/studio-shell.css';
@@ -74,7 +75,7 @@ function noteIcon(action: string) {
   return Activity;
 }
 // t: tên gọi của không gian gửi thông báo nếu mình còn thuộc không gian đó, không thì dùng tên gọi doanh nghiệp
-function orgNoteText(n: OrgNotification, t: OrgTerms): string {
+export function orgNoteText(n: OrgNotification, t: OrgTerms): string {
   const p = n.payload || {};
   const lv = (l?: string) => (l && (t.level as Record<string, string>)[l]) || '';
   const level = (q: Record<string, any>) => `${(t.cls as Record<string, string>)[q.classification] ?? q.classification}${q.department && !t.single ? ` · ${q.department}` : ''}`;
@@ -124,6 +125,17 @@ export const Header: React.FC<HeaderProps> = ({
   onCreateWorkspace, onChangeDomainPack, onDeleteWorkspace, onLogout, onUserChange, isMobileDrawerOpen = false, onToggleMobileDrawer, onOpenPalette, theme = 'light', onThemeChange, children, onOpenAdmin, onOrgChanged,
 }) => {
   const [menu, setMenu] = useState<'ws' | 'profile' | 'notif' | null>(null);
+  const [research, setResearch] = useState(researchMode());
+  useEffect(() => {
+    const open = () => setAvatarOpen(true);  // trang Cài đặt mở hộp đổi ảnh đại diện
+    window.addEventListener('oq-open-avatar', open);
+    return () => window.removeEventListener('oq-open-avatar', open);
+  }, []);
+  useEffect(() => {
+    const on = (e: Event) => setResearch(!!(e as CustomEvent).detail);
+    window.addEventListener(RESEARCH_EVENT, on);
+    return () => window.removeEventListener(RESEARCH_EVENT, on);
+  }, []);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [wsQuery, setWsQuery] = useState('');
   // kiểu ô theo thứ tự tạo: không gian tạo sau nhận kiểu kế tiếp
@@ -263,17 +275,20 @@ export const Header: React.FC<HeaderProps> = ({
     return () => { window.clearTimeout(t); window.removeEventListener('resize', place); };
   }, [activeTab, user?.role, rail]);
 
+  // Đợt 6 (mục 2b): bố cục 7 trang. Việc cần làm chỉ khi đang mở tổ chức; Nghiên cứu cho quản trị hoặc chế độ nhà nghiên cứu.
+  const inOrg = currentWorkspace?.kind === 'org';
+  const showResearch = user?.role === 'admin' || research;
   const nav: { id: NavigationTab; label: string; Icon: typeof MessagesSquare; show: boolean }[] = [
     { id: 'orchestration', label: 'Không gian làm việc', Icon: MessagesSquare, show: true },
+    { id: 'library', label: 'Thư viện tài liệu', Icon: Library, show: true },
+    { id: 'results', label: 'Kết quả đã lưu', Icon: Archive, show: true },
+    { id: 'tasks', label: 'Việc cần làm', Icon: ClipboardList, show: !!user && inOrg },
     { id: 'organization', label: 'Tổ chức', Icon: Building2, show: !!user },
     { id: 'overview', label: 'Tổng quan', Icon: BarChart3, show: true },
-    { id: 'documents', label: 'Hồ sơ tài liệu', Icon: FileSearch, show: true },
-    // một trang, chia tab: 3 chức năng cần nhất của ngành đang chọn (components/ToolkitView.tsx)
-    { id: 'toolkit', label: `Bộ công cụ ${packLabel(currentWorkspace?.domain_pack)}`, Icon: Wrench, show: true },
-    { id: 'consistency', label: 'Kiểm tra mâu thuẫn', Icon: GitCompareArrows, show: true },
-    { id: 'evaluation', label: 'Phòng đánh giá', Icon: ClipboardCheck, show: true },
-    { id: 'benchmarks', label: 'Thực nghiệm', Icon: FlaskConical, show: true },
-    { id: 'rating', label: 'Chấm mù', Icon: EyeOff, show: true },
+    { id: 'settings', label: 'Cài đặt', Icon: Settings2, show: !!user },
+    { id: 'evaluation', label: 'Phòng đánh giá', Icon: ClipboardCheck, show: showResearch },
+    { id: 'benchmarks', label: 'Thực nghiệm', Icon: FlaskConical, show: showResearch },
+    { id: 'rating', label: 'Chấm mù', Icon: EyeOff, show: showResearch },
     { id: 'users', label: 'Người dùng', Icon: Users, show: user?.role === 'admin' },
     { id: 'db_explorer', label: 'Cơ sở dữ liệu', Icon: Database, show: user?.role === 'admin' },
   ];
@@ -352,7 +367,7 @@ export const Header: React.FC<HeaderProps> = ({
                           <span className="wsp-info"><b>{ws.name}</b>
                             <span className="wsp-meta">{ws.kind === 'org'
                               ? <i className="wsp-role">{ws.level ? orgTerms(ws).level[ws.level] : 'Thành viên'}{ws.is_owner ? ' · Chủ' : ''}</i>
-                              : <><i title="Tài liệu"><FileText size={12} />{ws.documents_count}</i><i title="Cuộc trò chuyện"><MessagesSquare size={12} />{ws.runs_count}</i></>}<i title="Lĩnh vực">{packLabel(ws.domain_pack)}</i></span>
+                              : <><i title="Tài liệu"><FileText size={12} />{ws.documents_count}</i><i title="Cuộc trò chuyện"><MessagesSquare size={12} />{ws.runs_count}</i></>}</span>
                           </span>
                           {on && <span className="wsp-now"><Check size={12} strokeWidth={3} />Đang mở</span>}
                         </button>
@@ -362,25 +377,7 @@ export const Header: React.FC<HeaderProps> = ({
                     })}
                   </div>)}
                 </div>
-                {onChangeDomainPack && currentWorkspace && (() => {
-                  // tổ chức: máy chủ chỉ cho cấp cao nhất đổi; không gian cá nhân: chủ sở hữu luôn đổi được
-                  const canSetPack = currentWorkspace.kind !== 'org' || currentWorkspace.level === 'EXECUTIVE';  // khớp access.py: executive = cấp EXECUTIVE
-                  const execName = orgTerms(currentWorkspace).level.EXECUTIVE;
-                  return <label className="wsp-pack">
-                  <span>Lĩnh vực của “{currentWorkspace.name}”</span>
-                  <select value={currentWorkspace.domain_pack ?? 'software'} disabled={packBusy || !canSetPack}
-                    title={canSetPack ? undefined : `Chỉ ${execName} đổi được lĩnh vực`} onChange={async e => {
-                    setPackBusy(true); setPackError(null);
-                    try { await onChangeDomainPack(e.target.value as DomainPack); }
-                    catch (err: any) { setPackError(err?.message || 'Không đổi được lĩnh vực.'); }
-                    finally { setPackBusy(false); }
-                  }}>
-                    {DOMAIN_PACKS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                  </select>
-                  {packError && <small className="wsp-pack-err" role="alert">{packError}</small>}
-                  {!canSetPack && <small>Chỉ {execName} đổi được lĩnh vực.</small>}
-                </label>;
-                })()}
+                {/* đợt 6: bỏ chọn lĩnh vực cho cả không gian; tác tử theo loại việc tự chọn, bộ công cụ chọn ngành bên trong */}
                 {onCreateWorkspace && <button className="wsp-new" onClick={() => { setMenu(null); setIsCreateModalOpen(true); }}>
                   <span className="wsp-new-ico"><Plus size={16} strokeWidth={2.4} /></span><span className="wsp-info"><b>Tạo không gian mới</b><small>Kho tài liệu và lịch sử trò chuyện riêng</small></span></button>}
               </div>
@@ -394,7 +391,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="sb-glide" ref={glideRef} aria-hidden="true" />
             {nav.filter(n => n.show).map(({ id, label, Icon }) => (
               <React.Fragment key={id}>
-                {id === 'documents' && <p className="sb-group">Công cụ phân tích</p>}
                 {id === 'evaluation' && <p className="sb-group">Nghiên cứu</p>}
                 {id === 'users' && <p className="sb-group">Quản trị</p>}
                 <button onClick={() => go(id)} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} className={`sb-link${activeTab === id ? ' is-on' : ''}`}

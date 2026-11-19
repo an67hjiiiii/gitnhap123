@@ -26,7 +26,7 @@ from app.research.pipeline import ResearchPipeline
 from app.research.progress import bound_emit, ndjson_run
 from app.research.run_queue import product_runs
 from app.core.secret_audit import log_secret_access, run_read_source_ids, source_ids_of_chunks
-from app.research.registry import PACKS
+from app.research.registry import PACKS, WORK_PACK
 from app.research.conversation_context import build_conversation_context
 from app.storage.run_store import RunStore
 from app.storage.source_store import SourceStore
@@ -439,7 +439,7 @@ async def _chat(body: ChatRequest, request: Request):
             conversation_id=conversation_id,
             product_mode=body.product_mode,
             reply_in_query_language=body.reply_in_query_language,
-            domain_pack=body.domain_pack,
+            domain_pack=body.domain_pack or (WORK_PACK if body.product_mode else None),  # ô chat sản phẩm: tác tử theo loại việc
         )
         if body.product_mode:  # ô chat sản phẩm xếp hàng theo thứ tự; thực nghiệm không qua hàng đợi
             say = bound_emit()  # báo thứ tự vào luồng của chính người đang chờ, kể cả khi người trước gọi lúc nhường chỗ

@@ -31,6 +31,11 @@ import { ConsistencyView } from './components/ConsistencyView';
 import { DocumentProfileView } from './components/DocumentProfileView';
 import { OverviewView } from './components/OverviewView';
 import { OrgView } from './components/OrgView';
+import { LibraryView } from './components/LibraryView';
+import { SavedResultsView } from './components/SavedResultsView';
+import { TasksView } from './components/TasksView';
+import { SettingsView } from './components/SettingsView';
+import { orgNoteText } from './components/Header';
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({default: module.LandingPage}))); 
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -74,6 +79,12 @@ import {
   User,
   Workspace
 } from './types';
+// Tên trang trên thanh trên cùng (điện thoại). Đợt 6: bố cục 7 trang (mục 2b).
+const PAGE_TITLE: Record<string, string> = {
+  orchestration: 'Không gian làm việc', library: 'Thư viện tài liệu', results: 'Kết quả đã lưu', tasks: 'Việc cần làm',
+  organization: 'Tổ chức', overview: 'Tổng quan', settings: 'Cài đặt', documents: 'Hồ sơ tài liệu', consistency: 'Kiểm tra mâu thuẫn',
+  toolkit: 'Bộ công cụ theo ngành', evaluation: 'Phòng đánh giá', benchmarks: 'Thực nghiệm', rating: 'Chấm mù', users: 'Người dùng',
+};
 
 function DashboardWorkspace({
   user,
@@ -128,6 +139,9 @@ function DashboardWorkspace({
 
   setOrgScope(currentWorkspaceId);
   const currentWs = workspaces.find(w => w.id === currentWorkspaceId);
+  const [profileSource, setProfileSource] = useState('');  // Thư viện → Hồ sơ tài liệu của đúng tài liệu
+  // Việc cần làm chỉ có trong tổ chức: đổi sang không gian cá nhân thì về Không gian làm việc
+  useEffect(() => { if (activeTab === 'tasks' && currentWs && currentWs.kind !== 'org') setActiveTab('orchestration'); }, [activeTab, currentWs]);
   const inOrg = isOrgId(currentWorkspaceId);
   setDomainPack(currentWs?.domain_pack);
   // thiếu lĩnh vực (dữ liệu cũ) = Phần mềm; quyết định bộ lọc kho tài liệu và nội dung trang Bộ công cụ
@@ -398,9 +412,11 @@ function DashboardWorkspace({
       {intro && user && <StudioIntro name={user.full_name?.trim().split(/\s+/).slice(-1)[0]} onDone={endIntro} />}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={[
         ...([
-          ['orchestration', 'Không gian làm việc', MessagesSquare], ['overview', 'Tổng quan', BarChart3], ['documents', 'Hồ sơ tài liệu', FileSearch],
-          ['toolkit', `Bộ công cụ ${packLabel(currentWs?.domain_pack)}`, Wrench],
-          ['consistency', 'Kiểm tra mâu thuẫn', GitCompareArrows], ['evaluation', 'Phòng đánh giá', ClipboardCheck], ['benchmarks', 'Thực nghiệm', FlaskConical],
+          ['orchestration', 'Không gian làm việc', MessagesSquare], ['library', 'Thư viện tài liệu', FileSearch], ['results', 'Kết quả đã lưu', FileSearch],
+          ...(currentWs?.kind === 'org' ? [['tasks', 'Việc cần làm', ClipboardCheck]] : []), ['organization', 'Tổ chức', Users], ['overview', 'Tổng quan', BarChart3],
+          ['settings', 'Cài đặt', Wrench], ['documents', 'Hồ sơ tài liệu', FileSearch], ['consistency', 'Kiểm tra mâu thuẫn', GitCompareArrows],
+          ['toolkit', 'Bộ công cụ theo ngành', Wrench],
+          ['evaluation', 'Phòng đánh giá', ClipboardCheck], ['benchmarks', 'Thực nghiệm', FlaskConical],
           ['rating', 'Chấm mù', EyeOff], ...(user?.role === 'admin' ? [['users', 'Người dùng', Users], ['db_explorer', 'Cơ sở dữ liệu', Database]] : []),
         ] as [NavigationTab, string, Command['Icon']][]).map(([id, label, Icon]) => ({ id: `go-${id}`, label, group: 'Đi đến', Icon, run: () => setActiveTab(id) })),
         { id: 'new-chat', label: 'Cuộc trò chuyện mới', group: 'Thao tác', Icon: MessageSquarePlus, run: () => { setActiveConversationId(null); setActiveTab('orchestration'); } },
@@ -457,7 +473,7 @@ function DashboardWorkspace({
         {!intro && <PageGuide page={activeTab} />}
         <div className="st-mobilebar">
           <button className="icon-btn" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Mở thanh bên" aria-expanded={isMobileDrawerOpen}><Menu size={20} /></button>
-          <b>{activeTab === 'orchestration' ? 'Không gian làm việc' : activeTab === 'overview' ? 'Tổng quan' : activeTab === 'documents' ? 'Hồ sơ tài liệu' : activeTab === 'toolkit' ? `Bộ công cụ ${packLabel(currentWs?.domain_pack)}` : activeTab === 'evaluation' ? 'Phòng đánh giá' : activeTab === 'consistency' ? 'Kiểm tra mâu thuẫn' : activeTab === 'benchmarks' ? 'Thực nghiệm' : activeTab === 'rating' ? 'Chấm mù' : activeTab === 'users' ? 'Người dùng' : activeTab === 'organization' ? 'Tổ chức' : 'Cơ sở dữ liệu'}</b>
+          <b>{PAGE_TITLE[activeTab] ?? 'Cơ sở dữ liệu'}</b>
         </div>
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
         {inOrg && currentWs && <div className="st-banner is-info og-banner"><span><b>{currentWs.name}</b>{currentWs.level ? ` · ${orgTerms(currentWs).level[currentWs.level]}` : ''}: AI và các công cụ chỉ dùng tài liệu bạn được phép xem trong tổ chức này.</span>
@@ -471,11 +487,19 @@ function DashboardWorkspace({
         {activeTab === 'orchestration' && <WorkspaceView workspaceId={currentWorkspaceId} conversationId={activeConversationId} onConversation={setActiveConversationId} onChanged={refreshConversations} userName={user?.full_name}
           docCount={documents.length} chunkCount={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)} modelOk={health?.ollama_status === 'CONNECTED'}
           workspaceName={workspaces.find(w => w.id === currentWorkspaceId)?.name} recent={conversations}
-          onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} prefill={prefill} freshDoc={freshDoc} />}
+          onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} prefill={prefill} freshDoc={freshDoc} onOpenToolkit={() => setActiveTab('toolkit')} />}
         {activeTab === 'organization' && <OrgView workspaceId={currentWorkspaceId} docs={documents} onOpenSpace={id => { void openSpace(id); }} onChanged={refreshState} onAsk={() => setActiveTab('orchestration')} />}
         {activeTab === 'overview' && <OverviewView health={health} userName={user?.full_name} />}
-        {activeTab === 'documents' && <DocumentProfileView key={`doc-${currentWorkspaceId}`} docs={documents}
+        {activeTab === 'documents' && <DocumentProfileView key={`doc-${currentWorkspaceId}-${profileSource}`} docs={documents} initialSourceId={profileSource || undefined}
           onAsk={(q, sourceId, sourceName) => { setActiveConversationId(null); setPrefill({ text: q, key: Date.now(), sourceId, sourceName }); setActiveTab('orchestration'); }} />}
+        {activeTab === 'library' && <LibraryView docs={documents} onUploadFile={async f => { await handleUpload(f); }}
+          onOpenProfile={id => { setProfileSource(id); setActiveTab('documents'); }} onOpenConsistency={() => setActiveTab('consistency')}
+          onAsk={(sourceId, name) => { setActiveConversationId(null); setPrefill({ text: `Nội dung chính của tài liệu ${name} là gì?`, key: Date.now(), sourceId, sourceName: name }); setActiveTab('orchestration'); }} />}
+        {activeTab === 'results' && <SavedResultsView onOpen={tab => setActiveTab(tab)} />}
+        {activeTab === 'tasks' && currentWs?.kind === 'org' && <TasksView spaceId={String(currentWorkspaceId)} spaceName={currentWs.name}
+          noteText={n => orgNoteText(n, orgTerms(currentWs))} onOpenOrg={() => setActiveTab('organization')} />}
+        {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
+          onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} />}
         {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}-${currentWs?.domain_pack ?? 'software'}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'consistency' && <ConsistencyView key={`cons-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'rating' && <BlindRatingView />}

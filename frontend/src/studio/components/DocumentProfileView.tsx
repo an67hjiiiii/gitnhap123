@@ -24,11 +24,11 @@ const STEPS = ['Đọc tài liệu tại máy', 'Tóm tắt', 'Câu hỏi gợi 
 const LEVEL: Record<string, string> = { high: 'Cao', medium: 'Trung bình', low: 'Thấp' };
 const add = (a: Measured, b?: Partial<Measured>) => ({ input_tokens: a.input_tokens + (b?.input_tokens || 0), output_tokens: a.output_tokens + (b?.output_tokens || 0), latency_ms: a.latency_ms + (b?.latency_ms || 0) });
 
-export const DocumentProfileView: React.FC<{ docs: Doc[]; onAsk: (question: string, sourceId: string, sourceName: string) => void }> = ({ docs, onAsk }) => {
+export const DocumentProfileView: React.FC<{ docs: Doc[]; onAsk: (question: string, sourceId: string, sourceName: string) => void; initialSourceId?: string }> = ({ docs, onAsk, initialSourceId }) => {
   const { allDocs, saved, refreshSaved } = useAnalysisData('doc_profile');
   const viewer = useChunkViewer();
   const pickable = allDocs.length ? allDocs : docs;
-  const [sourceId, setSourceId] = useState('');
+  const [sourceId, setSourceId] = useState(initialSourceId ?? '');  // mở từ Thư viện: đúng tài liệu đã chọn
   // nhãn loại tài liệu (tự nhận khi tải lên, người tải lên sửa được); sửa xong giữ tại chỗ tới khi tải lại danh sách
   const [typeEdits, setTypeEdits] = useState<Record<string, string>>({});
   const [typeError, setTypeError] = useState('');

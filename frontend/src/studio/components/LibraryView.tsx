@@ -1,0 +1,114 @@
+// Thư viện tài liệu (đợt 6, mục 2b): xem, lọc, sắp xếp mọi tài liệu; loại tài liệu AI nhận ra (sửa được); mức mật;
+// lối vào Hồ sơ tài liệu, Kiểm tra cả kho và Kiểm tra mâu thuẫn (trước là trang riêng trên thanh bên).
+import React, { useMemo, useRef, useState } from 'react';
+import { ArrowUpRight, FileSearch, FileText, Filter, GitCompareArrows, Library, Search, Upload } from 'lucide-react';
+import { DOC_TYPES, setDocType } from '../services/api';
+import type { DocumentInfo } from '../types';
+import { ToolHeader } from './analysis/shared';
+import '../styles/pages-2b.css';
+
+const CLS: Record<string, string> = { PRIVATE: 'Riêng tư', COMPANY: 'Toàn tổ chức', DEPARTMENT: 'Nội bộ phòng', RESTRICTED: 'Hạn chế', SECRET: 'Mật' };
+type Sort = 'name' | 'type' | 'chunks' | 'new';
+
+type Props = {
+  docs: DocumentInfo[];
+  onOpenProfile: (sourceId: string) => void;
+  onOpenConsistency: () => void;
+  onAsk: (sourceId: string, name: string) => void;
+  onUploadFile: (file: File) => Promise<void>;
+};
+
+export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsistency, onAsk, onUploadFile }) => {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [q, setQ] = useState('');
+  const [type, setType] = useState('');
+  const [sort, setSort] = useState<Sort>('name');
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  const typeOf = (d: DocumentInfo) => edits[String(d.id)] ?? d.doc_type ?? '';
+  const counts = useMemo(() => docs.reduce<Record<string, number>>((m, d) => {
+    const t = edits[String(d.id)] ?? d.doc_type ?? 'none';
+    m[t] = (m[t] || 0) + 1;
+    return m;
+  }, {}), [docs, edits]);
+  const shown = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    const of = (d: DocumentInfo) => edits[String(d.id)] ?? d.doc_type ?? '';
+    const list = docs.filter(d => (!k || d.source_file.toLowerCase().includes(k)) && (!type || of(d) === type));
+    const by: Record<Sort, (a: DocumentInfo, b: DocumentInfo) => number> = {
+      name: (a, b) => a.source_file.localeCompare(b.source_file, 'vi'),
+      type: (a, b) => (DOC_TYPES[of(a)] ?? 'zz').localeCompare(DOC_TYPES[of(b)] ?? 'zz', 'vi'),
+      chunks: (a, b) => (b.chunks_count || 0) - (a.chunks_count || 0),
+      new: (a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')),
+    };
+    return [...list].sort(by[sort]);
+  }, [docs, q, type, sort, edits]);
+  const change = async (d: DocumentInfo, t: string) => {
+    setError('');
+    try { await setDocType(String(d.id), t); setEdits(m => ({ ...m, [String(d.id)]: t })); }
+    catch (e: any) { setError(e.message || 'Không đổi được loại tài liệu.'); }
+  };
+  // tài liệu cá nhân: luôn là của mình; tài liệu tổ chức: chỉ người tải lên sửa nhãn (khớp backend)
+  const canEdit = (d: DocumentInfo) => d.classification === undefined || d.mine === true;
+
+  return (
+    <main className="pg tl tone-overview lib">
+      <div className="pg-col">
+        <ToolHeader Icon={Library} title="Thư viện tài liệu"
+          desc="Mọi tài liệu của không gian đang mở: loại tài liệu hệ thống tự nhận (bấm để sửa nếu sai), mức mật, số đoạn. Mở hồ sơ, kiểm tra cả kho hoặc tìm mâu thuẫn từ đây."
+          right={<>
+            <input ref={fileRef} type="file" hidden accept=".pdf,.docx,.xlsx,.md,.txt,.sql"
+              onChange={async e => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; setUploading(true); setError('');
+                try { await onUploadFile(f); } catch (err: any) { setError(err.message || 'Không tải được tệp.'); } finally { setUploading(false); } }} />
+            <button className="btn btn-dark" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? <span className="spin" /> : <Upload size={15} />}Thêm tài liệu</button></>} />
+
+        <section className="lib-kpis" aria-label="Lọc theo loại tài liệu">
+          <button type="button" className={`lib-kpi${type === '' ? ' is-on' : ''}`} aria-pressed={type === ''} onClick={() => setType('')}><b>{docs.length}</b><span>Tất cả</span></button>
+          {Object.entries(DOC_TYPES).filter(([k]) => counts[k]).map(([k, v]) => (
+            <button key={k} type="button" className={`lib-kpi${type === k ? ' is-on' : ''}`} aria-pressed={type === k} onClick={() => setType(type === k ? '' : k)}>
+              <b>{counts[k]}</b><span>{v}</span></button>))}
+        </section>
+
+        <section className="lib-tools">
+          <button type="button" className="lib-tool" onClick={() => onOpenProfile(shown[0] ? String(shown[0].id) : '')}>
+            <span className="lib-tool-ico"><FileSearch size={18} /></span><span><b>Hồ sơ tài liệu</b><small>Tóm tắt, thuật ngữ, sơ đồ tư duy, chất lượng, kiểm tra cả kho</small></span><ArrowUpRight size={16} /></button>
+          <button type="button" className="lib-tool" onClick={onOpenConsistency}>
+            <span className="lib-tool-ico"><GitCompareArrows size={18} /></span><span><b>Kiểm tra mâu thuẫn</b><small>Cặp câu cùng chủ đề khác con số hoặc ngược nghĩa giữa các tài liệu</small></span><ArrowUpRight size={16} /></button>
+        </section>
+
+        <section className="dz-card lib-table-card">
+          <div className="lib-bar">
+            <label className="lib-find"><Search size={15} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm theo tên tài liệu" aria-label="Tìm theo tên tài liệu" /></label>
+            <label className="lib-sort"><Filter size={14} />
+              <select value={sort} onChange={e => setSort(e.target.value as Sort)} aria-label="Sắp xếp">
+                <option value="name">Tên A–Z</option><option value="type">Loại tài liệu</option><option value="chunks">Nhiều đoạn nhất</option><option value="new">Mới nhất</option>
+              </select></label>
+          </div>
+          {error && <p className="note is-error" role="alert">{error}</p>}
+          {docs.length === 0 ? <p className="lib-empty">Chưa có tài liệu. Bấm “Thêm tài liệu” hoặc kéo thả vào ô chat.</p>
+            : shown.length === 0 ? <p className="lib-empty">Không có tài liệu khớp bộ lọc.</p>
+            : <ul className="lib-list">{shown.map(d => {
+              const t = typeOf(d);
+              return <li key={String(d.id)}>
+                <span className="lib-ico"><FileText size={16} /></span>
+                <div className="lib-name"><b>{d.source_file}</b><small>{d.chunks_count} đoạn{d.status === 'failed' ? ' · nạp lỗi' : ''}</small></div>
+                {canEdit(d)
+                  ? <label className="lib-type"><span className="sr">Loại tài liệu của {d.source_file}</span>
+                      <select value={t} onChange={e => change(d, e.target.value)}>
+                        {!t && <option value="">Chưa phân loại</option>}
+                        {Object.entries(DOC_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select></label>
+                  : <span className="lib-type is-ro">{DOC_TYPES[t] ?? 'Chưa phân loại'}</span>}
+                {d.classification && <span className={`lib-cls is-${d.classification.toLowerCase()}`}>{CLS[d.classification] ?? d.classification}</span>}
+                <span className="lib-acts">
+                  <button type="button" className="btn btn-ghost is-sm" onClick={() => onOpenProfile(String(d.id))}>Hồ sơ</button>
+                  <button type="button" className="btn btn-ghost is-sm" onClick={() => onAsk(String(d.id), d.source_file)}>Hỏi</button>
+                </span>
+              </li>;
+            })}</ul>}
+        </section>
+      </div>
+    </main>
+  );
+};

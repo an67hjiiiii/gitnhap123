@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, CornerDownRight, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
+import { ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, Wrench, CornerDownRight, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
 import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions } from '../services/api';
 import { ExportButtons } from './analysis/exporters';
 import { AnswerFeedback, GroundingButton, GroundingPanel } from './AnswerTools';
@@ -83,11 +83,12 @@ interface WorkspaceProps {
   onUploadFile?: (file: File) => void | Promise<void>;
   /** Câu hỏi điền sẵn từ trang khác (ví dụ Hồ sơ tài liệu → Hỏi ngay); key đổi mỗi lần để điền lại. */
   prefill?: { text: string; key: number; sourceId?: string; sourceName?: string } | null;
+  onOpenToolkit?: () => void;  // đợt 6: bộ công cụ theo ngành mở bằng "/" (không còn trên thanh bên)
   /** Tài liệu vừa nạp: màn hình đầu đề nghị tạo câu hỏi gợi ý từ tài liệu này. */
   freshDoc?: { id: string; name: string } | null;
 }
 
-export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationId, onConversation, onChanged, userName, docs = [], docCount = 0, chunkCount = 0, modelOk, workspaceName, recent = [], onSeed, onUploadFile, prefill, freshDoc }) => {
+export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationId, onConversation, onChanged, userName, docs = [], docCount = 0, chunkCount = 0, modelOk, workspaceName, recent = [], onSeed, onUploadFile, prefill, freshDoc, onOpenToolkit }) => {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [runs, setRuns] = useState<Record<string, Cap1Run>>({});
   const [draft, setDraft] = useState('');
@@ -327,6 +328,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     </React.Fragment>));
   const slashQ = !forced && draft.startsWith('/') ? draft.slice(1).trim().toLowerCase() : null;
   const slashHits = slashQ === null ? [] : SKILL_LIST.filter(k => !slashQ || k.label.toLowerCase().includes(slashQ));
+  const toolkitHit = slashQ !== null && !!onOpenToolkit && (!slashQ || 'bộ công cụ theo ngành'.includes(slashQ) || 'công cụ'.includes(slashQ));
   const pickSlash = (k: SkillKey) => { setForced(k); setDraft(''); inputRef.current?.focus(); };
   const busyNow = busy(state) || !!pending;
 
@@ -339,16 +341,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
       ) : <>
         {listening && <div className="ws-only is-live"><Mic size={13} /><span>Đang nghe… nói câu hỏi rồi dừng lại. Giọng nói do trình duyệt nhận dạng.</span><button type="button" onClick={() => recRef.current?.stop()}>Xong</button></div>}
         {only && <div className="ws-only"><FileText size={13} /><span>Chỉ hỏi trong <b>{only.name}</b></span><button type="button" onClick={() => setOnly(null)} aria-label="Bỏ giới hạn tài liệu">Hỏi cả kho</button></div>}
-        {slashHits.length > 0 && <div className="ws-slash" role="listbox" aria-label="Chọn kỹ năng">
+        {(slashHits.length > 0 || toolkitHit) && <div className="ws-slash" role="listbox" aria-label="Chọn kỹ năng">
           {slashHits.map((k, i) => <button key={k.key} type="button" role="option" aria-selected={i === 0} className={i === 0 ? 'is-on' : ''} onClick={() => pickSlash(k.key)}>
             <Sparkles size={16} /><b>{k.label}</b><small>{k.hint}</small></button>)}
+          {toolkitHit && <button type="button" role="option" aria-selected={slashHits.length === 0} className={slashHits.length === 0 ? 'is-on' : ''} onClick={() => { setDraft(''); onOpenToolkit!(); }}>
+            <Wrench size={16} /><b>Bộ công cụ theo ngành</b><small>Tạo câu hỏi ôn tập, xét duyệt theo danh sách, tính phép, tra cứu quy chế…</small></button>}
         </div>}
         {forced && <div className="ws-only"><Sparkles size={13} /><span>Kỹ năng: <b>{SKILL_LIST.find(k => k.key === forced)?.label}</b></span><button type="button" onClick={() => setForced(null)}>Bỏ chọn</button></div>}
         <textarea ref={inputRef} rows={fresh ? 3 : 1} value={draft} aria-label="Câu hỏi hoặc yêu cầu"
           placeholder={mode === 'quick' ? (forced ? 'Mô tả trường hợp hoặc yêu cầu cho kỹ năng…' : 'Hỏi bất kỳ điều gì, hoặc gõ "/" để chọn kỹ năng…') : 'Mô tả yêu cầu cần phân tích…'}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (slashHits.length) pickSlash(slashHits[0].key); else void send(); }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (slashHits.length) pickSlash(slashHits[0].key); else if (toolkitHit) { setDraft(''); onOpenToolkit!(); } else void send(); }
             else if (e.key === 'Escape' && slashHits.length) setDraft('');
           }} />
         <div className="ws-bar">
@@ -441,7 +445,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
               const quick = isQuick(run);
               const cites = citationsOf(run);
               const failed = run?.status === 'FAILED';
-              const hasAgents = !quick && (run?.task_results?.length ?? 0) > 0;
+              // "Theo tác tử": lượt có nhiều nhiệm vụ hoặc có tác tử chuyên môn (kể cả ô chat Tự động)
+              const hasAgents = (run?.task_results?.length ?? 0) > 1 || (!quick && (run?.task_results?.length ?? 0) > 0) || !!run?.task_results?.some((r: any) => r.domain && r.domain !== 'general');
               const result = run ? adaptRun(run) : null;
               return (
                 <article key={m.message_id} className="ws-msg is-bot">
