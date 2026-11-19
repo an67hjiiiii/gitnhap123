@@ -11,25 +11,31 @@ import secrets
 from typing import Any, Callable, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.analysis import blind_rating, consistency, design, evaluation, grounding, insights, reading, req_quality, security_review
-from app.analysis.traceability import (Requirement, assign_agent, check_requirement, extract_requirements,
+from app.analysis import blind_rating, casework, consistency, domain_tools, design, evaluation, grounding, insights, reading, req_quality, security_review
+from app.analysis.traceability import (Requirement, assign_agent, check_requirement, extract_checklist, extract_requirements, missing_term_groups,
                                        evidence_for, requirement_query)
+from app.ingestion.documents import DocumentTypeError
+from app.research.registry import PACKS, use_pack
 from app.core.config import RuntimeConfig
 from app.core.types import SourceChunk
 from app.providers.factory import get_provider
 
-ReportKind = Literal["traceability", "design", "security_review", "evaluation", "eval_set", "consistency", "doc_profile", "doc_compare", "mindmap", "req_quality"]
+ReportKind = Literal["traceability", "design", "security_review", "evaluation", "eval_set", "consistency", "doc_profile", "doc_compare", "mindmap", "req_quality",
+                     "criteria", "condition_check", "procedure"]
 Domain = Literal["database", "api_architecture", "security"]
+PackName = Literal[tuple(PACKS)]  # type: ignore[valid-type]  # lĩnh vực của không gian; bỏ trống = Phần mềm
 MAX_PAYLOAD_BYTES = 2_000_000
 OVERVIEW_CITE_WINDOW = 120
 
 
 class ExtractBody(BaseModel):
     source_id: str = Field(min_length=1, max_length=160)
+    mode: Literal["coded", "list"] = "coded"  # coded: yêu cầu có mã FR-/NFR-...; list: dòng gạch đầu dòng/đánh số
+    domain_pack: PackName | None = None
 
 
 class RewriteBody(BaseModel):
@@ -49,6 +55,78 @@ class CheckBody(BaseModel):
     source_ids: list[str] = Field(min_length=1, max_length=50)
     top_k: int = Field(default=4, ge=1, le=8)
     agent: Domain | None = None  # bỏ trống: tự chọn theo chuyên môn của yêu cầu
+    domain_pack: PackName | None = None
+
+
+class ConditionBody(BaseModel):
+    question: str = Field(min_length=5, max_length=1000)
+    case: str = Field(min_length=3, max_length=3000)
+    source_ids: list[str] = Field(min_length=1, max_length=50)
+    domain_pack: PackName | None = None
+
+
+Op = Literal[">=", ">", "<=", "<", "="]
+
+
+class ThresholdBody(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+    source_ids: list[str] = Field(min_length=1, max_length=50)
+    domain_pack: PackName | None = None
+
+
+class RosterRule(BaseModel):
+    label: str = Field(min_length=1, max_length=160)
+    op: Op
+    value: float = Field(allow_inf_nan=False)
+    column: int = Field(ge=0, lt=domain_tools.MAX_TABLE_COLS)
+
+
+class RosterBody(BaseModel):
+    rules: list[RosterRule] = Field(min_length=1, max_length=20)
+    columns: list[str] = Field(min_length=1, max_length=domain_tools.MAX_TABLE_COLS)
+    rows: list[list[str]] = Field(min_length=1, max_length=domain_tools.MAX_TABLE_ROWS)
+    id_column: int | None = Field(default=None, ge=0, lt=domain_tools.MAX_TABLE_COLS)
+
+
+class GenerateBody(BaseModel):
+    kind: Literal["quiz", "faq"]
+    source_ids: list[str] = Field(min_length=1, max_length=20)
+    count: int = Field(default=8, ge=1, le=15)
+    domain_pack: PackName | None = None
+
+
+class SourcesBody(BaseModel):
+    source_ids: list[str] = Field(min_length=1, max_length=100)
+    domain_pack: PackName | None = None
+
+
+class LookupBody(SourcesBody):
+    question: str = Field(min_length=3, max_length=1000)
+
+
+class ApproverBody(SourcesBody):
+    request: str = Field(min_length=3, max_length=1000)
+
+
+class EmployeeIn(BaseModel):
+    name: str = Field(default="", max_length=120)
+    months: float | None = Field(default=None, ge=0, le=720, allow_inf_nan=False)
+    hourly: float | None = Field(default=None, ge=0, le=100_000_000, allow_inf_nan=False)
+    weekday_hours: float = Field(default=0, ge=0, le=744, allow_inf_nan=False)
+    rest_hours: float = Field(default=0, ge=0, le=744, allow_inf_nan=False)
+    holiday_hours: float = Field(default=0, ge=0, le=744, allow_inf_nan=False)
+    used_days: float = Field(default=0, ge=0, le=366, allow_inf_nan=False)
+
+
+class PayComputeBody(BaseModel):
+    rates: dict[str, float | None] = Field(default_factory=dict)
+    employees: list[EmployeeIn] = Field(min_length=1, max_length=500)
+
+
+class ProcedureBody(BaseModel):
+    topic: str = Field(min_length=3, max_length=400)
+    source_ids: list[str] = Field(min_length=1, max_length=50)
+    domain_pack: PackName | None = None
 
 
 class DesignPoint(BaseModel):
@@ -194,9 +272,11 @@ def build_router(
         chunks = sorted(owner_pipeline(user).source_store.chunks([body.source_id]), key=lambda c: c.index)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
-        requirements = extract_requirements("\n\n".join(c.text for c in chunks))
-        return {"source_id": body.source_id, "source_name": chunks[0].source_name,
-                "requirements": [r.to_dict() for r in requirements]}
+        text = "\n\n".join(c.text for c in chunks)
+        with use_pack(body.domain_pack):
+            requirements = extract_checklist(text) if body.mode == "list" else extract_requirements(text)
+            items = [r.to_dict() for r in requirements]
+        return {"source_id": body.source_id, "source_name": chunks[0].source_name, "requirements": items}
 
     # ---------------- Soát chất lượng yêu cầu (ISO/IEC/IEEE 29148): luật xác định, không gọi mô hình
     @router.post("/req-quality")
@@ -225,12 +305,151 @@ def build_router(
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu thiết kế đã chọn.")
         item = body.requirement
-        domains, agent = assign_agent(f"{item.title}\n{item.body}")
-        requirement = Requirement(item.req_id.strip(), item.title.strip(), item.body.strip(), domains, body.agent or agent)
-        evidence = evidence_for(pipeline, requirement_query(requirement), chunks, top_k=body.top_k,
-                                min_score=RuntimeConfig.from_env().retrieval_min_score, source_ids=body.source_ids)
-        terms = security_review.EVIDENCE_TERMS.get(requirement.req_id) if requirement.agent == "security" and body.agent else None
-        return await _llm(check_requirement(provider_factory(), requirement, evidence, required_terms=terms))
+        # tác tử bảo mật chỉ có ở bộ Phần mềm: chỉ định agent thì chạy bộ Phần mềm
+        with use_pack(None if body.agent else body.domain_pack):
+            domains, agent = assign_agent(f"{item.title}\n{item.body}")
+            requirement = Requirement(item.req_id.strip(), item.title.strip(), item.body.strip(), domains, body.agent or agent)
+            evidence = evidence_for(pipeline, requirement_query(requirement), chunks, top_k=body.top_k,
+                                    min_score=RuntimeConfig.from_env().retrieval_min_score, source_ids=body.source_ids)
+            terms = security_review.EVIDENCE_TERMS.get(requirement.req_id) if requirement.agent == "security" and body.agent else None
+            result = await _llm(check_requirement(provider_factory(), requirement, evidence, required_terms=terms))
+        contract_terms = domain_tools.CONTRACT_TERMS.get(requirement.req_id)
+        if contract_terms and missing_term_groups(" ".join(c.text for c in chunks), [contract_terms]):
+            # hợp đồng không có chữ nào của nội dung này: "chưa thấy", bất kể mô hình tự đánh giá thế nào
+            result = {**result, "status": "MISSING", "citations": [], "flags": [*result["flags"], "terms_absent"]}
+        return result
+
+    # ---------------- Công cụ nghiệp vụ theo ngành: kiểm tra điều kiện, quy trình từng bước (analysis/casework.py)
+    def _case_evidence(user: dict, query: str, source_ids: list[str]) -> list[SourceChunk]:
+        pipeline = owner_pipeline(user)
+        chunks = pipeline.source_store.chunks(source_ids)
+        if not chunks:
+            raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.")
+        return evidence_for(pipeline, query, chunks, top_k=6, min_score=RuntimeConfig.from_env().retrieval_min_score,
+                            source_ids=source_ids)
+
+    @router.post("/casework/conditions")
+    async def conditions(body: ConditionBody, request: Request) -> dict:
+        user = current_user(request)
+        evidence = _case_evidence(user, f"{body.question}\n{body.case}"[:900], body.source_ids)
+        with use_pack(body.domain_pack):
+            return await _llm(casework.check_conditions(provider_factory(), body.question.strip(), body.case.strip(), evidence))
+
+    @router.post("/casework/procedure")
+    async def procedure(body: ProcedureBody, request: Request) -> dict:
+        user = current_user(request)
+        evidence = _case_evidence(user, body.topic, body.source_ids)
+        with use_pack(body.domain_pack):
+            return await _llm(casework.extract_procedure(provider_factory(), body.topic.strip(), evidence))
+
+    # ---------------- Công cụ riêng theo ngành (analysis/domain_tools.py)
+    def _all_chunks(user: dict, source_ids: list[str]) -> list[SourceChunk]:
+        chunks = owner_pipeline(user).source_store.chunks(source_ids)
+        if not chunks:
+            raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.")
+        return sorted(chunks, key=lambda c: (c.source_id, c.index))
+
+    @router.post("/tools/table")
+    async def tool_table(request: Request, file: UploadFile = File(...)) -> dict:
+        current_user(request)
+        data = await file.read(MAX_PAYLOAD_BYTES + 1)
+        if len(data) > MAX_PAYLOAD_BYTES:
+            raise HTTPException(413, "Bảng vượt quá 2 MB.")
+        try:
+            return domain_tools.parse_table(data, file.filename or "")
+        except DocumentTypeError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @router.post("/tools/thresholds")
+    async def tool_thresholds(body: ThresholdBody, request: Request) -> dict:
+        evidence = _case_evidence(current_user(request), body.topic, body.source_ids)
+        with use_pack(body.domain_pack):
+            return await _llm(domain_tools.extract_thresholds(provider_factory(), body.topic.strip(), evidence))
+
+    @router.post("/tools/roster/evaluate")
+    def tool_roster(body: RosterBody, request: Request) -> dict:
+        current_user(request)
+        try:
+            return domain_tools.evaluate_roster([r.model_dump() for r in body.rules], body.columns, body.rows, body.id_column)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @router.post("/tools/generate")
+    async def tool_generate(body: GenerateBody, request: Request) -> dict:
+        chunks = _all_chunks(current_user(request), body.source_ids)
+        with use_pack(body.domain_pack):
+            return await _llm(domain_tools.generate_items(provider_factory(), body.kind, chunks, body.count))
+
+    def _articles(user: dict, source_ids: list[str]) -> list[dict]:
+        by_source: dict[str, list[SourceChunk]] = {}
+        for c in _all_chunks(user, source_ids):
+            by_source.setdefault(c.source_id, []).append(c)
+        return [a for chunks in by_source.values() for a in domain_tools.split_articles(chunks[0].source_name, "\n\n".join(c.text for c in chunks))]
+
+    @router.post("/tools/articles")
+    def tool_articles(body: SourcesBody, request: Request) -> dict:
+        return {"articles": _articles(current_user(request), body.source_ids)}
+
+    @router.post("/tools/lookup")
+    async def tool_lookup(body: LookupBody, request: Request) -> dict:
+        articles = _articles(current_user(request), body.source_ids)
+        if not articles:
+            raise HTTPException(422, "Tài liệu đã chọn không chia theo Điều (không thấy dòng bắt đầu bằng \"Điều 1\", \"Điều 2\"…).")
+        with use_pack(body.domain_pack):
+            return await _llm(domain_tools.lookup_articles(provider_factory(), body.question.strip(), articles))
+
+    @router.post("/tools/pay-rates")
+    async def tool_pay_rates(body: SourcesBody, request: Request) -> dict:
+        evidence = _case_evidence(current_user(request), "nghỉ phép năm số ngày phép thâm niên làm thêm giờ tỷ lệ lương ngày thường ngày nghỉ ngày lễ tối đa giờ mỗi tháng", body.source_ids)
+        with use_pack(body.domain_pack):
+            return await _llm(domain_tools.extract_pay_rates(provider_factory(), evidence))
+
+    @router.post("/tools/pay-compute")
+    def tool_pay_compute(body: PayComputeBody, request: Request) -> dict:
+        current_user(request)
+        unknown = set(body.rates) - set(domain_tools.PAY_FIELDS)
+        if unknown or any(v is not None and (v < 0 or v != v) for v in body.rates.values()):
+            raise HTTPException(422, "Hệ số không hợp lệ.")
+        return domain_tools.compute_pay(body.rates, [e.model_dump() for e in body.employees])
+
+    @router.post("/tools/approver")
+    async def tool_approver(body: ApproverBody, request: Request) -> dict:
+        evidence = _case_evidence(current_user(request), body.request, body.source_ids)
+        with use_pack(body.domain_pack):
+            return await _llm(domain_tools.find_approver(provider_factory(), body.request.strip(), evidence))
+
+    @router.get("/tools/contract-criteria")
+    def tool_contract_criteria(request: Request) -> dict:
+        current_user(request)
+        return {"criteria": [{"req_id": i, "title": t, "body": "", "group": g} for i, t, g in domain_tools.CONTRACT_CRITERIA]}
+
+    @router.post("/tools/contract-risks")
+    async def tool_contract_risks(body: SourcesBody, request: Request) -> dict:
+        chunks = _all_chunks(current_user(request), body.source_ids)[:12]  # hợp đồng dài: đọc tối đa 12 đoạn, mỗi lượt 4 đoạn
+        merged: dict = {}
+        with use_pack(body.domain_pack):
+            for i in range(0, len(chunks), 4):
+                part = await _llm(domain_tools.contract_risks(provider_factory(), chunks[i:i + 4]))
+                if not merged:
+                    merged = {**part, "evidence": list(part["evidence"]), "risks": list(part["risks"])}
+                    continue
+                merged["evidence"] += part["evidence"]
+                merged["risks"] += part["risks"]
+                for k in ("removed", "input_tokens", "output_tokens", "latency_ms"):
+                    merged[k] += part[k]
+        order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+        merged["risks"].sort(key=lambda r: order[r["level"]])
+        text = " ".join(c.text for c in chunks).casefold()
+        # nhận dạng cố định: không có chữ "hợp đồng" hay cặp "bên a"/"bên b" thì có thể chọn nhầm tài liệu
+        merged["looks_like_contract"] = "hợp đồng" in text or ("bên a" in text and "bên b" in text)
+        return merged
+
+    @router.post("/tools/validity")
+    def tool_validity(body: SourcesBody, request: Request) -> dict:
+        by_source: dict[str, list[SourceChunk]] = {}
+        for c in _all_chunks(current_user(request), body.source_ids):
+            by_source.setdefault(c.source_id, []).append(c)
+        return domain_tools.document_validity([(sid, cs[0].source_name, "\n\n".join(c.text for c in cs)) for sid, cs in by_source.items()])
 
     async def _llm(call):
         try:

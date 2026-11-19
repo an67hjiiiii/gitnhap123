@@ -2,31 +2,25 @@ from __future__ import annotations
 from app.core.types import SourceChunk
 from app.retrieval.text import make_chunks, retrieve, terms
 
-DEFAULT_PATTERNS = [
-    ("planning_security.md", "Authentication, authorization, JWT, identity and access-control requests should remain separate atomic obligations when the user asks for distinct concerns."),
-    ("planning_database.md", "Database review requests commonly decompose into schema/data model, query/access, transaction/consistency, and performance only when the user actually asks for them."),
-    ("planning_api.md", "API and architecture requests commonly separate endpoint contract, error handling, integration boundary, dependency, and architecture decisions. Preserve user-stated dependencies."),
-    ("planning_multi_domain.md", "Multi-domain software review requests should create one task per independent obligation, preserve required dependencies, avoid merging merely because terms are semantically similar, and avoid inventing tasks not requested."),
-]
+from app.research.registry import _SOFTWARE_ANCHORS, _SOFTWARE_PATTERNS, active_pack, active_pack_name
 
-# These are distinctive cues from the current pattern text or stable source
-# names. Shared prompt words such as "review" and "request" are not routing
-# evidence for a pattern.
-PLANNING_ANCHORS = {
-    "planning_security.md": frozenset({"security", "authentication", "authorization", "jwt", "identity", "access-control", "control"}),
-    "planning_database.md": frozenset({"database", "schema", "data", "model", "query", "transaction", "consistency", "performance"}),
-    "planning_api.md": frozenset({"api", "architecture", "endpoint", "error", "handling", "integration", "dependency"}),
-    "planning_multi_domain.md": frozenset({"multi-domain", "independent", "semantically", "merge", "invent"}),
-}
+# Tên cũ = bộ Phần mềm; mẫu của bộ đang dùng đọc qua active_pack().
+DEFAULT_PATTERNS = _SOFTWARE_PATTERNS
+PLANNING_ANCHORS = _SOFTWARE_ANCHORS
 PLANNING_SCORER_VERSION = "planning-lexical-intent-v2"
 
 class PlanningRetriever:
     def __init__(self, min_score: float = 0.0):
         self.min_score = max(0.0, float(min_score))
-        chunks: list[SourceChunk] = []
-        for name, text in DEFAULT_PATTERNS:
-            chunks.extend(make_chunks(name, text, max_chars=1000))
-        self.chunks = chunks
+        self._chunks: dict[str, list[SourceChunk]] = {}
+
+    @property
+    def chunks(self) -> list[SourceChunk]:
+        name = active_pack_name()
+        if name not in self._chunks:
+            self._chunks[name] = [c for pattern, text in active_pack()["patterns"]
+                                  for c in make_chunks(pattern, text, max_chars=1000)]
+        return self._chunks[name]
 
     def search(
         self,
@@ -38,15 +32,17 @@ class PlanningRetriever:
         """Return ranked planning patterns with pattern-specific relevance."""
 
         query_terms = terms(query)
+        anchors = active_pack()["anchors"]
+        keywords = active_pack().get("pattern_keywords", {})  # bộ Phần mềm không có: chấm điểm như cũ
         eligible_names = {
-            name for name, values in PLANNING_ANCHORS.items() if query_terms & values
+            name for name, values in anchors.items() if query_terms & values
         }
         intent_terms = query_terms & set().union(*(
-            terms(" ".join(PLANNING_ANCHORS[name])) for name in eligible_names
+            terms(" ".join(anchors[name])) for name in eligible_names
         ))
         candidates = [
             SourceChunk(**{
-                **chunk.__dict__, "text": f"{chunk.source_name}\n{chunk.text}"
+                **chunk.__dict__, "text": f"{chunk.source_name}\n{chunk.text}\n{keywords.get(chunk.source_name, '')}".rstrip()
             })
             for chunk in self.chunks
             if chunk.source_name in eligible_names

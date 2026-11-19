@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { SpellCheck, Users, LogOut, LogIn, X, AlertCircle, UserCheck, ChevronsUpDown, UserPlus, Plus, Check, MessagesSquare, FlaskConical, Database, Trash2, ListChecks, PencilRuler, ShieldCheck, ClipboardCheck, GitCompareArrows, FileSearch, BarChart3, EyeOff, Search, Sun, Moon, Sparkles } from 'lucide-react';
+import { SpellCheck, Users, LogOut, LogIn, X, AlertCircle, UserCheck, ChevronsUpDown, UserPlus, Plus, Check, MessagesSquare, FlaskConical, Database, Trash2, ClipboardCheck, GitCompareArrows, FileSearch, BarChart3, EyeOff, Search, Sun, Moon, Sparkles } from 'lucide-react';
 import { HealthResponse, ExecutionMode, NavigationTab, User, Workspace } from '../types';
-import { ActivityRow, getActivity, getNotifications, markNotificationsRead, answerInvite, myInvites, OrgNotification, LEVEL_LABEL, CLASS_LABEL } from '../services/api';
-import { Building2 } from 'lucide-react';
+import { ActivityRow, getActivity, getNotifications, markNotificationsRead, answerInvite, myInvites, OrgNotification, OrgTerms, orgTerms, DOMAIN_PACKS, DomainPack, packLabel } from '../services/api';
+import { Building2, Wrench } from 'lucide-react';
 import '../styles/org.css';
 import { Activity, Bell, Network, Palette, PanelLeftClose, PanelLeftOpen, Save, Upload } from 'lucide-react';
 import '../styles/studio-shell.css';
@@ -41,7 +41,9 @@ interface HeaderProps {
   currentWorkspaceId: number | string;
   onWorkspaceChange: (wsId: number | string) => void;
   onDeleteWorkspace?: (wsId: number | string, deleteSources: boolean) => Promise<void>;
-  onCreateWorkspace?: (name: string, description: string) => Promise<void>;
+  onCreateWorkspace?: (name: string, description: string, pack: DomainPack) => Promise<void>;
+  /** đổi lĩnh vực của không gian đang mở (tổ chức: máy chủ kiểm quyền) */
+  onChangeDomainPack?: (pack: DomainPack) => Promise<void>;
   onLogout: () => void;
   onUserChange?: (u: User) => void;
   isMobileDrawerOpen?: boolean;
@@ -71,10 +73,11 @@ function noteIcon(action: string) {
   if (/thiết kế|rà soát|mâu thuẫn|đánh giá|so sánh|truy vết|hồ sơ/.test(a)) return Sparkles;
   return Activity;
 }
-function orgNoteText(n: OrgNotification): string {
+// t: tên gọi của không gian gửi thông báo nếu mình còn thuộc không gian đó, không thì dùng tên gọi doanh nghiệp
+function orgNoteText(n: OrgNotification, t: OrgTerms): string {
   const p = n.payload || {};
-  const lv = (l?: string) => (l && (LEVEL_LABEL as Record<string, string>)[l]) || '';
-  const level = (q: Record<string, any>) => `${(CLASS_LABEL as Record<string, string>)[q.classification] ?? q.classification}${q.department ? ` · ${q.department}` : ''}`;
+  const lv = (l?: string) => (l && (t.level as Record<string, string>)[l]) || '';
+  const level = (q: Record<string, any>) => `${(t.cls as Record<string, string>)[q.classification] ?? q.classification}${q.department && !t.single ? ` · ${q.department}` : ''}`;
   switch (n.kind) {
     case 'invite': return `${p.inviter} mời bạn vào ${p.space_name} (${lv(p.level)})`;
     case 'join_request': return `${p.user} xin vào ${p.space_name}, chờ bạn duyệt`;
@@ -84,6 +87,7 @@ function orgNoteText(n: OrgNotification): string {
     case 'invite_declined': return `${p.user} đã từ chối lời mời vào ${p.space_name}`;
     case 'member_updated': return `Cấp bậc của bạn ở ${p.space_name}: ${lv(p.level)}${p.is_owner ? ' · Chủ' : ''}`;
     case 'member_removed': return `Bạn đã được gỡ khỏi ${p.space_name}`;
+    case 'space_deleted': return `${p.by} đã xóa tổ chức ${p.space_name}`;
     case 'source_shared': return `${p.by} chia sẻ "${p.source_name}" với bạn (${p.space_name})`;
     case 'drafts_handed_over': return `Bạn nhận bàn giao ${p.count} bản nháp của ${p.from} (${p.space_name})`;
     case 'source_published': return `${p.by} tải lên "${p.source_name}" (${level(p)}) trong ${p.space_name}`;
@@ -117,7 +121,7 @@ export function useDismiss(open: boolean, close: () => void) {
 // Thanh bên: không gian làm việc, điều hướng, kho tri thức (children) và tài khoản.
 export const Header: React.FC<HeaderProps> = ({
   health, activeTab, onTabChange, user, workspaces, currentWorkspaceId, onWorkspaceChange,
-  onCreateWorkspace, onDeleteWorkspace, onLogout, onUserChange, isMobileDrawerOpen = false, onToggleMobileDrawer, onOpenPalette, theme = 'light', onThemeChange, children, onOpenAdmin, onOrgChanged,
+  onCreateWorkspace, onChangeDomainPack, onDeleteWorkspace, onLogout, onUserChange, isMobileDrawerOpen = false, onToggleMobileDrawer, onOpenPalette, theme = 'light', onThemeChange, children, onOpenAdmin, onOrgChanged,
 }) => {
   const [menu, setMenu] = useState<'ws' | 'profile' | 'notif' | null>(null);
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -212,6 +216,9 @@ export const Header: React.FC<HeaderProps> = ({
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newWsName, setNewWsName] = useState('');
   const [newWsDesc, setNewWsDesc] = useState('');
+  const [newWsPack, setNewWsPack] = useState<DomainPack>('general');
+  const [packBusy, setPackBusy] = useState(false);
+  const [packError, setPackError] = useState<string | null>(null);
   const [isCreatingWs, setIsCreatingWs] = useState(false);
   const [createWsError, setCreateWsError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -231,8 +238,8 @@ export const Header: React.FC<HeaderProps> = ({
     if (!onCreateWorkspace) return;
     setIsCreatingWs(true); setCreateWsError(null);
     try {
-      await onCreateWorkspace(newWsName.trim(), newWsDesc.trim());
-      setNewWsName(''); setNewWsDesc(''); setIsCreateModalOpen(false); setMenu(null);
+      await onCreateWorkspace(newWsName.trim(), newWsDesc.trim(), newWsPack);
+      setNewWsName(''); setNewWsDesc(''); setNewWsPack('general'); setIsCreateModalOpen(false); setMenu(null);
     } catch (err: any) {
       setCreateWsError(err.message || 'Không thể tạo không gian làm việc mới.');
     } finally {
@@ -261,10 +268,8 @@ export const Header: React.FC<HeaderProps> = ({
     { id: 'organization', label: 'Tổ chức', Icon: Building2, show: !!user },
     { id: 'overview', label: 'Tổng quan', Icon: BarChart3, show: true },
     { id: 'documents', label: 'Hồ sơ tài liệu', Icon: FileSearch, show: true },
-    { id: 'traceability', label: 'Truy vết yêu cầu', Icon: ListChecks, show: true },
-    { id: 'req_quality', label: 'Chất lượng yêu cầu', Icon: SpellCheck, show: true },
-    { id: 'design', label: 'Gói thiết kế', Icon: PencilRuler, show: true },
-    { id: 'security', label: 'Rà soát bảo mật', Icon: ShieldCheck, show: true },
+    // một trang, chia tab: 3 chức năng cần nhất của ngành đang chọn (components/ToolkitView.tsx)
+    { id: 'toolkit', label: `Bộ công cụ ${packLabel(currentWorkspace?.domain_pack)}`, Icon: Wrench, show: true },
     { id: 'consistency', label: 'Kiểm tra mâu thuẫn', Icon: GitCompareArrows, show: true },
     { id: 'evaluation', label: 'Phòng đánh giá', Icon: ClipboardCheck, show: true },
     { id: 'benchmarks', label: 'Thực nghiệm', Icon: FlaskConical, show: true },
@@ -290,7 +295,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {orgNotes.length > 0 && <><div className="sb-notif-head"><b>Tổ chức</b><button type="button" className="dp-link" onClick={() => { setMenu(null); go('organization'); }}>Mở trang Tổ chức</button></div>
                 <ul className="og-notes">{orgNotes.map(n => <li key={n.notification_id} className={n.read ? '' : 'is-unread'}>
                   <span className="sb-notif-ico"><Building2 size={15} /></span>
-                  <span className="sb-notif-t"><b>{orgNoteText(n)}</b>
+                  <span className="sb-notif-t"><b>{orgNoteText(n, orgTerms(workspaces.find(w => w.id === n.space_id)))}</b>
                     {n.kind === 'invite' && n.payload.invite_id && (answered[n.payload.invite_id] || !openInvites.has(n.payload.invite_id)
                       ? <small>{answered[n.payload.invite_id] ?? 'Đã xử lý'}</small>
                       : <span className="og-note-acts"><button type="button" className="btn btn-dark is-sm" onClick={() => answer(n.payload.invite_id, 'accept')}>Tham gia</button>
@@ -346,8 +351,8 @@ export const Header: React.FC<HeaderProps> = ({
                           <WsTile ws={ws} variant={wsVariant.get(ws.id)} />
                           <span className="wsp-info"><b>{ws.name}</b>
                             <span className="wsp-meta">{ws.kind === 'org'
-                              ? <i className="wsp-role">{ws.level ? LEVEL_LABEL[ws.level] : 'Thành viên'}{ws.is_owner ? ' · Chủ' : ''}</i>
-                              : <><i title="Tài liệu"><FileText size={12} />{ws.documents_count}</i><i title="Cuộc trò chuyện"><MessagesSquare size={12} />{ws.runs_count}</i></>}</span>
+                              ? <i className="wsp-role">{ws.level ? orgTerms(ws).level[ws.level] : 'Thành viên'}{ws.is_owner ? ' · Chủ' : ''}</i>
+                              : <><i title="Tài liệu"><FileText size={12} />{ws.documents_count}</i><i title="Cuộc trò chuyện"><MessagesSquare size={12} />{ws.runs_count}</i></>}<i title="Lĩnh vực">{packLabel(ws.domain_pack)}</i></span>
                           </span>
                           {on && <span className="wsp-now"><Check size={12} strokeWidth={3} />Đang mở</span>}
                         </button>
@@ -357,6 +362,25 @@ export const Header: React.FC<HeaderProps> = ({
                     })}
                   </div>)}
                 </div>
+                {onChangeDomainPack && currentWorkspace && (() => {
+                  // tổ chức: máy chủ chỉ cho cấp cao nhất đổi; không gian cá nhân: chủ sở hữu luôn đổi được
+                  const canSetPack = currentWorkspace.kind !== 'org' || currentWorkspace.level === 'EXECUTIVE';  // khớp access.py: executive = cấp EXECUTIVE
+                  const execName = orgTerms(currentWorkspace).level.EXECUTIVE;
+                  return <label className="wsp-pack">
+                  <span>Lĩnh vực của “{currentWorkspace.name}”</span>
+                  <select value={currentWorkspace.domain_pack ?? 'software'} disabled={packBusy || !canSetPack}
+                    title={canSetPack ? undefined : `Chỉ ${execName} đổi được lĩnh vực`} onChange={async e => {
+                    setPackBusy(true); setPackError(null);
+                    try { await onChangeDomainPack(e.target.value as DomainPack); }
+                    catch (err: any) { setPackError(err?.message || 'Không đổi được lĩnh vực.'); }
+                    finally { setPackBusy(false); }
+                  }}>
+                    {DOMAIN_PACKS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                  {packError && <small className="wsp-pack-err" role="alert">{packError}</small>}
+                  {!canSetPack && <small>Chỉ {execName} đổi được lĩnh vực.</small>}
+                </label>;
+                })()}
                 {onCreateWorkspace && <button className="wsp-new" onClick={() => { setMenu(null); setIsCreateModalOpen(true); }}>
                   <span className="wsp-new-ico"><Plus size={16} strokeWidth={2.4} /></span><span className="wsp-info"><b>Tạo không gian mới</b><small>Kho tài liệu và lịch sử trò chuyện riêng</small></span></button>}
               </div>
@@ -371,7 +395,7 @@ export const Header: React.FC<HeaderProps> = ({
             {nav.filter(n => n.show).map(({ id, label, Icon }) => (
               <React.Fragment key={id}>
                 {id === 'documents' && <p className="sb-group">Công cụ phân tích</p>}
-                {id === 'benchmarks' && <p className="sb-group">Nghiên cứu</p>}
+                {id === 'evaluation' && <p className="sb-group">Nghiên cứu</p>}
                 {id === 'users' && <p className="sb-group">Quản trị</p>}
                 <button onClick={() => go(id)} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} className={`sb-link${activeTab === id ? ' is-on' : ''}`}
                   onMouseEnter={showTip} onFocus={showTip} onMouseLeave={hideTip} onBlur={hideTip}>
@@ -463,10 +487,14 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             {createWsError && <div className="note is-error"><AlertCircle size={16} /><span>{createWsError}</span></div>}
             <form onSubmit={handleCreateSubmit} className="form">
-              <label htmlFor="workspace-name">Tên dự án</label>
-              <input id="workspace-name" type="text" value={newWsName} onChange={e => setNewWsName(e.target.value)} placeholder="ví dụ: Hệ thống thanh toán nội bộ" required />
+              <label htmlFor="workspace-name">Tên không gian</label>
+              <input id="workspace-name" type="text" value={newWsName} onChange={e => setNewWsName(e.target.value)} placeholder="ví dụ: Quy chế đào tạo, Nội quy công ty" required />
               <label htmlFor="workspace-description">Mô tả ngắn <small>(không bắt buộc)</small></label>
-              <textarea id="workspace-description" value={newWsDesc} onChange={e => setNewWsDesc(e.target.value)} placeholder="Phạm vi, ràng buộc kỹ thuật chính…" rows={3} />
+              <textarea id="workspace-description" value={newWsDesc} onChange={e => setNewWsDesc(e.target.value)} placeholder="Phạm vi, nội dung chính của bộ tài liệu…" rows={3} />
+              <label htmlFor="workspace-pack">Lĩnh vực <small>(trợ lý chia việc cho chuyên gia của ngành này)</small></label>
+              <select id="workspace-pack" value={newWsPack} onChange={e => setNewWsPack(e.target.value as DomainPack)}>
+                {DOMAIN_PACKS.map(p => <option key={p.id} value={p.id}>{p.label}: {p.hint}</option>)}
+              </select>
               <div className="dlg-actions">
                 <button type="button" onClick={() => setIsCreateModalOpen(false)} className="btn btn-ghost">Hủy</button>
                 <button type="submit" disabled={isCreatingWs} className="btn btn-dark">{isCreatingWs ? 'Đang tạo…' : 'Tạo không gian'}</button>

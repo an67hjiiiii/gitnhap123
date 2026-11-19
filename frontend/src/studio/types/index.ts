@@ -20,6 +20,13 @@ export interface Workspace {
   kind?: 'personal' | 'org';
   level?: 'STAFF' | 'MANAGER' | 'EXECUTIVE';
   is_owner?: boolean;
+  /** mẫu tổ chức và tên gọi tự đặt (chỉ hiển thị), xem orgTerms trong services/api */
+  preset?: string | null;
+  /** số đơn vị (phòng, khoa, tổ); 1 = chế độ một đơn vị */
+  unit_count?: number;
+  labels?: { org?: string; unit?: string; STAFF?: string; MANAGER?: string; EXECUTIVE?: string } | null;
+  /** lĩnh vực cho trợ lý AI (xem DOMAIN_PACKS); thiếu = Phần mềm */
+  domain_pack?: string;
 }
 
 export interface ExperimentConfig {
@@ -235,7 +242,7 @@ export interface HealthResponse {
 }
 
 export type ExecutionMode = 'proposed_adaptive' | 'naive_multi_agent' | 'vanilla_rag' | 'ablation_comparison';
-export type NavigationTab = 'orchestration' | 'chat' | 'overview' | 'documents' | 'traceability' | 'req_quality' | 'design' | 'security' | 'consistency' | 'evaluation' | 'benchmarks' | 'rating' | 'users' | 'db_explorer' | 'organization';
+export type NavigationTab = 'orchestration' | 'chat' | 'overview' | 'documents' | 'toolkit' | 'consistency' | 'evaluation' | 'benchmarks' | 'rating' | 'users' | 'db_explorer' | 'organization';
 
 // Phase 6: Security Audit & Diagnostics Types
 export interface SecurityCheckpointItem {

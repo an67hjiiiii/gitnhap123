@@ -17,11 +17,10 @@ from dataclasses import asdict, dataclass
 
 from app.core.citations import validate_citations
 from app.core.types import SourceChunk
-from app.research.decomposer import _DOMAIN_HINTS, _contains_hint, detect_domains  # cùng bộ gợi ý với planner
-from app.research.registry import profile
+from app.research.decomposer import _contains_hint, detect_domains  # cùng bộ gợi ý với planner
+from app.research.registry import active_pack, profile
 
 STATUSES = ("COVERED", "PARTIAL", "MISSING")
-DEFAULT_AGENT = "api_architecture"
 MAX_REQUIREMENTS = 60
 MAX_BODY_CHARS = 900
 
@@ -46,12 +45,13 @@ class Requirement:
 
 
 def assign_agent(text: str) -> tuple[list[str], str]:
-    """Chuyên môn nhận diện được và tác tử phụ trách (mặc định tác tử API/kiến trúc)."""
+    """Chuyên môn nhận diện được và tác tử phụ trách theo bộ lĩnh vực đang dùng (Phần mềm: mặc định API/kiến trúc)."""
     domains = detect_domains(text) if text.strip() else []
     if not domains:
-        return [], DEFAULT_AGENT
+        return [], active_pack()["default_domain"]
     folded = text.casefold()
-    score = {d: sum(_contains_hint(folded, hint) for hint in _DOMAIN_HINTS[d]) for d in domains}
+    hints = active_pack()["hints"]
+    score = {d: sum(_contains_hint(folded, hint) for hint in hints[d]) for d in domains}
     return domains, max(domains, key=lambda d: (score[d], -domains.index(d)))
 
 
@@ -94,6 +94,31 @@ def extract_requirements(text: str) -> list[Requirement]:
         domains, agent = assign_agent(f"{item['title']}\n{body}")
         requirements.append(Requirement(item["req_id"], item["title"], body, domains, agent))
     return requirements
+
+
+_LIST_LINE = re.compile(r"^(?:[-*+•☐□]|\d{1,3}[.)]|[a-zđ][.)])\s+(.+)$", re.IGNORECASE)
+
+
+def criteria_from_lines(lines: list[str]) -> list[Requirement]:
+    """Mỗi dòng không rỗng là một tiêu chí, mã TC-01, TC-02...; bỏ dòng trùng; tác tử chọn theo bộ lĩnh vực đang dùng."""
+    out: list[Requirement] = []
+    seen: set[str] = set()
+    for line in lines:
+        text = " ".join(line.split())[:MAX_BODY_CHARS]
+        if not text or text.casefold() in seen:
+            continue
+        seen.add(text.casefold())
+        domains, agent = assign_agent(text)
+        out.append(Requirement(f"TC-{len(out) + 1:02d}", text, "", domains, agent))
+        if len(out) == MAX_REQUIREMENTS:
+            break
+    return out
+
+
+def extract_checklist(text: str) -> list[Requirement]:
+    """Danh mục trong tài liệu: dòng gạch đầu dòng hoặc đánh số (1. / 1) / a) / ☐) thành tiêu chí."""
+    items = [m.group(1).strip(" *") for line in text.splitlines() if (m := _LIST_LINE.match(line.strip()))]
+    return criteria_from_lines([i for i in items if len(i) >= 4])
 
 
 def requirement_query(requirement: Requirement) -> str:

@@ -1,4 +1,5 @@
-// Trang danh mục kiểm tra dùng chung: truy vết yêu cầu (trích từ tài liệu đặc tả) và rà soát bảo mật (bộ tiêu chí OWASP ASVS).
+// Trang danh mục kiểm tra dùng chung: đối chiếu yêu cầu (trích từ tài liệu đặc tả), rà soát bảo mật (OWASP ASVS)
+// và rà soát theo tiêu chí cho mọi ngành (danh mục tự nhập hoặc lấy từ tài liệu danh mục).
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowRight, CheckCircle2, ChevronDown, ChevronRight, Columns3, Cpu, Download, Files, FileSearch, LayoutGrid, ListChecks, Quote, Rows3, Save, Search, Shield, ShieldAlert, ShieldCheck, Square, Trash2, UserCheck, X } from 'lucide-react';
 import { ProfilePreview, useProfileMotion } from './profile/ProfileParts';
@@ -9,12 +10,12 @@ import {
 } from '../services/api';
 import { baseName, chunkLabel, csvCell, Doc, DocPicker, docId, download, fmtSeconds, SavedReportsSelect, ToolHeader, useAnalysisData, useChunkViewer } from './analysis/shared';
 
-export type ChecklistMode = 'traceability' | 'security';
+export type ChecklistMode = 'traceability' | 'security' | 'criteria';
 type Final = TraceStatus | 'ERROR';
 
 const MODES = {
   traceability: {
-    kind: 'traceability', title: 'Truy vết yêu cầu', file: 'truy-vet', item: 'yêu cầu', agent: undefined as string | undefined,
+    kind: 'traceability', title: 'Đối chiếu yêu cầu', file: 'truy-vet', item: 'yêu cầu', agent: undefined as string | undefined,
     desc: 'Kiểm tra từng yêu cầu trong tài liệu đặc tả đã được tài liệu thiết kế đáp ứng chưa, có trích dẫn.',
     docs: 'Tài liệu thiết kế để đối chiếu', points: 'Đã có trong thiết kế',
     labels: { COVERED: 'Đã đáp ứng', PARTIAL: 'Một phần', MISSING: 'Chưa có trong thiết kế', ERROR: 'Lỗi khi kiểm tra' },
@@ -27,7 +28,15 @@ const MODES = {
     labels: { COVERED: 'Đạt', PARTIAL: 'Đạt một phần', MISSING: 'Chưa thấy biện pháp', ERROR: 'Lỗi khi kiểm tra' },
     empty: 'Đang nạp danh mục tiêu chí…',
   },
+  criteria: {
+    kind: 'criteria', title: 'Rà soát theo tiêu chí', file: 'ra-soat-tieu-chi', item: 'tiêu chí', agent: undefined as string | undefined,
+    desc: 'Kiểm từng tiêu chí trong danh mục của bạn (quy định, điều khoản bắt buộc, hồ sơ cần có…) với tài liệu; mỗi kết luận có trích dẫn.',
+    docs: 'Tài liệu cần rà soát', points: 'Đã có trong tài liệu',
+    labels: { COVERED: 'Đạt', PARTIAL: 'Đạt một phần', MISSING: 'Chưa thấy trong tài liệu', ERROR: 'Lỗi khi kiểm tra' },
+    empty: 'Nhập danh mục tiêu chí (mỗi dòng một tiêu chí) hoặc lấy từ một tài liệu danh mục.',
+  },
 } as const;
+const MANUAL = '__manual__';
 const TONE: Record<Final, string> = { COVERED: 'complete', PARTIAL: 'partial', MISSING: 'failed', ERROR: 'failed' };
 const REQ_DOC = /yeu.?cau|srs|requirement|dac.?ta.?yeu/i;
 
@@ -64,11 +73,15 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
   const [docsOpen, setDocsOpen] = useState(false);
   const [view, setView] = useState<'board' | 'table'>('board');
   const [group, setGroup] = useState('');
+  const [manual, setManual] = useState('');
+  const manualLines = manual.split('\n').map(l => l.trim()).filter(Boolean);
+  const isManual = mode === 'criteria' && sourceId === MANUAL;
 
   // Mặc định: truy vết lấy tài liệu giống đặc tả làm nguồn, phần còn lại làm tài liệu thiết kế; rà soát lấy mọi tài liệu của không gian.
   useEffect(() => {
     if (design.size || docs.length === 0) return;
     if (mode === 'security') { setDesign(new Set(docs.map(docId))); return; }
+    if (mode === 'criteria') { setSourceId(MANUAL); setDesign(new Set(docs.map(docId))); return; }
     const first = docs.find(d => REQ_DOC.test(d.source_file)) ?? docs[0];
     setSourceId(docId(first));
     setDesign(new Set(docs.filter(d => d !== first).map(docId)));
@@ -86,6 +99,13 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
   const tokens = checked.reduce((n, r) => n + (results[r.req_id].input_tokens || 0) + (results[r.req_id].output_tokens || 0), 0);
   const ms = checked.reduce((n, r) => n + (results[r.req_id].latency_ms || 0), 0);
   const designIds = [...design].filter(id => id && id !== sourceId);
+  const useManual = () => {
+    // Tiêu chí tự nhập: mã TC-01…; tác tử do máy chủ chọn theo lĩnh vực khi kiểm tra
+    const seen = new Set<string>();
+    const list = manualLines.filter(l => !seen.has(l.toLowerCase()) && seen.add(l.toLowerCase())).slice(0, 60)
+      .map((t, i) => ({ req_id: `TC-${String(i + 1).padStart(2, '0')}`, title: t.slice(0, 600), body: '', domains: [], agent: '', agent_name: 'Tự chọn theo tiêu chí' }));
+    setReqs(list); setSourceName('Danh mục tự nhập'); setResults({}); setReview({}); setOpen(null); setError(null);
+  };
   const subject = mode === 'security' ? standard : sourceName;
   // Mã đoạn mô hình chép vào lời nhận xét ("src_ab12_c0004") đổi thành tên tài liệu và số đoạn.
   const readable = (text: string) => text.replace(/\(?(?:chunk(?:_id)?:?\s*)?\[?(src_[0-9a-f]+)_c(\d+)\]?\)?/gi, (_m, src: string, n: string) =>
@@ -100,9 +120,11 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
     if (!sourceId) return;
     setBusy(true); setError(null); setNote(null);
     try {
-      const r = await extractRequirements(sourceId);
+      const r = await extractRequirements(sourceId, mode === 'criteria' ? 'list' : 'coded');
       setReqs(r.requirements); setSourceName(r.source_name); setResults({}); setReview({}); setOpen(null);
-      if (r.requirements.length === 0) setError('Không tìm thấy yêu cầu có mã (FR-, NFR-, UC-, REQ-…) ở đầu dòng trong tài liệu này.');
+      if (r.requirements.length === 0) setError(mode === 'criteria'
+        ? 'Không thấy dòng gạch đầu dòng hoặc đánh số (1. / a) / -) nào trong tài liệu này. Có thể nhập danh mục bằng tay.'
+        : 'Không tìm thấy yêu cầu có mã (FR-, NFR-, UC-, REQ-…) ở đầu dòng trong tài liệu này.');
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
@@ -161,7 +183,7 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
   const exportMd = () => {
     const s = summary();
     const lines = [`# Báo cáo ${M.title.toLowerCase()}`, '',
-      mode === 'security' ? `- Danh mục: ${standard} (chọn lọc ${reqs.length} tiêu chí; không thay thế đánh giá chứng nhận)` : `- Tài liệu yêu cầu: ${sourceName}`,
+      mode === 'security' ? `- Danh mục: ${standard} (chọn lọc ${reqs.length} tiêu chí; không thay thế đánh giá chứng nhận)` : mode === 'criteria' ? `- Danh mục: ${sourceName} (${reqs.length} tiêu chí)` : `- Tài liệu yêu cầu: ${sourceName}`,
       `- ${M.docs}: ${designIds.map(id => pickable.find(d => docId(d) === id)?.source_file ?? id).join(', ')}`,
       `- Đã kiểm tra: ${s.checked}/${s.total} · ${L.COVERED} ${s.covered} · ${L.PARTIAL} ${s.partial} · ${L.MISSING} ${s.missing} · Lỗi ${s.errors} · Đã duyệt ${s.reviewed}`,
       `- Kết luận do mô hình cục bộ đưa ra kèm trích dẫn; dòng "Đã duyệt = Có" đã được người dùng xác nhận hoặc sửa.`, '',
@@ -190,8 +212,14 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
           {/* Thanh thiết lập: nguồn → đối chiếu → chạy, gọn trên một hàng */}
           <section className="wb-bar wb-in">
             <div className="wb-slot">
-              <span className="wb-k">{mode === 'security' ? 'Danh mục' : 'Đặc tả'}</span>
-              {mode === 'traceability'
+              <span className="wb-k">{mode === 'traceability' ? 'Đặc tả' : 'Danh mục'}</span>
+              {mode === 'criteria'
+                ? <label className="wb-select"><span className="sr">Nguồn danh mục tiêu chí</span>
+                    <select value={sourceId} onChange={e => { setSourceId(e.target.value); setReqs([]); setResults({}); setReview({}); }} disabled={running}>
+                      <option value={MANUAL}>Tự nhập danh mục</option>
+                      {pickable.map(d => <option key={docId(d)} value={docId(d)}>Lấy từ: {d.source_file.replace(/\.[^.]+$/, '').replace(/_/g, ' ')}</option>)}
+                    </select><ChevronDown size={16} aria-hidden="true" /></label>
+                : mode === 'traceability'
                 ? <label className="wb-select"><span className="sr">Tài liệu yêu cầu (đặc tả)</span>
                     <select value={sourceId} onChange={e => { setSourceId(e.target.value); setReqs([]); setResults({}); setReview({}); }} disabled={running}>
                       <option value="">Chọn tài liệu đặc tả…</option>
@@ -201,19 +229,26 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
             </div>
             <ArrowRight className="wb-arrow" size={18} aria-hidden="true" />
             <div className="wb-slot">
-              <span className="wb-k">{mode === 'security' ? 'Tài liệu rà soát' : 'Đối chiếu với'}</span>
+              <span className="wb-k">{mode === 'traceability' ? 'Đối chiếu với' : 'Tài liệu rà soát'}</span>
               <button type="button" className={`wb-pick${docsOpen ? ' is-open' : ''}`} onClick={() => setDocsOpen(v => !v)} aria-expanded={docsOpen} disabled={running}>
                 <Files size={15} /><b>{designIds.length}</b> tài liệu<ChevronDown size={15} />
               </button>
             </div>
             <div className="wb-go">
               {mode === 'traceability' && <button className={`btn ${reqs.length ? 'btn-ghost' : 'btn-dark'}`} onClick={extract} disabled={!sourceId || running || busy}><FileSearch size={15} />{reqs.length ? 'Trích lại' : 'Trích yêu cầu'}</button>}
+              {mode === 'criteria' && !isManual && <button className={`btn ${reqs.length ? 'btn-ghost' : 'btn-dark'}`} onClick={extract} disabled={!sourceId || running || busy}><FileSearch size={15} />{reqs.length ? 'Lấy lại' : 'Lấy danh mục'}</button>}
               {reqs.length > 0 && (running
                 ? <button className="btn btn-danger" onClick={() => { stop.current = true; }}><Square size={14} />Dừng</button>
                 : <button className="btn btn-dark" onClick={() => run(checked.length > 0)} disabled={busy}><ListChecks size={15} />
                     {checked.length === 0 ? `Kiểm tra ${reqs.length} ${M.item}` : checked.length < reqs.length || errors ? `Kiểm tra tiếp ${reqs.length - checked.length + errors}` : 'Kiểm tra lại'}
                   </button>)}
             </div>
+            {isManual && <div className="wb-drop cw-manual">
+              <label className="tv-field"><span>Danh mục tiêu chí <small>(mỗi dòng một tiêu chí, tối đa 60)</small></span>
+                <textarea className="dz-input" rows={5} value={manual} onChange={e => setManual(e.target.value)} disabled={running} maxLength={20000}
+                  placeholder={'Ví dụ:\nHợp đồng ghi rõ thời hạn thanh toán\nCó điều khoản giải quyết tranh chấp\nCó chữ ký của đại diện hai bên'} /></label>
+              <button type="button" className="btn btn-dark" onClick={useManual} disabled={running || manualLines.length === 0}><ListChecks size={15} />Dùng {manualLines.length} tiêu chí</button>
+            </div>}
             {docsOpen && <div className="wb-drop"><DocPicker docs={pickable} selected={design} onChange={setDesign} exclude={sourceId} disabled={running} legend={M.docs} /></div>}
             {reqs.length > 0 && <div className="wb-progress" aria-label={`Đã kiểm tra ${checked.length}/${reqs.length}`}>
               <i style={{ width: `${progress}%` }} /><span>{running && <span className="spin is-dark" />}Đã kiểm tra <b>{checked.length}/{reqs.length}</b>{checked.length > 0 && <> · {tokens.toLocaleString('vi-VN')} token · {fmtSeconds(ms)} giây</>}</span>
@@ -221,7 +256,7 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
           </section>
 
           {/* Truy vết: bảng Kanban theo kết luận. Bảo mật: lưới nhóm tiêu chí. */}
-          {mode === 'traceability' && reqs.length > 0 && view === 'board' && <div className="kb">
+          {mode !== 'security' && reqs.length > 0 && view === 'board' && <div className="kb">
             {(['MISSING', 'PARTIAL', 'COVERED', ...(errors ? ['ERROR'] : []), ...(checked.length < reqs.length ? ['TODO'] : [])] as (Final | 'TODO')[]).map(col => {
               const list = reqs.filter(r => (finalOf(r.req_id) ?? 'TODO') === col);
               return (
@@ -263,7 +298,7 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
             <div className="seg tv-seg">{(['all', 'COVERED', 'PARTIAL', 'MISSING', 'ERROR'] as const).map(k => (
               <button key={k} className={filter === k ? 'is-on' : ''} aria-pressed={filter === k} onClick={() => setFilter(k)}>{k === 'all' ? 'Tất cả' : L[k]}</button>
             ))}</div>
-            {mode === 'traceability' && <div className="seg tv-seg wb-view" role="group" aria-label="Kiểu xem">
+            {mode !== 'security' && <div className="seg tv-seg wb-view" role="group" aria-label="Kiểu xem">
               <button className={view === 'board' ? 'is-on' : ''} aria-pressed={view === 'board'} onClick={() => setView('board')}><Columns3 size={14} />Bảng Kanban</button>
               <button className={view === 'table' ? 'is-on' : ''} aria-pressed={view === 'table'} onClick={() => setView('table')}><Rows3 size={14} />Bảng chi tiết</button>
             </div>}
@@ -316,9 +351,11 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
           {shown.length === 0 && <div className="empty">Không có {M.item} phù hợp bộ lọc.</div>}
         </div>}
 
-        {reqs.length === 0 && !busy && <ProfilePreview title={mode === 'security' ? 'Kết quả rà soát sẽ có' : 'Kết quả truy vết sẽ có'}
-          text={mode === 'security' ? 'Chọn tài liệu cần rà soát rồi bấm Kiểm tra. Mỗi tiêu chí do tác tử bảo mật đối chiếu, kèm đoạn tài liệu làm căn cứ.' : 'Chọn tài liệu đặc tả, bấm Trích yêu cầu rồi Kiểm tra. Mỗi yêu cầu do một tác tử đối chiếu với tài liệu thiết kế.'}
-          items={[[LayoutGrid, 'Bản đồ độ phủ', 'Thấy ngay yêu cầu nào thiết kế còn thiếu'], [ListChecks, 'Bảng từng mục', 'Đã đáp ứng, một phần hoặc chưa có'], [Quote, 'Căn cứ trích dẫn', 'Bấm để mở đúng đoạn tài liệu gốc'],
+        {reqs.length === 0 && !busy && <ProfilePreview title={mode === 'traceability' ? 'Kết quả đối chiếu sẽ có' : 'Kết quả rà soát sẽ có'}
+          text={mode === 'security' ? 'Chọn tài liệu cần rà soát rồi bấm Kiểm tra. Mỗi tiêu chí do tác tử bảo mật đối chiếu, kèm đoạn tài liệu làm căn cứ.'
+            : mode === 'criteria' ? 'Nhập danh mục tiêu chí hoặc lấy từ một tài liệu danh mục, chọn tài liệu cần rà soát rồi bấm Kiểm tra. Mỗi tiêu chí do tác tử đúng chuyên môn của ngành đối chiếu.'
+            : 'Chọn tài liệu đặc tả, bấm Trích yêu cầu rồi Kiểm tra. Mỗi yêu cầu do một tác tử đối chiếu với tài liệu thiết kế.'}
+          items={[[LayoutGrid, 'Bản đồ độ phủ', mode === 'traceability' ? 'Thấy ngay yêu cầu nào thiết kế còn thiếu' : 'Thấy ngay tiêu chí nào tài liệu còn thiếu'], [ListChecks, 'Bảng từng mục', 'Đã đáp ứng, một phần hoặc chưa có'], [Quote, 'Căn cứ trích dẫn', 'Bấm để mở đúng đoạn tài liệu gốc'],
             [UserCheck, 'Người duyệt', 'Sửa kết luận của mô hình trước khi xuất'], [Download, 'Xuất báo cáo', 'CSV, Markdown, lưu để mở lại'], [Cpu, 'Đo thật', 'Token và thời gian của từng lần kiểm tra']]} />}
 
         {checked.length > 0 && !running && <div className="tv-actions is-end">

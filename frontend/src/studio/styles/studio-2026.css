@@ -276,8 +276,8 @@
 .form{display:grid;gap:6px}
 .form label{font-size:13px;font-weight:600;margin-top:8px}
 .form label small{font-weight:400;color:var(--muted)}
-.form input,.form textarea{width:100%;padding:10px 12px;font:inherit;font-size:14px;border:1px solid var(--line-2,#dfe3e8);border-radius:10px;outline:none;resize:none}
-.form input:focus,.form textarea:focus{border-color:#b9cbe4;box-shadow:0 0 0 4px rgba(29,102,201,.08)}
+.form input,.form textarea,.form select{width:100%;padding:10px 12px;font:inherit;font-size:14px;border:1px solid var(--line-2,#dfe3e8);border-radius:10px;outline:none;resize:none}
+.form input:focus,.form textarea:focus,.form select:focus{border-color:#b9cbe4;box-shadow:0 0 0 4px rgba(29,102,201,.08)}
 .dlg-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
 .note{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:10px;font-size:13.5px;margin-bottom:8px}
 .note.is-error{background:#fdeeee;color:#b23a3a}

@@ -20,13 +20,13 @@ _INTENT_RESPONSES = {
 
 _RESPONSES = {
     "greeting": (
-        "Chào bạn! Tôi là trợ lý kỹ thuật CAP1_AI. Bạn có thể tải tài liệu vào "
+        "Chào bạn! Tôi là trợ lý tài liệu CAP1_AI. Bạn có thể tải tài liệu vào "
         "Knowledge và đặt câu hỏi hoặc yêu cầu phân tích về kiến trúc/API, cơ sở "
         "dữ liệu và bảo mật."
     ),
     "thanks": "Rất vui được hỗ trợ. Bạn có thể hỏi về nội dung trong các tài liệu đã tải lên.",
     "identity": (
-        "Tôi là trợ lý kỹ thuật CAP1_AI. Tôi trả lời câu hỏi về tài liệu bạn cung cấp "
+        "Tôi là trợ lý tài liệu CAP1_AI. Tôi trả lời câu hỏi về tài liệu bạn cung cấp "
         "và sẽ báo rõ khi nguồn hiện có không hỗ trợ kết luận."
     ),
     "capabilities": (

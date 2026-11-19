@@ -10,10 +10,10 @@ import { Command, CommandPalette } from './components/CommandPalette';
 import { shouldPlayIntro, StudioIntro } from './components/StudioIntro';
 import { PageGuide } from './components/PageGuide';
 import gsap from 'gsap';
-import { SpellCheck, Users, BarChart3, ClipboardCheck, Database, EyeOff, FileSearch, FlaskConical, GitCompareArrows, ListChecks, MessageSquarePlus, MessagesSquare, PencilRuler, ShieldCheck, Sparkles } from 'lucide-react';
+import { Users, BarChart3, ClipboardCheck, Database, EyeOff, FileSearch, FlaskConical, GitCompareArrows, MessageSquarePlus, MessagesSquare, Sparkles } from 'lucide-react';
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Link } from 'react-router-dom';
-import { Menu } from 'lucide-react';
+import { Menu, Wrench } from 'lucide-react';
 import { Header } from './components/Header';
 import { LeftPanel } from './components/LeftPanel';
 import { Workspace as WorkspaceView } from './components/Workspace';
@@ -22,13 +22,11 @@ import { BenchmarkLab } from './components/BenchmarkLab';
 import { DatabaseExplorer } from './components/DatabaseExplorer';
 import { DocumentChunksModal } from './components/DocumentChunksModal';
 import { RetrievalPlaygroundModal } from './components/RetrievalPlaygroundModal';
-import { ChecklistView } from './components/ChecklistView';
-import { DesignView } from './components/DesignView';
+import { ToolkitView } from './components/ToolkitView';
 import { EvaluationView } from './components/EvaluationView';
 import { BlindRatingView } from './components/BlindRatingView';
 import { UsersAdminView } from './components/UsersAdminView';
 import { AdminPortal } from './components/admin/AdminPortal';
-import { ReqQualityView } from './components/ReqQualityView';
 import { ConsistencyView } from './components/ConsistencyView';
 import { DocumentProfileView } from './components/DocumentProfileView';
 import { OverviewView } from './components/OverviewView';
@@ -56,10 +54,15 @@ import {
   logout,
   libraryQuality,
   setOrgScope,
+  setDomainPack,
+  packLabel,
+  renameWorkspace,
+  updateSpace,
+  DomainPack,
   isOrgId,
   joinSpace,
   Classification,
-  LEVEL_LABEL,
+  orgTerms,
 } from './services/api';
 import { 
   DocumentInfo, 
@@ -126,6 +129,9 @@ function DashboardWorkspace({
   setOrgScope(currentWorkspaceId);
   const currentWs = workspaces.find(w => w.id === currentWorkspaceId);
   const inOrg = isOrgId(currentWorkspaceId);
+  setDomainPack(currentWs?.domain_pack);
+  // thiếu lĩnh vực (dữ liệu cũ) = Phần mềm; quyết định bộ lọc kho tài liệu và nội dung trang Bộ công cụ
+  const isSoftware = (currentWs?.domain_pack ?? 'software') === 'software';
 
   const refreshSequence = useRef(0);
   const selectedWorkspace = useRef(currentWorkspaceId);
@@ -270,9 +276,16 @@ function DashboardWorkspace({
     }
   };
 
-  const handleCreateWorkspace = async (name: string, description: string) => {
+  const handleChangeDomainPack = async (pack: DomainPack) => {
+    if (!currentWs) return;
+    if (isOrgId(currentWs.id)) await updateSpace(currentWs.id, { domain_pack: pack });
+    else await renameWorkspace(currentWs.id, currentWs.name, currentWs.description ?? '', pack);
+    setWorkspaces(prev => prev.map(w => w.id === currentWs.id ? { ...w, domain_pack: pack } : w));
+  };
+
+  const handleCreateWorkspace = async (name: string, description: string, pack: DomainPack = 'general') => {
     try {
-      const newWs = await createWorkspace(name, description);
+      const newWs = await createWorkspace(name, description, pack);
       setWorkspaces(prev => [...prev, newWs]);
       setCurrentWorkspaceId(newWs.id);
       setActiveConversationId(null);
@@ -386,7 +399,7 @@ function DashboardWorkspace({
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={[
         ...([
           ['orchestration', 'Không gian làm việc', MessagesSquare], ['overview', 'Tổng quan', BarChart3], ['documents', 'Hồ sơ tài liệu', FileSearch],
-          ['traceability', 'Truy vết yêu cầu', ListChecks], ['req_quality', 'Chất lượng yêu cầu', SpellCheck], ['design', 'Gói thiết kế', PencilRuler], ['security', 'Rà soát bảo mật', ShieldCheck],
+          ['toolkit', `Bộ công cụ ${packLabel(currentWs?.domain_pack)}`, Wrench],
           ['consistency', 'Kiểm tra mâu thuẫn', GitCompareArrows], ['evaluation', 'Phòng đánh giá', ClipboardCheck], ['benchmarks', 'Thực nghiệm', FlaskConical],
           ['rating', 'Chấm mù', EyeOff], ...(user?.role === 'admin' ? [['users', 'Người dùng', Users], ['db_explorer', 'Cơ sở dữ liệu', Database]] : []),
         ] as [NavigationTab, string, Command['Icon']][]).map(([id, label, Icon]) => ({ id: `go-${id}`, label, group: 'Đi đến', Icon, run: () => setActiveTab(id) })),
@@ -406,6 +419,7 @@ function DashboardWorkspace({
         currentWorkspaceId={currentWorkspaceId}
         onWorkspaceChange={handleWorkspaceChange}
         onCreateWorkspace={handleCreateWorkspace}
+        onChangeDomainPack={handleChangeDomainPack}
         onDeleteWorkspace={handleDeleteWorkspace}
         onLogout={onLogout}
         onUserChange={onUserChange}
@@ -429,6 +443,9 @@ function DashboardWorkspace({
           totalChunks={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)}
           user={user}
           orgLevel={inOrg ? currentWs?.level : undefined}
+          terms={inOrg ? orgTerms(currentWs) : undefined}
+          softwareFilter={isSoftware}
+          spaceId={inOrg ? String(currentWorkspaceId) : undefined}
         />
         {user && <ConversationHistory conversations={conversations} activeId={activeConversationId}
           onOpen={id => { setActiveConversationId(id); setActiveTab('orchestration'); setIsMobileDrawerOpen(false); }}
@@ -440,10 +457,10 @@ function DashboardWorkspace({
         {!intro && <PageGuide page={activeTab} />}
         <div className="st-mobilebar">
           <button className="icon-btn" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Mở thanh bên" aria-expanded={isMobileDrawerOpen}><Menu size={20} /></button>
-          <b>{activeTab === 'orchestration' ? 'Không gian làm việc' : activeTab === 'overview' ? 'Tổng quan' : activeTab === 'documents' ? 'Hồ sơ tài liệu' : activeTab === 'traceability' ? 'Truy vết yêu cầu' : activeTab === 'req_quality' ? 'Chất lượng yêu cầu' : activeTab === 'design' ? 'Gói thiết kế' : activeTab === 'security' ? 'Rà soát bảo mật' : activeTab === 'evaluation' ? 'Phòng đánh giá' : activeTab === 'consistency' ? 'Kiểm tra mâu thuẫn' : activeTab === 'benchmarks' ? 'Thực nghiệm' : activeTab === 'rating' ? 'Chấm mù' : activeTab === 'users' ? 'Người dùng' : activeTab === 'organization' ? 'Tổ chức' : 'Cơ sở dữ liệu'}</b>
+          <b>{activeTab === 'orchestration' ? 'Không gian làm việc' : activeTab === 'overview' ? 'Tổng quan' : activeTab === 'documents' ? 'Hồ sơ tài liệu' : activeTab === 'toolkit' ? `Bộ công cụ ${packLabel(currentWs?.domain_pack)}` : activeTab === 'evaluation' ? 'Phòng đánh giá' : activeTab === 'consistency' ? 'Kiểm tra mâu thuẫn' : activeTab === 'benchmarks' ? 'Thực nghiệm' : activeTab === 'rating' ? 'Chấm mù' : activeTab === 'users' ? 'Người dùng' : activeTab === 'organization' ? 'Tổ chức' : 'Cơ sở dữ liệu'}</b>
         </div>
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
-        {inOrg && currentWs && <div className="st-banner is-info og-banner"><span><b>{currentWs.name}</b>{currentWs.level ? ` · ${LEVEL_LABEL[currentWs.level]}` : ''}: AI và các công cụ chỉ dùng tài liệu bạn được phép xem trong tổ chức này.</span>
+        {inOrg && currentWs && <div className="st-banner is-info og-banner"><span><b>{currentWs.name}</b>{currentWs.level ? ` · ${orgTerms(currentWs).level[currentWs.level]}` : ''}: AI và các công cụ chỉ dùng tài liệu bạn được phép xem trong tổ chức này.</span>
           {activeTab !== 'organization' && <button onClick={() => setActiveTab('organization')}>Quản lý tổ chức</button>}</div>}
         {!user && (
           <div className="st-banner is-warn">
@@ -455,18 +472,15 @@ function DashboardWorkspace({
           docCount={documents.length} chunkCount={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)} modelOk={health?.ollama_status === 'CONNECTED'}
           workspaceName={workspaces.find(w => w.id === currentWorkspaceId)?.name} recent={conversations}
           onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} prefill={prefill} freshDoc={freshDoc} />}
-        {activeTab === 'organization' && <OrgView workspaceId={currentWorkspaceId} docs={documents} onOpenSpace={id => { void openSpace(id); }} onChanged={refreshState} />}
+        {activeTab === 'organization' && <OrgView workspaceId={currentWorkspaceId} docs={documents} onOpenSpace={id => { void openSpace(id); }} onChanged={refreshState} onAsk={() => setActiveTab('orchestration')} />}
         {activeTab === 'overview' && <OverviewView health={health} userName={user?.full_name} />}
         {activeTab === 'documents' && <DocumentProfileView key={`doc-${currentWorkspaceId}`} docs={documents}
           onAsk={(q, sourceId, sourceName) => { setActiveConversationId(null); setPrefill({ text: q, key: Date.now(), sourceId, sourceName }); setActiveTab('orchestration'); }} />}
-        {activeTab === 'req_quality' && <ReqQualityView key={`rq-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
-        {activeTab === 'traceability' && <ChecklistView key={`trace-${currentWorkspaceId}`} mode="traceability" workspaceId={currentWorkspaceId} docs={documents} />}
-        {activeTab === 'security' && <ChecklistView key={`sec-${currentWorkspaceId}`} mode="security" workspaceId={currentWorkspaceId} docs={documents} />}
+        {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}-${currentWs?.domain_pack ?? 'software'}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'consistency' && <ConsistencyView key={`cons-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'rating' && <BlindRatingView />}
         {activeTab === 'users' && user?.role === 'admin' && <UsersAdminView currentUserId={String(user.id)} />}
         {activeTab === 'evaluation' && <EvaluationView key={`eval-${currentWorkspaceId}`} docs={documents} />}
-        {activeTab === 'design' && <DesignView key={String(currentWorkspaceId)} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'benchmarks' && <div className="st-legacy"><BenchmarkLab resultsMap={resultsMap} telemetryLogs={telemetryLogs} onRefreshTelemetry={refreshTelemetry} onRunAblation={handleRunAblation} isAblationRunning={isAblationRunning} /></div>}
         {activeTab === 'db_explorer' && user?.role === 'admin' && <div className="st-legacy"><DatabaseExplorer /></div>}
       </div>

@@ -104,13 +104,13 @@ async def mindmap_ai(provider, source_name: str, chunks) -> dict:
     top = _obj({"label": _STR, "chunk_id": cid, "children": {"type": "array", "items": mid}})
     schema = _obj({"central": _STR, "branches": {"type": "array", "items": top},
                    "links": {"type": "array", "items": _obj({"from": _STR, "to": _STR, "label": _STR})}})
-    system = ("MIND_MAP_BUILDER. Organize the technical document into a mind map an engineer can scan in 30 seconds. "
+    system = ("MIND_MAP_BUILDER. Organize the document into a mind map a reader can scan in 30 seconds. "
               "Use only the excerpts. Make 4-7 main branches that together cover the WHOLE document, not just its start. "
               "Each branch has 2-5 sub-topics; details are 1-3 concrete facts per sub-topic (limits, numbers, components, "
               "rules) copied exactly. Labels are short noun phrases of 2-7 words, never full sentences. chunk_id is the "
               "excerpt the node comes from. links connect two sub-topics in DIFFERENT branches that depend on each other "
               "(a flow step, a rule that protects a component), using their exact labels. Write every label in Vietnamese; "
-              "keep technical names (table, endpoint, algorithm) as written. Return JSON only.")
+              "keep names, codes, article numbers and technical terms as written. Return JSON only.")
     user = f"DOCUMENT: {source_name}\n\nEXCERPTS:\n{text}\n\nTối đa 7 nhánh, 6 liên kết. NGÔN NGỮ: mọi nhãn viết bằng tiếng Việt."
     obj, measured = await _call(provider, system, user, schema, 2000)
 

@@ -26,6 +26,8 @@ from app.storage.postgres.base import Base
 CLASSIFICATIONS = ("PRIVATE", "COMPANY", "DEPARTMENT", "RESTRICTED", "SECRET")
 # Cấp bậc trong một không gian tổ chức (khác vai trò hệ thống USER/ADMIN).
 MEMBER_LEVELS = ("STAFF", "MANAGER", "EXECUTIVE")
+# mẫu tổ chức chỉ đổi tên gọi trên giao diện (Trưởng khoa thay Trưởng phòng...); luật quyền không đọc cột này
+ORG_PRESETS = ("business", "school", "hospital", "government", "team", "custom")
 
 
 class UserRecord(Base):
@@ -429,11 +431,19 @@ class OrgSpaceRecord(Base):
     __tablename__ = "org_spaces"
     __table_args__ = (
         CheckConstraint("length(btrim(name)) > 0", name="ck_org_spaces_name_nonempty"),
+        CheckConstraint(f"preset IN {ORG_PRESETS!r}", name="ck_org_spaces_preset"),
     )
 
     space_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=False, default="", server_default="")
+    preset: Mapped[str] = mapped_column(String(16), nullable=False, default="business", server_default="business")
+    # lĩnh vực cho trợ lý AI (bộ tác tử ở app/research/registry.py); kiểm giá trị ở tầng API
+    domain_pack: Mapped[str] = mapped_column(String(32), nullable=False, default="general", server_default="general")
+    # xóa mềm: giữ bản ghi để lượt chạy AI và hội thoại cũ (dữ liệu nghiên cứu) vẫn trỏ được tới tổ chức
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # tên gọi tự đặt đè lên mẫu: org, unit, STAFF, MANAGER, EXECUTIVE (NULL = dùng nguyên mẫu)
+    labels: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
     )

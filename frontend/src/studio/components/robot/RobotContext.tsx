@@ -101,7 +101,7 @@ const POKE_LINES = [
 export const RobotProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<RobotState>('idle');
   const [speechText, setSpeechText] = useState<string>(
-    'Chào bạn! Tôi là RoboAgent C27, trợ lý kiến trúc phần mềm Multi-Agent cục bộ.'
+    'Chào bạn! Tôi là RoboAgent C27, trợ lý tài liệu Multi-Agent chạy cục bộ, dùng được cho mọi ngành.'
   );
   const [targetLook, setTargetLook] = useState<{ x: number; y: number } | null>(null);
   const [pokeTrigger, setPokeTrigger] = useState<number>(0);
