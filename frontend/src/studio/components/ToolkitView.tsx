@@ -68,7 +68,9 @@ const TOOLS: Record<string, { tagline: string; tools: Tool[] }> = {
 };
 
 export const ToolkitView: React.FC<{ pack?: string | null } & Props> = ({ pack, docs, workspaceId }) => {
-  const key = pack && TOOLS[pack] ? pack : 'software';  // dữ liệu cũ không có lĩnh vực = Phần mềm
+  // Đợt 6: không còn chọn lĩnh vực cho cả không gian; chọn ngành ngay trong bộ công cụ (mở bằng lệnh "/" ở ô chat)
+  const [picked, setPicked] = useState<string>(pack && TOOLS[pack] ? pack : 'education');
+  const key = TOOLS[picked] ? picked : 'software';
   const kit = TOOLS[key];
   const [openId, setOpenId] = useState<string | null>(null);
   const tool = kit.tools.find(t => t.id === openId);
@@ -86,7 +88,8 @@ export const ToolkitView: React.FC<{ pack?: string | null } & Props> = ({ pack, 
   return (
     <main className={`pg tk tk-home is-${key}`}>
       <div className="pg-col">
-        <header className="tk-hero"><p className="tk-kicker">Bộ công cụ</p><h1>{packLabel(key)}</h1><p>{kit.tagline}. Đổi lĩnh vực ở menu tên không gian (góc trên thanh bên) để thấy bộ công cụ của ngành khác.</p></header>
+        <header className="tk-hero"><p className="tk-kicker">Bộ công cụ</p><h1>{packLabel(key)}</h1><p>{kit.tagline}. Các kỹ năng chính đã gọi được ngay trong ô chat; đây là bộ công cụ đầy đủ theo ngành.</p>
+          <nav className="tk-packs" aria-label="Chọn ngành">{Object.keys(TOOLS).map(k => <button key={k} type="button" className={k === key ? 'is-on' : ''} aria-pressed={k === key} onClick={() => { setPicked(k); setOpenId(null); }}>{packLabel(k)}</button>)}</nav></header>
         <div className="tk-grid">{kit.tools.map((t, i) => (
           <button key={t.id} className="tk-card" onClick={() => setOpenId(t.id)} style={{ animationDelay: `${i * 60}ms` }}>
             <span className="tk-ico"><t.Icon size={22} /></span>

@@ -17,7 +17,9 @@ export const CONDITION_LABEL: Record<string, string> = {
 const ROLE: Record<string, string> = { database: 'DatabaseAgent', api_architecture: 'APIAgent', security: 'SecurityAgent',
   // tác tử của các bộ lĩnh vực ngoài Phần mềm (backend app/research/registry.py): hiện tên tiếng Việt
   general: 'Tổng hợp', academic_affairs: 'Học vụ', student_affairs: 'Công tác sinh viên', faculty_research: 'Giảng viên – Nghiên cứu',
-  legal_basis: 'Căn cứ pháp lý', procedure: 'Thủ tục hành chính', contract: 'Hợp đồng',
+  legal_basis: 'Căn cứ pháp lý', procedure: 'Quy trình và phê duyệt', contract: 'Hợp đồng',
+  // bộ theo loại việc (đợt 5); "procedure" dùng chung tên với bộ Hành chính – Pháp lý
+  conditions: 'Điều kiện và quy định', terms: 'Điều khoản và cam kết', figures: 'Số liệu và tính toán',
   hr_policy: 'Chính sách nhân sự', operations: 'Quy trình nội bộ', sales_customer: 'Khách hàng – Bán hàng' };
 
 // Câu trả lời của worker/synthesizer đôi khi là chuỗi JSON; lấy phần chữ như giao diện chat CAP1 (chatModel.mjs).

@@ -195,7 +195,77 @@ PACKS: dict[str, dict] = {
     ]),
 }
 
+# ---------------- Đợt 5 (19/11, nhóm đã đồng ý): tác tử theo LOẠI VIỆC dùng chung mọi ngành, ngành là kiến thức nạp thêm.
+# Chỉ ô chat sản phẩm dùng; bộ Phần mềm và điều kiện A/B/C của thực nghiệm giữ nguyên.
+WORK_PACK = "work"
+PACKS[WORK_PACK] = _pack("Theo loại việc", {
+    "conditions": _agent(
+        "Conditions & Rules Analyst", "Who is entitled to what: eligibility conditions, thresholds, limits, required criteria, exceptions",
+        ["eligibility", "thresholds", "limits", "criteria", "exceptions"],
+        ["step-by-step procedures", "contract obligations", "arithmetic over data tables"]),
+    "procedure": _agent(
+        "Procedure & Approval Analyst", "How things are done: steps in order, who performs, who approves at each level, deadlines, required documents",
+        ["steps", "approval levels", "deadlines", "required documents", "responsible person"],
+        ["eligibility thresholds", "contract clause interpretation"]),
+    "terms": _agent(
+        "Terms & Commitments Analyst", "Rights and obligations: contract clauses, commitments, penalties, termination, disputes, validity of terms",
+        ["rights and obligations", "penalties", "termination", "disputes", "clause validity"],
+        ["administrative steps", "numeric calculations"]),
+    "figures": _agent(
+        "Figures & Calculation Analyst", "Numbers in the documents: amounts, rates, percentages, formulas, data tables, computing a value from rules",
+        ["amounts", "rates", "percentages", "formulas", "tables"],
+        ["approval workflow", "contract interpretation without numbers"]),
+}, {
+    "conditions": ("có được", "được không", "đủ điều kiện", "điều kiện", "tiêu chuẩn", "ngưỡng", "tối thiểu", "tối đa", "trường hợp nào",
+                   "ai được", "đối tượng", "eligible", "eligibility", "condition"),
+    "procedure": ("thủ tục", "quy trình", "các bước", "trình tự", "duyệt", "phê duyệt", "cấp duyệt", "hồ sơ", "giấy tờ", "nộp",
+                  "thời hạn", "bao lâu thì", "procedure", "approve", "steps"),
+    "terms": ("hợp đồng", "điều khoản", "cam kết", "nghĩa vụ", "quyền", "phạt", "bồi thường", "chấm dứt", "tranh chấp", "bên a",
+              "bên b", "contract", "clause", "penalty"),
+    "figures": ("bao nhiêu", "tính", "số tiền", "tỷ lệ", "phần trăm", "%", "lương", "điểm trung bình", "tổng", "công thức",
+                "mức", "how much", "calculate", "rate"),
+}, [
+    ("planning_conditions.md", "Eligibility questions commonly separate each condition with its threshold, the facts of the case, "
+     "and exceptions. Keep each asked condition as its own task."),
+    ("planning_procedure.md", "Procedure questions commonly separate steps in order, responsible person, approval level, deadline "
+     "and required documents. Preserve the order of steps."),
+    ("planning_terms.md", "Contract and commitment questions commonly separate each party's obligations, penalties, termination "
+     "and dispute resolution."),
+    ("planning_figures.md", "Calculation questions commonly separate the rule or rate, the input numbers and the computation."),
+    ("planning_multi_domain.md", "Requests that mix several kinds of work should create one task per independent subject and "
+     "avoid inventing subjects that were not requested."),
+])
+
+# Kiến thức ngành nạp cho tác tử theo loại tài liệu trong phạm vi hỏi (nhãn tự phân loại ở đợt 3).
+WORK_KNOWLEDGE: dict[str, dict[str, str]] = {
+    "contract": {"terms": "For contracts, check the contents listed in Article 398 of the Vietnamese Civil Code 2015 "
+                          "(subject, quantity/quality, price and payment, time/place/method, rights and obligations, liability for breach, dispute resolution)."},
+    "transcript": {"figures": "Grade tables use the 4-point or 10-point scale as written in the table header; compare numbers exactly as written.",
+                   "conditions": "Scholarship or warning thresholds come from the regulation document, not from the grade table."},
+    "regulation": {"conditions": "Quote the article (Điều) and clause (Khoản) that sets each threshold.",
+                   "procedure": "Regulations name the approving body; copy its title exactly."},
+    "internal_rules": {"figures": "Leave and overtime rates come from the internal rules; prorate by months when the rules say so.",
+                       "procedure": "Approval levels often depend on the number of days or the amount; pick the level that matches."},
+    "legal_doc": {"terms": "Check the effective date and whether the document replaces another before applying it.",
+                  "procedure": "Administrative procedures list dossier, competent authority, processing time and fees."},
+    "software_spec": {"conditions": "Requirement IDs (FR-, NFR-) identify each requirement; keep them exactly."},
+}
+
 _ACTIVE: ContextVar[str] = ContextVar("domain_pack", default=DEFAULT_PACK)
+_WORK_DOC_TYPES: ContextVar[frozenset[str]] = ContextVar("work_doc_types", default=frozenset())
+_WORK_ALLOWED: ContextVar[tuple[str, ...] | None] = ContextVar("work_allowed", default=None)
+
+
+@contextmanager
+def use_work_context(doc_types, allowed: list[str] | None = None):
+    """Bộ "work": loại tài liệu trong phạm vi hỏi (để nạp kiến thức) và các tác tử được chọn cho câu hỏi này."""
+    t1 = _WORK_DOC_TYPES.set(frozenset(t for t in doc_types if t))
+    t2 = _WORK_ALLOWED.set(tuple(allowed) if allowed else None)
+    try:
+        yield
+    finally:
+        _WORK_DOC_TYPES.reset(t1)
+        _WORK_ALLOWED.reset(t2)
 
 
 def pack_name(name: str | None) -> str:
@@ -224,7 +294,9 @@ def active_pack() -> dict:
 
 
 def active_domains() -> tuple[str, ...]:
-    return tuple(active_pack()["agents"])
+    domains = tuple(active_pack()["agents"])
+    allowed = _WORK_ALLOWED.get() if _ACTIVE.get() == WORK_PACK else None
+    return tuple(d for d in domains if d in allowed or d == "general") if allowed else domains
 
 
 # Giữ tên cũ cho mã gọi trực tiếp (công cụ phân tích của ngành Phần mềm).
@@ -238,5 +310,9 @@ def validate_domain(domain: str) -> None:
 
 def profile(domain: str) -> dict:
     validate_domain(domain)
-    return active_pack()["agents"][domain]
+    agent = active_pack()["agents"][domain]
+    if _ACTIVE.get() != WORK_PACK:
+        return agent
+    notes = [WORK_KNOWLEDGE[t][domain] for t in sorted(_WORK_DOC_TYPES.get()) if domain in WORK_KNOWLEDGE.get(t, {})]
+    return {**agent, "scope": agent["scope"] + (" Domain knowledge: " + " ".join(notes) if notes else "")}
 

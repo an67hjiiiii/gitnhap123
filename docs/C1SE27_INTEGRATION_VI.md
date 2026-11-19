@@ -234,6 +234,30 @@ Theo mục 12 tài liệu `MO_TA_HE_THONG_DICH_VA_QUY_TRINH_NGUOI_DUNG_2026-11-1
 - Nhật ký tài liệu Mật (`core/secret_audit.py`, bảng `org_secret_access`, migration `20261119_15`, chỉ thêm bảng): ghi khi mở tài liệu hoặc đoạn (VIEW) và khi AI được đưa đoạn của tài liệu đó trong một lượt trả lời (ASK). Chỉ tài liệu mức Mật của tổ chức; không ghi nội dung câu hỏi. Xem ở trang Tổ chức, tab Tài liệu, chỉ Ban giám đốc và chủ tổ chức (`GET /api/org/spaces/{id}/secret-access`; Trưởng phòng và nhân viên nhận 403). Ghi nhật ký lỗi thì không chặn người dùng (chỉ ghi log lỗi). Chưa ghi khi kỹ năng (Rà soát hợp đồng…) đọc tài liệu Mật.
 - Kiểm tra: `test_run_queue.py` (5), `test_org_api.py` thêm 2. Backend toàn bộ 321 đạt; frontend `tsc`, `build`, `npm test` 8 đạt. Chạy thật 3 người hỏi cùng lúc: người 1 không chờ, người 2 thứ 1, người 3 thứ 2 rồi thứ 1, cả 3 có câu trả lời, không lỗi. Chạy thật tổ chức thử có tài liệu Mật: 1 lượt VIEW và 1 lượt ASK được ghi và hiện trên trang Tổ chức.
 
+### Đợt 5: tác tử theo loại việc (nhóm đã đồng ý 19/11)
+
+- Bộ mới `work` trong `research/registry.py`: 4 tác tử chuyên môn dùng chung mọi ngành (Điều kiện và quy định, Quy trình và phê duyệt, Điều khoản và cam kết, Số liệu và tính toán) + Chuyên viên tổng hợp. Ô chat sản phẩm mặc định dùng bộ này (`domain_pack` trống + `product_mode`). Bộ Phần mềm và A/B/C của thực nghiệm giữ nguyên (`test_software_is_default_and_prompts_unchanged` vẫn đạt).
+- Ngành là kiến thức nạp thêm: theo loại tài liệu trong phạm vi hỏi (nhãn đợt 3), tác tử nhận thêm ghi chú. Ví dụ: hợp đồng thì tác tử Điều khoản đối chiếu Điều 398 BLDS 2015; nội quy thì tác tử Số liệu tính theo tỷ lệ tháng (`WORK_KNOWLEDGE`).
+- Chọn tác tử (`research/agent_selection.py`): so ý nghĩa câu hỏi với mô tả tiếng Việt của từng tác tử bằng nomic-embed-text (cùng mô hình nhúng tài liệu), từ khóa cộng điểm; giữ tối đa 3 tác tử chuyên môn + Tổng hợp; bộ lập kế hoạch chỉ được dùng các tác tử đã chọn. Điểm sát nhau mà không có từ khóa thì chỉ giao Tổng hợp, không đoán. Lựa chọn ghi vào `effective_config.agent_selection` và sự kiện `agent_selection`; ô chat hiện "Chọn tác tử: …". Nút "Theo tác tử" hiện cho lượt chat sản phẩm có nhiều nhiệm vụ.
+- Chưa làm: hỏi lại bằng 2 nút khi mơ hồ (hiện giao Tổng hợp); học từ người dùng khi họ sửa nhãn hoặc chọn lại tác tử.
+- Ví dụ mục 3.4 (hợp đồng máy chiếu + cấp duyệt), chạy thật với qwen3:4b: chọn Điều khoản, Quy trình, Tổng hợp; kế hoạch 2 nhiệm vụ (T1 điều khoản, T2 quy trình); câu trả lời nêu phạt 8% (Điều 7) và nói rõ tài liệu không có quy chế chi tiêu. Lần chạy đầu chỉ chọn được Điều khoản, vì từ khóa thiếu "duyệt" đứng riêng; đã thêm.
+- Đo tỷ lệ chọn đúng (`scripts/research/agent_routing_eval.py`, bộ `data/research/agent-routing-v1`, 32 câu, kết quả thô `results-2026-11-19.json`), không gọi mô hình sinh:
+  - Theo loại việc, chỉ từ khóa: 31/32 = 96,9% (CI 95% Wilson 84,3–99,4%).
+  - Theo loại việc, ý nghĩa + từ khóa (cách đang dùng): 28/32 = 87,5% (71,9–95,0%). Sai 2 câu lẽ ra giao Tổng hợp ("Tóm tắt…", "Xin chào"), 1 câu cảnh báo học tập, 1 câu thẩm quyền đăng ký kinh doanh.
+  - Cách cũ theo ngành (chỉ đo được có nhận ra tác tử chuyên môn hay không, vì nhãn khác nhau): chọn đúng ngành 24/28 = 85,7%; để mặc định Phần mềm 1/28 = 3,6%.
+  - Hạn chế: bộ câu hỏi và từ khóa do cùng nhóm phát triển soạn (có trợ lý AI), nên kết quả "chỉ từ khóa" bị thổi phồng; chưa có câu người ngoài nhóm soạn, chưa tách held-out. Không chỉnh thuật toán theo bộ này. Cần bộ do người ngoài nhóm soạn trước khi kết luận cách nào tốt hơn hoặc báo cáo hội đồng.
+- Kiểm tra: `test_agent_selection.py` (5). Backend toàn bộ 326 đạt; frontend `npm test` 8 đạt, `tsc` đạt.
+
+### Đợt 6: bố cục 7 trang (chủ dự án chọn làm cả bố cục, 19/11)
+
+- Thanh bên theo mục 2b: Không gian làm việc, Thư viện tài liệu, Kết quả đã lưu, Việc cần làm (chỉ khi đang mở tổ chức), Tổ chức, Tổng quan, Cài đặt. Nhóm Nghiên cứu (Phòng đánh giá, Thực nghiệm, Chấm mù) chỉ hiện cho quản trị hệ thống hoặc khi bật "Chế độ nhà nghiên cứu" ở Cài đặt. Hệ thống chưa có vai trò nhà nghiên cứu riêng, nên đây là tùy chọn hiển thị theo trình duyệt (`utils/researchMode.ts`), không phải phân quyền. Nhóm Quản trị giữ nguyên.
+- Thư viện tài liệu (`LibraryView.tsx`): lọc theo loại tài liệu (nhãn đợt 3, sửa tại chỗ), tìm theo tên, sắp xếp, mức mật, số đoạn; mở Hồ sơ của đúng tài liệu, hỏi về tài liệu, thêm tài liệu. Hồ sơ tài liệu và Kiểm tra mâu thuẫn không còn trên thanh bên, mở từ Thư viện.
+- Kết quả đã lưu (`SavedResultsView.tsx`): danh sách báo cáo đã lưu (`/studio/reports`), lọc theo loại, mở lại ở công cụ đã tạo, xóa có xác nhận.
+- Việc cần làm (`TasksView.tsx`): thông báo của tổ chức (dùng chung câu chữ với chuông) và đánh dấu đã đọc. Đơn từ và duyệt theo cấp ghi rõ là chưa có (đợt 10), không giả lập.
+- Cài đặt (`SettingsView.tsx`): tài khoản, đổi ảnh đại diện, giao diện sáng/tối, chế độ nhà nghiên cứu, lối sang Thư viện để sửa nhãn; kết nối nguồn tài liệu ghi rõ chưa có.
+- Đã bỏ: ô chọn lĩnh vực trong menu không gian và trang Bộ công cụ trên thanh bên. Bộ công cụ theo ngành vẫn mở được bằng lệnh "/" trong ô chat (để không mất 9 công cụ chưa thành kỹ năng chat); chọn ngành ngay trong trang bộ công cụ. Ô chat sản phẩm không gửi lĩnh vực nữa (backend dùng tác tử theo loại việc). Phân tích A/B/C chọn tay và kỹ năng vẫn dùng lĩnh vực đã lưu của không gian.
+- Kiểm tra trên trình duyệt 1024 px: không gian cá nhân có 6 mục, tổ chức có 7 mục; Thư viện lọc đúng, mở đúng hồ sơ; Kết quả đã lưu hiện trạng thái trống; bật chế độ nhà nghiên cứu thì nhóm Nghiên cứu hiện; "/công cụ" mở Bộ công cụ. Khổ 375 px: không tràn ngang, không nút nào dưới 44 px. Backend 326 đạt; frontend `tsc`, `build`, `npm test` 8 đạt.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

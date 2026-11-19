@@ -1,0 +1,89 @@
+/* Đợt 6 (mục 2b): Thư viện tài liệu, Kết quả đã lưu, Việc cần làm, Cài đặt. Dùng chung dz-card, tl-head của Studio. */
+
+/* ---- Thư viện tài liệu */
+.lib-kpis{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 16px}
+.lib-kpi{display:grid;gap:2px;min-width:108px;padding:12px 16px;border-radius:16px;border:1px solid var(--line);background:linear-gradient(180deg,#fff,#f5f8fd);
+  text-align:left;cursor:pointer;box-shadow:0 8px 22px -18px rgba(20,48,92,.45);transition:transform .2s,box-shadow .2s,border-color .2s}
+.lib-kpi b{font-size:22px;line-height:1;color:var(--ink)}
+.lib-kpi span{font-size:12.5px;color:var(--text)}
+.lib-kpi:hover{transform:translateY(-2px);box-shadow:0 14px 28px -18px rgba(20,48,92,.5)}
+.lib-kpi.is-on{border-color:#1d66c9;background:linear-gradient(180deg,#eef4fd,#e3edfb)}
+.lib-kpi.is-on b{color:#1d5fc4}
+.lib-tools{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:16px}
+.lib-tool{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;text-align:left;padding:14px 16px;border-radius:18px;border:1px solid var(--line);
+  background:#fff;cursor:pointer;transition:transform .2s,box-shadow .2s}
+.lib-tool:hover{transform:translateY(-2px);box-shadow:0 16px 30px -20px rgba(20,48,92,.5)}
+.lib-tool span:nth-child(2){display:grid;gap:2px}
+.lib-tool small{color:var(--text);font-size:12.5px}
+.lib-tool-ico{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,#1d66c9,#4f8ff0);box-shadow:0 8px 16px -8px rgba(29,102,201,.6)}
+.lib-tool:nth-child(2) .lib-tool-ico{background:linear-gradient(135deg,#b4580f,#f0a04f);box-shadow:0 8px 16px -8px rgba(180,88,15,.55)}
+.lib-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.lib-find{flex:1;min-width:200px;display:flex;align-items:center;gap:8px;padding:0 12px;height:42px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.lib-find input{flex:1;border:0;background:transparent;font:inherit;outline:none;min-width:0}
+.lib-sort{display:flex;align-items:center;gap:6px;color:var(--text)}
+.lib-sort select,.lib-type select{height:38px;border:1px solid var(--line);border-radius:10px;padding:0 10px;background:#fff;font:inherit;font-size:13px}
+.lib-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.lib-list li{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto auto;gap:12px;align-items:center;padding:10px 12px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.75)}
+.lib-ico{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:#eef4fd;color:#1d5fc4}
+.lib-name{display:grid;min-width:0}
+.lib-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-name small{color:var(--faint);font-size:12px}
+.lib-type.is-ro{font-size:12.5px;font-weight:600;color:#1d5fc4;background:#eef4fd;border-radius:999px;padding:4px 10px}
+.lib-cls{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:#eef1f5;color:#465566;white-space:nowrap}
+.lib-cls.is-secret{background:#fdecec;color:#a52f2f}.lib-cls.is-restricted{background:#fff4e2;color:#94570c}.lib-cls.is-company{background:#e7f6ee;color:#13704a}
+.lib-acts{display:flex;gap:4px}
+.lib-empty{color:var(--text);font-size:14px;padding:12px 2px}
+
+/* ---- Kết quả đã lưu */
+.sav-kinds{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.sav-kinds button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 14px;font-weight:600;font-size:13px;min-height:40px;cursor:pointer}
+.sav-kinds button em{font-style:normal;color:var(--faint);margin-left:4px}
+.sav-kinds button.is-on{background:#14202e;color:#fff;border-color:#14202e}
+.sav-kinds button.is-on em{color:#c6d3e6}
+.sav-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.sav-card{display:grid;gap:6px;align-content:start;transition:transform .2s,box-shadow .2s}
+.sav-card:hover{transform:translateY(-2px);box-shadow:0 16px 30px -20px rgba(20,48,92,.5)}
+.sav-kind{justify-self:start;font-size:11.5px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#1d5fc4;background:#eef4fd;border-radius:999px;padding:3px 9px}
+.sav-title{font-size:15px;color:var(--ink);line-height:1.35}
+.sav-card small{color:var(--faint);font-size:12px}
+.sav-acts{display:flex;gap:6px;margin-top:6px}
+.sav-empty{display:grid;justify-items:center;text-align:center;gap:8px;padding:32px 20px;color:var(--text)}
+.sav-empty svg{color:#1d5fc4}
+
+/* ---- Việc cần làm */
+.tsk-cols{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:14px}
+.tsk-card header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.tsk-list{list-style:none;margin:0 0 10px;padding:0;display:grid;gap:6px}
+.tsk-list li{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;border:1px solid var(--line);font-size:13.5px}
+.tsk-list li.is-new{border-color:#9cc0f0;background:#f2f7fe}
+.tsk-list time{color:var(--faint);font-size:12px;white-space:nowrap}
+.tsk-soon{background:linear-gradient(180deg,#fffaf2,#fff)}
+.tsk-soon p{color:var(--text);font-size:13.5px}
+
+/* ---- Cài đặt */
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.set-card{display:grid;gap:10px;align-content:start}
+.set-card p{margin:0;color:var(--text);font-size:13.5px}
+.set-me{display:flex;gap:12px;align-items:center}
+.set-me span{display:grid}
+.set-me small{color:var(--faint);font-size:12.5px}
+.set-seg{display:flex;gap:8px}
+.set-seg button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;border:1px solid var(--line);border-radius:12px;background:#fff;font-weight:600;cursor:pointer}
+.set-seg button[aria-pressed="true"]{background:#14202e;color:#fff;border-color:#14202e}
+.set-switch{display:inline-flex;align-items:center;gap:10px;font-weight:600;min-height:44px;cursor:pointer}
+.set-switch input{width:20px;height:20px;accent-color:#1d66c9}
+.set-note{color:var(--faint);font-size:12px}
+.set-soon{background:linear-gradient(180deg,#fffaf2,#fff)}
+
+@media (max-width:767px){
+  .tsk-cols{grid-template-columns:1fr}
+  .lib-list li{grid-template-columns:auto minmax(0,1fr);row-gap:8px}
+  .lib-list li>.lib-type,.lib-list li>.lib-cls,.lib-list li>.lib-acts{grid-column:2;justify-self:start}
+  .lib-kpi{min-width:calc(50% - 5px)}
+}
+
+/* chế độ tối */
+.st-app[data-theme="dark"] :is(.lib-kpi,.lib-tool,.lib-find,.lib-list li,.sav-kinds button,.set-seg button,.lib-sort select,.lib-type select){background:#16212f;color:#dbe6f3;border-color:rgba(255,255,255,.08)}
+.st-app[data-theme="dark"] .lib-kpi.is-on{background:#1b2e48;border-color:#4f8ff0}
+.st-app[data-theme="dark"] :is(.tsk-soon,.set-soon){background:#1a1f27}
+.st-app[data-theme="dark"] .tsk-list li.is-new{background:#17263a;border-color:#2f5d99}

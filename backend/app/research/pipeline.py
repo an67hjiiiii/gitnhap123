@@ -38,7 +38,8 @@ from app.research.plan_verification import (
     verify_task_plan,
 )
 from app.research.planning_retrieval import PlanningRetriever, PLANNING_SCORER_VERSION
-from app.research.registry import active_pack, active_pack_name, use_pack
+from app.research.agent_selection import select_agents
+from app.research.registry import WORK_PACK, active_pack, active_pack_name, use_pack, use_work_context
 from app.research.worker import execute_task
 from app.research.progress import emit
 from app.research.synthesizer import synthesize
@@ -137,7 +138,25 @@ class ResearchPipeline:
                   domain_pack: str | None = None, **kwargs) -> dict:
         """Chạy một lượt với bộ lĩnh vực của không gian; None = Phần mềm (hành vi và prompt như cũ)."""
         with use_pack(domain_pack):
-            return await self._run(query, condition, provider_name, **kwargs)
+            if active_pack_name() != WORK_PACK:
+                return await self._run(query, condition, provider_name, **kwargs)
+            # Bộ "work" (đợt 5): chọn tác tử theo ý nghĩa + nạp kiến thức ngành theo loại tài liệu trong phạm vi hỏi
+            doc_types = self._doc_types(kwargs.get("source_ids"))
+            embedder = getattr(self.candidate_index, "embedder", None)
+            try:
+                selection = select_agents(query, getattr(embedder, "embed", None))
+            except Exception as exc:  # mô hình nhúng lỗi: chọn theo từ khóa, ghi lại lý do
+                selection = {**select_agents(query, None), "embed_error": type(exc).__name__}
+            selection["doc_types"] = sorted(doc_types)
+            with use_work_context(doc_types, selection["agents"]):
+                return await self._run(query, condition, provider_name, agent_selection=selection, **kwargs)
+
+    def _doc_types(self, source_ids: list[str] | None) -> set[str]:
+        lister = getattr(self.source_store, "list_sources", None)
+        if not callable(lister):
+            return set()
+        wanted = set(source_ids) if source_ids is not None else None
+        return {s.get("doc_type") for s in lister() if s.get("doc_type") and (wanted is None or s["source_id"] in wanted)}
 
     async def _run(
         self,
@@ -150,6 +169,7 @@ class ResearchPipeline:
         conversation_id: str | None = None,
         product_mode: bool = False,
         reply_in_query_language: bool = False,
+        agent_selection: dict | None = None,
     ) -> dict:
         condition = condition.upper()
         answer_language = reply_language_of(query) if (product_mode or reply_in_query_language) else None
@@ -211,7 +231,7 @@ class ResearchPipeline:
         def event(stage: str, **data):
             events.append({"stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **data})
             # ô chat sản phẩm (stream): báo bước đang làm; chỉ gửi tên bước và mã nhiệm vụ, không gửi nội dung
-            brief = {k: data[k] for k in ("task_id", "classification") if k in data}
+            brief = {k: data[k] for k in ("task_id", "classification", "agents") if k in data}
             if isinstance(data.get("result"), dict) and data["result"].get("task_id"):
                 brief["task_id"] = data["result"]["task_id"]
             emit({"type": "progress", "stage": stage, **brief})
@@ -257,7 +277,11 @@ class ResearchPipeline:
             self.run_store.save(run)
             return run
 
+        if agent_selection is not None:
+            effective["agent_selection"] = agent_selection
         persist_lifecycle("PENDING")
+        if agent_selection is not None:
+            event("agent_selection", **agent_selection)
         event(
             "run_started",
             lifecycle_status=lifecycle_status,

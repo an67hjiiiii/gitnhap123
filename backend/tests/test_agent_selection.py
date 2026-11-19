@@ -1,0 +1,52 @@
+"""Đợt 5: 5 tác tử theo loại việc, chọn theo ý nghĩa + từ khóa, ngành là kiến thức nạp theo loại tài liệu."""
+from app.research.agent_selection import DESCRIPTIONS, select_agents
+from app.research.registry import PACKS, WORK_PACK, active_domains, profile, use_pack, use_work_context
+
+
+def fake_embed(text: str):
+    """Vector theo họ từ: đủ để thử phần so ý nghĩa mà không cần Ollama."""
+    t = text.lower()
+    fam = [("điều kiện", "được hưởng", "đủ", "ngưỡng"), ("bước", "duyệt", "thủ tục", "hồ sơ"),
+           ("hợp đồng", "phạt", "nghĩa vụ", "điều khoản"), ("bao nhiêu", "tính", "tỷ lệ", "tiền")]
+    return tuple(float(sum(w in t for w in f)) + 0.01 for f in fam)
+
+
+def test_work_pack_has_four_specialists_plus_general_and_software_untouched():
+    assert set(PACKS[WORK_PACK]["agents"]) == {"general", "conditions", "procedure", "terms", "figures"}
+    assert set(PACKS["software"]["agents"]) == {"security", "database", "api_architecture"}
+    assert set(DESCRIPTIONS) == {"conditions", "procedure", "terms", "figures"}
+
+
+def test_clear_questions_pick_the_right_agent():
+    cases = {
+        "Sinh viên điểm 3,4 có được học bổng không?": "conditions",
+        "Thủ tục xin cấp giấy phép gồm những bước nào?": "procedure",
+        "Hợp đồng có điều khoản phạt nào bất lợi cho bên mua?": "terms",
+        "Làm 8 tháng thì được bao nhiêu ngày phép, tính thế nào?": "figures",
+    }
+    for q, want in cases.items():
+        assert select_agents(q, fake_embed)["primary"] == want, q
+
+
+def test_example_3_4_gets_both_terms_and_procedure_without_knowing_the_industry():
+    q = "Hợp đồng mua máy chiếu có điều khoản phạt nào bất lợi, và việc mua có cần Hiệu trưởng phê duyệt theo quy chế chi tiêu không?"
+    sel = select_agents(q, fake_embed)
+    assert {"terms", "procedure"} <= set(sel["agents"]) and sel["agents"][-1] == "general" and len(sel["agents"]) <= 4
+
+
+def test_unsure_goes_to_general_only():
+    sel = select_agents("Xin chào", None)
+    assert sel["ambiguous"] and sel["agents"] == ["general"] and sel["primary"] == "general"
+
+
+def test_selected_agents_limit_planner_domains_and_knowledge_follows_doc_type():
+    with use_pack(WORK_PACK):
+        with use_work_context(["contract", "internal_rules"], ["terms", "general"]):
+            assert active_domains() == ("general", "terms")
+            assert "Article 398" in profile("terms")["scope"]
+        with use_work_context([], None):
+            assert "Domain knowledge" not in profile("terms")["scope"]
+            assert len(active_domains()) == 5
+    with use_pack("software"):  # bộ Phần mềm không bị ảnh hưởng bởi ngữ cảnh work
+        with use_work_context(["contract"], ["terms"]):
+            assert active_domains() == ("security", "database", "api_architecture")

@@ -383,7 +383,8 @@ export const getChunk = (id: string) => call<{ chunk_id: string; source_name: st
 // only: chỉ hỏi trong các tài liệu này (ví dụ từ Hồ sơ tài liệu → Hỏi ngay), thay cho phạm vi của không gian.
 async function chatInWorkspace(body: Record<string, unknown>, ws?: WorkspaceId, conversationId?: string | null, only?: string[], onEvent?: (e: ChatStreamEvent) => void): Promise<Cap1Run> {
   const scope = only?.length ? only : wsReady(ws) ? (await workspaceItems(ws!)).source_ids : undefined;
-  const payload = { ...body, conversation_id: conversationId ?? undefined, source_ids: scope, domain_pack: domainPack ?? undefined };
+  // đợt 6: ô chat sản phẩm không gửi lĩnh vực (backend dùng tác tử theo loại việc); phân tích A/B/C chọn tay vẫn gửi
+  const payload = { ...body, conversation_id: conversationId ?? undefined, source_ids: scope, domain_pack: body.product_mode ? undefined : domainPack ?? undefined };
   const run = onEvent ? await postStream(payload, onEvent) : await post<Cap1Run>('/chat', payload);
   if (run.conversation_id && run.conversation_id !== conversationId) await assignToWorkspace(ws ?? '', 'conversation', run.conversation_id);
   return run;
@@ -393,7 +394,7 @@ export async function sendChat(message: string, conversationId: string | null, w
 }
 
 // Ô chat sản phẩm: /api/chat/stream gửi từng dòng JSON (bước đang làm, chữ trả lời đang viết) rồi kết quả cuối.
-export type ChatStreamEvent = { type: 'progress'; stage: string; task_id?: string; classification?: string } | { type: 'answer'; text: string } | { type: 'queue'; position: number };
+export type ChatStreamEvent = { type: 'progress'; stage: string; task_id?: string; classification?: string; agents?: string[] } | { type: 'answer'; text: string } | { type: 'queue'; position: number };
 async function postStream(payload: Record<string, unknown>, onEvent: (e: ChatStreamEvent) => void): Promise<Cap1Run> {
   const res = await fetch(`${API}${scoped('/chat/stream')}`, {
     method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -435,7 +436,7 @@ export interface TraceResult {
   covered_points: string[]; missing_points: string[]; note: string; flags: string[];
   input_tokens: number; output_tokens: number; latency_ms: number;
 }
-export interface SavedReport { report_id: string; workspace_id: string | null; kind: string; title: string; created_at: string; payload?: any }
+export interface SavedReport { report_id: string; workspace_id: string | null; kind: string; title: string; created_at: string; updated_at?: string; payload?: any }
 
 /** coded: yêu cầu có mã FR-/NFR-…; list: dòng gạch đầu dòng/đánh số của một tài liệu danh mục. */
 export const extractRequirements = (sourceId: string, mode: 'coded' | 'list' = 'coded') =>
@@ -465,6 +466,7 @@ export const extractProcedure = (topic: string, sourceIds: string[]) =>
   post<ProcedureResult>('/studio/casework/procedure', { topic, source_ids: sourceIds, domain_pack: domainPack ?? undefined });
 export const getSecurityControls = () => call<{ standard: string; controls: TraceRequirement[] }>('/studio/security/controls');
 export const listReports = (kind: string) => call<SavedReport[]>(`/studio/reports?kind=${encodeURIComponent(kind)}`);
+export const listAllReports = () => call<SavedReport[]>('/studio/reports');
 export const getReport = (id: string) => call<SavedReport>(`/studio/reports/${encodeURIComponent(id)}`);
 export const saveReport = (body: { kind: string; title: string; workspace_id?: string | null; payload: unknown }) => post<{ report_id: string }>('/studio/reports', body);
 export const deleteReport = (id: string) => call<{ deleted: string }>(`/studio/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
