@@ -38,6 +38,7 @@ from app.research.plan_verification import (
     verify_task_plan,
 )
 from app.research.planning_retrieval import PlanningRetriever, PLANNING_SCORER_VERSION
+from app.research.registry import active_pack, active_pack_name, use_pack
 from app.research.worker import execute_task
 from app.research.synthesizer import synthesize
 from app.research.vanilla import answer_vanilla
@@ -131,7 +132,13 @@ class ResearchPipeline:
             )
         return fallback
 
-    async def run(
+    async def run(self, query: str, condition: str = "A", provider_name: str | None = None, *,
+                  domain_pack: str | None = None, **kwargs) -> dict:
+        """Chạy một lượt với bộ lĩnh vực của không gian; None = Phần mềm (hành vi và prompt như cũ)."""
+        with use_pack(domain_pack):
+            return await self._run(query, condition, provider_name, **kwargs)
+
+    async def _run(
         self,
         query: str,
         condition: str = "A",
@@ -182,6 +189,7 @@ class ResearchPipeline:
             "retrieval_min_score": cfg.retrieval_min_score,
             "retrieval_backend": self.retrieval_backend,
             "planning_scorer_version": PLANNING_SCORER_VERSION,
+            "domain_pack": active_pack_name(),
             "task_plan_prompt_version": TASK_PLAN_PROMPT_VERSION,
             "task_plan_schema_version": "canonical-task-plan-explicit-coverage-v2",
             "conversation_id": conversation_id,
@@ -637,7 +645,7 @@ class ResearchPipeline:
                     # Nhu cầu ước từ lượt truy xuất sơ bộ (chưa có ngữ cảnh phụ thuộc); trần áp vào lượt truy xuất thật bên dưới.
                     preview = {
                         task.task_id: self._retrieve_candidates(
-                            f"{task.goal} {' '.join(task.evidence_needs)}".strip(),
+                            _task_query(task, query),
                             all_chunks,
                             top_k=cfg.task_top_k,
                             min_score=cfg.retrieval_min_score,
@@ -650,7 +658,7 @@ class ResearchPipeline:
                     event("adaptive_budget_plan", **budget_plan)
                 for task in ordered:
                     dependency_context = " ".join(completed[d].answer for d in task.depends_on if d in completed)
-                    retrieval_query = f"{task.goal} {' '.join(task.evidence_needs)} {dependency_context}".strip()
+                    retrieval_query = f"{_task_query(task, query)} {dependency_context}".strip()
                     r0 = time.perf_counter()
                     retrieval_trace: dict = {}
                     candidates = self._retrieve_candidates(
@@ -726,6 +734,18 @@ class ResearchPipeline:
         if condition == "C":
             return {"P": True, "N": True, "O": True}
         return {"P": condition != "C-P", "N": condition != "C-N", "O": condition != "C-O"}
+
+
+def _task_query(task, query: str) -> str:
+    """Truy vấn tìm bằng chứng của một nhiệm vụ.
+
+    Ngành ngoài Phần mềm: mô hình nhỏ đôi khi viết nhiệm vụ bằng ngôn ngữ khác câu hỏi (dù prompt đã dặn),
+    khi đó ghép câu hỏi gốc để vẫn khớp tài liệu. Bộ Phần mềm giữ nguyên truy vấn cũ.
+    """
+    text = f"{task.goal} {' '.join(task.evidence_needs)}".strip()
+    if active_pack()["plan_rules"] and reply_language_of(text) != reply_language_of(query):
+        return f"{text} {query}"
+    return text
 
 
 def _retrieval_query_with_conversation_context(

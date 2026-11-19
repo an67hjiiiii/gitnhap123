@@ -1,9 +1,11 @@
 import React, { useRef, useState, useMemo } from 'react';
-import { Plus, MoreHorizontal, Search, Sparkles, Zap, Trash2, Eye, FileText, Database, FileSpreadsheet, FileCode, Lock, UploadCloud } from 'lucide-react';
+import { Plus, MoreHorizontal, Search, Sparkles, Zap, Trash2, Eye, FileText, Database, FileSpreadsheet, FileCode, Lock, UploadCloud, Globe, UsersRound, ShieldCheck, ShieldAlert, FilePen, ChevronDown, Check } from 'lucide-react';
 import { DocumentInfo, User } from '../types';
 import { useDismiss } from './Header';
 import { ClassBadge } from './OrgView';
-import { CLASS_HINT, CLASS_LABEL, Classification, MemberLevel, SETTABLE } from '../services/api';
+import { Classification, MemberLevel, OrgAudience, OrgTerms, SCOPE_ORDER, SETTABLE, classChoices, getAudience, orgTerms, scopeTitle } from '../services/api';
+
+const SCOPE_ICON: Record<Classification, React.ElementType> = { COMPANY: Globe, DEPARTMENT: UsersRound, RESTRICTED: ShieldCheck, SECRET: ShieldAlert, PRIVATE: FilePen };
 
 interface LeftPanelProps {
   documents: DocumentInfo[];
@@ -20,6 +22,12 @@ interface LeftPanelProps {
   onCloseMobileDrawer?: () => void;
   /** cấp bậc trong không gian tổ chức đang mở; có thì phải chọn mức mật trước khi tải */
   orgLevel?: MemberLevel;
+  /** tên gọi theo lĩnh vực của không gian tổ chức đang mở (chỉ hiển thị) */
+  terms?: OrgTerms;
+  /** bộ lọc Dữ liệu/API/Bảo mật chỉ có nghĩa với không gian ngành Phần mềm */
+  softwareFilter?: boolean;
+  /** mã không gian tổ chức đang mở, để đếm số người xem được ở từng phạm vi */
+  spaceId?: string;
 }
 
 type Domain = 'all' | 'database' | 'api' | 'security';
@@ -50,7 +58,7 @@ function FileIcon({ doc }: { doc: DocumentInfo }) {
 
 // Kho tri thức hiển thị như một mục trong thanh bên.
 export const LeftPanel: React.FC<LeftPanelProps> = ({
-  documents, onUpload, onClear, onSeedDocs, onInspectDocument, onOpenPlayground, onDeleteDocument, isUploading, totalChunks, user, orgLevel,
+  documents, onUpload, onClear, onSeedDocs, onInspectDocument, onOpenPlayground, onDeleteDocument, isUploading, totalChunks, user, orgLevel, terms, spaceId, softwareFilter = true,
 }) => {
   // Mỗi người chỉ thấy và xóa được tài liệu của chính mình (máy chủ kiểm tra quyền sở hữu).
   const canDelete = !!user;
@@ -64,10 +72,20 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   const closeMenu = React.useCallback(() => setMenuOpen(false), []);
   const menuRef = useDismiss(menuOpen, closeMenu);
   // mức mật chọn TRƯỚC khi tải: tài liệu Mật không bao giờ hiện cho phòng ban dù một khoảnh khắc
-  const levels = orgLevel ? SETTABLE[orgLevel] : [];
-  const [level, setLevel] = useState<Classification>(orgLevel === 'EXECUTIVE' ? 'COMPANY' : 'DEPARTMENT');
+  const t = terms ?? orgTerms();
+  const levels = orgLevel ? classChoices(t, SETTABLE[orgLevel]).sort((a, b) => SCOPE_ORDER.indexOf(a) - SCOPE_ORDER.indexOf(b)) : [];
+  const [aud, setAud] = useState<OrgAudience | null>(null);
+  // đếm lại khi đổi không gian hoặc số tài liệu đổi (thường đi kèm thành viên, đơn vị thay đổi)
+  React.useEffect(() => { setAud(null); if (spaceId) getAudience(spaceId).then(setAud).catch(() => setAud(null)); }, [spaceId, documents.length]);
+  const blocked = (c: Classification) => aud?.counts[c] === null;
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const closeScope = React.useCallback(() => setScopeOpen(false), []);
+  const scopeRef = useDismiss(scopeOpen, closeScope);  // mức cần đơn vị mà bạn không thuộc đơn vị nào
+  const safeDefault = orgLevel === 'EXECUTIVE' && levels.includes('COMPANY') ? 'COMPANY' : 'DEPARTMENT';
+  const [level, setLevel] = useState<Classification>(safeDefault);
   // đổi không gian (cấp bậc khác) thì về mặc định an toàn: Ban giám đốc thường không thuộc phòng nên mặc định Toàn công ty
-  React.useEffect(() => { if (orgLevel) setLevel(orgLevel === 'EXECUTIVE' ? 'COMPANY' : 'DEPARTMENT'); }, [orgLevel]);
+  React.useEffect(() => { if (orgLevel) setLevel(safeDefault); }, [orgLevel, safeDefault]);
+  React.useEffect(() => { if (blocked(level)) setLevel(levels.find(c => !blocked(c)) ?? 'PRIVATE'); }, [aud]);
 
   const processFile = async (file: File) => {
     try {
@@ -91,17 +109,17 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   };
 
   const docs = useMemo(() => documents.filter(doc =>
-    (domain === 'all' || domainOf(doc) === domain || doc.domain_tags.some(t => t.toLowerCase().includes(domain))) &&
+    (!softwareFilter || domain === 'all' || domainOf(doc) === domain || doc.domain_tags.some(t => t.toLowerCase().includes(domain))) &&
     doc.source_file.toLocaleLowerCase('vi').includes(searchTerm.trim().toLocaleLowerCase('vi'))
   ), [documents, domain, searchTerm]);
 
   return (
     <div className={`kb${dragActive ? ' is-drag' : ''}`} onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}>
-      <input ref={fileInputRef} type="file" accept=".pdf,.md,.markdown,.sql,.txt" hidden onChange={async e => { if (e.target.files?.[0]) await processFile(e.target.files[0]); e.target.value = ''; }} />
+      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt" hidden onChange={async e => { if (e.target.files?.[0]) await processFile(e.target.files[0]); e.target.value = ''; }} />
       <div className="kb-head">
         <span className="kb-title">Kho tri thức</span>
         <span className="kb-count" title={`${totalChunks} phân đoạn`}>{documents.length}</span>
-        <button id="knowledge-upload-dropzone" className="icon-btn is-sm" onClick={() => fileInputRef.current?.click()} aria-label="Tải lên tài liệu kỹ thuật" title="Thêm tài liệu (PDF, Markdown, SQL, TXT)"><Plus size={16} /></button>
+        <button id="knowledge-upload-dropzone" className="icon-btn is-sm" onClick={() => fileInputRef.current?.click()} aria-label="Tải lên tài liệu" title="Thêm tài liệu (PDF, Word, Excel, Markdown, TXT, SQL)"><Plus size={16} /></button>
         <div className="sb-pop" ref={menuRef}>
           <button className="icon-btn is-sm" onClick={() => setMenuOpen(!menuOpen)} aria-label="Thêm thao tác với kho tri thức" aria-expanded={menuOpen} aria-haspopup="menu"><MoreHorizontal size={16} /></button>
           {menuOpen && (
@@ -116,17 +134,37 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
         </div>
       </div>
 
-      {orgLevel && <label className="og-upload-level"><span>Mức mật khi tải lên</span>
-        <select value={level} onChange={e => setLevel(e.target.value as Classification)} aria-label="Mức mật khi tải lên">
-          {levels.map(c => <option key={c} value={c}>{CLASS_LABEL[c]}: {CLASS_HINT[c]}</option>)}</select></label>}
+      {orgLevel && (() => { const Cur = SCOPE_ICON[level]; const n = aud?.counts[level];
+        return <div className={`og-scope${scopeOpen ? ' is-open' : ''}`} ref={scopeRef}>
+          <span className="og-scope-label" id="og-scope-label">Tài liệu tải lên sẽ hiện với</span>
+          <button type="button" className={`og-scope-cur is-${level.toLowerCase()}`} aria-haspopup="listbox" aria-expanded={scopeOpen} aria-labelledby="og-scope-label og-scope-cur" id="og-scope-cur"
+            onClick={() => setScopeOpen(v => !v)}>
+            <span className="og-scope-ico" aria-hidden="true"><Cur size={15} /></span>
+            <span className="og-scope-txt"><b>{scopeTitle(t, level, aud?.unit_name)}</b>
+              <small>{level === 'PRIVATE' ? 'Bản nháp, công bố sau' : typeof n === 'number' ? `${n} người xem được` : t.cls[level]}</small></span>
+            <ChevronDown size={15} className="og-scope-caret" aria-hidden="true" />
+          </button>
+          {scopeOpen && <div className="og-scope-list" role="listbox" aria-labelledby="og-scope-label">
+            {levels.map(c => { const Icon = SCOPE_ICON[c]; const k = aud?.counts[c]; const off = blocked(c);
+              return <button key={c} type="button" role="option" aria-selected={level === c} disabled={off}
+                className={`og-scope-opt is-${c.toLowerCase()}${level === c ? ' is-on' : ''}`} onClick={() => { setLevel(c); setScopeOpen(false); }}>
+                <span className="og-scope-ico" aria-hidden="true"><Icon size={15} /></span>
+                <span className="og-scope-txt"><b>{scopeTitle(t, c, aud?.unit_name)}</b>
+                  <small>{off ? `Cần thuộc một ${t.unit} để chọn mức này`
+                    : c === 'PRIVATE' ? 'Bản nháp, công bố sau'
+                    : typeof k === 'number' ? `${k} người xem được · ${t.cls[c]}` : t.cls[c]}</small></span>
+                {level === c && <Check size={15} className="og-scope-check" aria-hidden="true" />}
+              </button>; })}
+          </div>}
+        </div>; })()}
 
       {documents.length > 0 && <>
         <label className="kb-search"><Search size={14} /><span className="sr">Tìm trong tài liệu</span>
           <input id="knowledge-search" type="search" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Tìm tài liệu" />
         </label>
-        <div className="kb-filter" role="group" aria-label="Lọc theo chuyên môn">
+        {softwareFilter && <div className="kb-filter" role="group" aria-label="Lọc theo chuyên môn">
           {(Object.keys(DOMAIN_LABEL) as Domain[]).map(d => <button key={d} aria-pressed={domain === d} className={domain === d ? 'is-on' : ''} onClick={() => setDomain(d)}>{DOMAIN_LABEL[d]}</button>)}
-        </div>
+        </div>}
       </>}
 
       {(status || isUploading) && <p className={`kb-status is-${status?.tone ?? 'info'}`} role="status">{status?.text ?? 'Đang trích xuất vector…'}</p>}
@@ -144,7 +182,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
             <div key={doc.id || idx} className="kb-row" title={doc.owner ? `${doc.source_file}\nTải lên bởi: ${doc.mine ? 'bạn' : doc.owner}` : doc.source_file}>
               <span className={`kb-ic is-${d ?? 'none'}`}><FileIcon doc={doc} /></span>
               <span className="kb-name">{doc.source_file}</span>
-              {doc.classification && <ClassBadge value={doc.classification} />}
+              {doc.classification && <ClassBadge value={doc.classification} terms={t} />}
               <span className="kb-meta">{doc.status === 'processing' ? <i className="dot is-warn" title="Đang xử lý" /> : doc.status === 'failed' ? <i className="dot is-bad" title="Lỗi xử lý" /> : doc.chunks_count}</span>
               <span className="kb-acts">
                 {onInspectDocument && <button onClick={() => onInspectDocument(doc)} aria-label={`Xem phân đoạn của ${doc.source_file}`} title="Xem phân đoạn"><Eye size={14} /></button>}

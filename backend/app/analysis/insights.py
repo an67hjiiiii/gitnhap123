@@ -45,7 +45,7 @@ def _doc_type(value) -> str:
 async def summarize(provider, source_name: str, chunks) -> dict:
     text, used = _sample(chunks)
     schema = _obj({"summary": _STR, "key_points": {"type": "array", "items": _STR}, "doc_type": _STR})
-    system = ("DOCUMENT_SUMMARIZER. Summarize the technical document for an engineer who has not read it. Use only the "
+    system = ("DOCUMENT_SUMMARIZER. Summarize the document for a colleague who has not read it. Use only the "
               "supplied excerpts; do not add facts. Keep identifiers and numbers exact. Return JSON only.")
     user = (f"DOCUMENT: {source_name}\n\nEXCERPTS:\n{text}\n\n"
             'Schema: {"summary":"đoạn văn 80-120 từ","key_points":["5-7 ý chính, mỗi ý một câu"],"doc_type":"tên loại, ví dụ Đặc tả yêu cầu / Thiết kế CSDL / Chính sách bảo mật"}\n'
@@ -109,7 +109,7 @@ async def define_terms(provider, pending: list[dict]) -> dict:
         return {"terms": [], "input_tokens": 0, "output_tokens": 0, "latency_ms": 0}
     names = [p["term"] for p in pending]
     schema = _obj({"terms": {"type": "array", "items": _obj({"term": {"type": "string", "enum": names}, "definition": _STR})}})
-    system = ("GLOSSARY_WRITER. Define each technical term in one short sentence for a new team member, using the context "
+    system = ("GLOSSARY_WRITER. Define each key term in one short sentence for a new colleague, using the context "
               "sentence from the project document. If the context is not enough, say what the term refers to in this document "
               "without inventing details. Return JSON only.")
     user = "TERMS WITH CONTEXT:\n" + "\n".join(f"- {p['term']}: {p['context']}" for p in pending) + \
@@ -246,7 +246,7 @@ async def summarize_changes(provider, changes: list[dict]) -> dict:
     if not changes:
         return {"summary": "Hai tài liệu giống nhau về nội dung.", "input_tokens": 0, "output_tokens": 0, "latency_ms": 0}
     lines = "\n".join({"added": "+ ", "removed": "- ", "changed_from": "~ cũ: ", "changed_to": "~ mới: "}[c["type"]] + c["text"][:200] for c in changes[:60])
-    system = ("CHANGE_SUMMARIZER. Summarize what changed between two versions of a technical document, focusing on rules, "
+    system = ("CHANGE_SUMMARIZER. Summarize what changed between two versions of a document, focusing on rules, "
               "numbers and responsibilities that changed. Use only the diff lines. Return JSON only.")
     obj, measured = await _call(provider, system, f"DIFF:\n{lines}\n\n" + 'Schema: {"summary":"3-5 câu tiếng Việt"}', _obj({"summary": _STR}), 400)
     return {"summary": _text(obj.get("summary"), 1200), **measured}

@@ -16,16 +16,13 @@ import { navDirection } from '../utils/navOrder';
 const SAY: Partial<Record<NavigationTab, string>> = {
   overview: 'Xem nhanh hệ thống đang chạy tốt tới đâu.',
   documents: 'Đọc hiểu một tài liệu chỉ trong vài phút.',
-  traceability: 'Kiểm tra yêu cầu nào đã có trong thiết kế.',
-  req_quality: 'Tìm yêu cầu viết mơ hồ, thiếu số đo, gộp ý.',
-  design: 'Biến một yêu cầu thành thiết kế API, CSDL, bảo mật.',
-  security: 'Soát tài liệu theo 32 tiêu chí bảo mật OWASP.',
+  toolkit: 'Ba công cụ cần nhất cho ngành của không gian này.',
   consistency: 'Tìm chỗ các tài liệu đang nói ngược nhau.',
   evaluation: 'So A, B, C trên cùng một bộ câu hỏi.',
   benchmarks: 'Đặt ba cách trả lời cạnh nhau để so.',
   rating: 'Nhờ người khác chấm mù các câu trả lời.',
   users: 'Cấp, khóa tài khoản và phân quyền nhân viên.',
-  organization: 'Tạo công ty, mời đồng nghiệp, phân cấp và đặt mức mật tài liệu.',
+  organization: 'Tạo tổ chức (công ty, trường, bệnh viện, nhóm), mời đồng nghiệp, phân cấp và đặt mức mật tài liệu.',
   db_explorer: 'Xem dữ liệu và sức khỏe của hệ thống.',
 };
 

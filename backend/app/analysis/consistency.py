@@ -134,7 +134,7 @@ async def judge_pair(provider, a: dict, b: dict) -> dict:
                    "same_subject": {"type": "boolean"}, "value_a": {"type": "string"}, "value_b": {"type": "string"},
                    "explanation": {"type": "string"}})
     system = (
-        f"CONSISTENCY_CHECKER. Role={agent['name']}. Two statements come from different documents of the same software project. "
+        f"CONSISTENCY_CHECKER. Role={agent['name']}. Two statements come from different documents of the same organization or project. "
         "CONTRADICTION only when both statements set a rule or value for exactly the same subject and scope, and the values "
         "or rules cannot both hold. Different numbers are NOT a contradiction when they describe different things: a target "
         "versus an alert threshold, a per-user limit versus a system total, an example versus a rule, a whole versus a part. "

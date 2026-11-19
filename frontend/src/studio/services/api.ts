@@ -15,6 +15,20 @@ export const NOT_SUPPORTED = 'Chức năng này chưa có trong backend CAP1.';
 let orgScope: string | null = null;
 export const isOrgId = (ws?: number | string | null): ws is string => typeof ws === 'string' && ws.startsWith('sp_');
 export function setOrgScope(ws?: number | string | null) { orgScope = isOrgId(ws) ? ws : null; }
+
+// Lĩnh vực của không gian (bộ tác tử ở backend app/research/registry.py, giữ khớp danh sách PACKS).
+// Câu hỏi gửi kèm lĩnh vực của không gian đang mở; trang Thực nghiệm không gửi nên vẫn chạy bộ Phần mềm như cũ.
+export const DOMAIN_PACKS = [
+  { id: 'general', label: 'Tổng quát', hint: 'Mọi loại tài liệu, một chuyên viên tổng hợp' },
+  { id: 'education', label: 'Giáo dục', hint: 'Học vụ, công tác sinh viên, giảng viên – nghiên cứu' },
+  { id: 'legal_admin', label: 'Hành chính – Pháp lý', hint: 'Căn cứ pháp lý, thủ tục hành chính, hợp đồng' },
+  { id: 'business_hr', label: 'Doanh nghiệp – Nhân sự', hint: 'Chính sách nhân sự, quy trình nội bộ, khách hàng' },
+  { id: 'software', label: 'Phần mềm', hint: 'Bảo mật, cơ sở dữ liệu, API – kiến trúc' },
+] as const;
+export type DomainPack = typeof DOMAIN_PACKS[number]['id'];
+export const packLabel = (p?: string | null) => DOMAIN_PACKS.find(d => d.id === p)?.label ?? 'Phần mềm';
+let domainPack: string | null = null;
+export function setDomainPack(p?: string | null) { domainPack = p ?? null; }
 // Không gắn phạm vi: đăng nhập, API tổ chức (tự mang mã không gian), thư mục cá nhân, và bước tải tệp
 // (tệp vào kho cá nhân trước rồi mới được nộp vào tổ chức kèm mức mật).
 const UNSCOPED = /^\/(auth|org)\/|^\/studio\/workspaces|^\/sources\/(file|text)$/;
@@ -49,7 +63,8 @@ const VI_ERRORS: Record<string, string> = {
   'text is empty': 'Nội dung trống.',
   'file is empty': 'Tệp rỗng, không có nội dung để nạp.',
   'Files must be no larger than 2 MB': 'Tệp vượt quá 2 MB.',
-  UNSUPPORTED_DOCUMENT_TYPE: 'Định dạng chưa hỗ trợ. Dùng PDF, Markdown, TXT hoặc SQL.',
+  UNSUPPORTED_DOCUMENT_TYPE: 'Định dạng chưa hỗ trợ. Dùng PDF, Word (.docx), Excel (.xlsx), Markdown, TXT hoặc SQL.',
+  OFFICE_EXTRACTION_FAILED: 'Không đọc được tệp Word/Excel này (tệp hỏng, trống hoặc quá lớn khi giải nén). Bản .doc/.xls cũ cần lưu lại thành .docx/.xlsx.',
   PDF_NO_TEXT: 'PDF không có lớp chữ (bản scan) nên chưa đọc được.',
   PDF_EXTRACTION_UNAVAILABLE: 'Máy chủ chưa đọc được tệp PDF này.',
   UTF8_TEXT_REQUIRED: 'Tệp văn bản cần mã hóa UTF-8.',
@@ -111,19 +126,20 @@ const wsReady = (ws?: WorkspaceId) => typeof ws === 'string' && ws.startsWith('w
 export async function getWorkspaces(): Promise<Workspace[]> {
   const [rows, spaces] = await Promise.all([call<any[]>('/studio/workspaces'), listMySpaces().catch(() => [] as OrgSpace[])]);
   const personal: Workspace[] = rows.map(w => ({ id: w.workspace_id, name: w.name, description: w.description, created_at: w.created_at,
-    documents_count: w.source_count, runs_count: w.conversation_count, kind: 'personal' }));
+    documents_count: w.source_count, runs_count: w.conversation_count, kind: 'personal', domain_pack: w.domain_pack }));
   // không gian tổ chức đã được duyệt đứng sau các thư mục cá nhân trong ô chọn không gian
   return [...personal, ...spaces.filter(s => s.status === 'ACTIVE').map(s => ({
     id: s.space_id, name: s.name, description: s.description, created_at: '', documents_count: 0, runs_count: 0,
-    kind: 'org' as const, level: s.level, is_owner: s.is_owner,
+    kind: 'org' as const, level: s.level, is_owner: s.is_owner, preset: s.preset, labels: s.labels, unit_count: s.unit_count,
+    domain_pack: s.domain_pack,
   }))];
 }
-export async function createWorkspace(name: string, description: string): Promise<Workspace> {
-  const w = await post<any>('/studio/workspaces', { name, description });
-  return { id: w.workspace_id, name: w.name, description: w.description, created_at: '', documents_count: 0, runs_count: 0 };
+export async function createWorkspace(name: string, description: string, domain_pack: DomainPack = 'general'): Promise<Workspace> {
+  const w = await post<any>('/studio/workspaces', { name, description, domain_pack });
+  return { id: w.workspace_id, name: w.name, description: w.description, created_at: '', documents_count: 0, runs_count: 0, kind: 'personal', domain_pack: w.domain_pack };
 }
-export async function renameWorkspace(id: WorkspaceId, name: string, description = ''): Promise<void> {
-  await call(`/studio/workspaces/${encodeURIComponent(String(id))}`, { method: 'PATCH', body: JSON.stringify({ name, description }) });
+export async function renameWorkspace(id: WorkspaceId, name: string, description = '', domain_pack?: DomainPack): Promise<void> {
+  await call(`/studio/workspaces/${encodeURIComponent(String(id))}`, { method: 'PATCH', body: JSON.stringify({ name, description, domain_pack }) });
 }
 export async function deleteWorkspace(id: WorkspaceId, deleteSources: boolean): Promise<{ moved_to: string; sources_deleted: number }> {
   return call(`/studio/workspaces/${encodeURIComponent(String(id))}?delete_sources=${deleteSources}`, { method: 'DELETE' });
@@ -359,7 +375,7 @@ export const getChunk = (id: string) => call<{ chunk_id: string; source_name: st
 // only: chỉ hỏi trong các tài liệu này (ví dụ từ Hồ sơ tài liệu → Hỏi ngay), thay cho phạm vi của không gian.
 async function chatInWorkspace(body: Record<string, unknown>, ws?: WorkspaceId, conversationId?: string | null, only?: string[]): Promise<Cap1Run> {
   const scope = only?.length ? only : wsReady(ws) ? (await workspaceItems(ws!)).source_ids : undefined;
-  const run = await post<Cap1Run>('/chat', { ...body, conversation_id: conversationId ?? undefined, source_ids: scope });
+  const run = await post<Cap1Run>('/chat', { ...body, conversation_id: conversationId ?? undefined, source_ids: scope, domain_pack: domainPack ?? undefined });
   if (run.conversation_id && run.conversation_id !== conversationId) await assignToWorkspace(ws ?? '', 'conversation', run.conversation_id);
   return run;
 }
@@ -383,10 +399,32 @@ export interface TraceResult {
 }
 export interface SavedReport { report_id: string; workspace_id: string | null; kind: string; title: string; created_at: string; payload?: any }
 
-export const extractRequirements = (sourceId: string) =>
-  post<{ source_id: string; source_name: string; requirements: TraceRequirement[] }>('/studio/traceability/extract', { source_id: sourceId });
+/** coded: yêu cầu có mã FR-/NFR-…; list: dòng gạch đầu dòng/đánh số của một tài liệu danh mục. */
+export const extractRequirements = (sourceId: string, mode: 'coded' | 'list' = 'coded') =>
+  post<{ source_id: string; source_name: string; requirements: TraceRequirement[] }>('/studio/traceability/extract', { source_id: sourceId, mode, domain_pack: domainPack ?? undefined });
 export const checkRequirement = (r: TraceRequirement, sourceIds: string[], agent?: string) =>
-  post<TraceResult>('/studio/traceability/check', { requirement: { req_id: r.req_id, title: r.title, body: r.body }, source_ids: sourceIds, agent });
+  post<TraceResult>('/studio/traceability/check', { requirement: { req_id: r.req_id, title: r.title, body: r.body }, source_ids: sourceIds, agent, domain_pack: domainPack ?? undefined });
+
+// ---------------- Công cụ nghiệp vụ theo ngành (backend analysis/casework.py): kết luận tổng do luật cố định suy ra
+export type ConditionVerdict = 'MET' | 'NOT_MET' | 'UNKNOWN';
+export type ConditionOverall = 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'INSUFFICIENT_INFO' | 'NO_RULE' | 'UNRESOLVED';
+type Evidence = { chunk_id: string; source_name: string; score: number };
+export interface ConditionResult {
+  overall: ConditionOverall; agent: string; agent_name: string; evidence: Evidence[]; removed: number; note: string;
+  conditions: { condition: string; citation: string; case_fact: string; verdict: ConditionVerdict; reason: string; flags: string[] }[];
+  input_tokens: number; output_tokens: number; latency_ms: number;
+}
+export interface ProcedureResult {
+  agent: string; agent_name: string; evidence: Evidence[]; removed: number; note: string;
+  steps: { order: number; action: string; actor: string; deadline: string; outputs: string; citation: string; flags: string[] }[];
+  documents: { name: string; citation: string }[];
+  fees: { text: string; citation: string }[];
+  input_tokens: number; output_tokens: number; latency_ms: number;
+}
+export const checkConditions = (question: string, caseText: string, sourceIds: string[]) =>
+  post<ConditionResult>('/studio/casework/conditions', { question, case: caseText, source_ids: sourceIds, domain_pack: domainPack ?? undefined });
+export const extractProcedure = (topic: string, sourceIds: string[]) =>
+  post<ProcedureResult>('/studio/casework/procedure', { topic, source_ids: sourceIds, domain_pack: domainPack ?? undefined });
 export const getSecurityControls = () => call<{ standard: string; controls: TraceRequirement[] }>('/studio/security/controls');
 export const listReports = (kind: string) => call<SavedReport[]>(`/studio/reports?kind=${encodeURIComponent(kind)}`);
 export const getReport = (id: string) => call<SavedReport>(`/studio/reports/${encodeURIComponent(id)}`);
@@ -590,12 +628,16 @@ export const getAdminAudit = (page = 1, size = 20, q = '', errors = false) =>
 // ---------------- Không gian tổ chức (/api/org): phòng ban, thành viên, lời mời, tài liệu tổ chức, thông báo
 export type Classification = 'PRIVATE' | 'COMPANY' | 'DEPARTMENT' | 'RESTRICTED' | 'SECRET';
 export type MemberLevel = 'STAFF' | 'MANAGER' | 'EXECUTIVE';
-export interface OrgSpace { space_id: string; name: string; description: string; level: MemberLevel; department_id: string | null; is_owner: boolean; status: 'ACTIVE' | 'PENDING' }
+export type OrgPreset = 'business' | 'school' | 'hospital' | 'government' | 'team' | 'custom';
+/** tên gọi tự đặt đè lên mẫu; chỉ để hiển thị, quyền do backend quyết định theo cấp STAFF/MANAGER/EXECUTIVE */
+export interface OrgLabels { org?: string; unit?: string; STAFF?: string; MANAGER?: string; EXECUTIVE?: string }
+interface OrgNaming { preset?: OrgPreset | string | null; labels?: OrgLabels | null; unit_count?: number; departments?: unknown[]; domain_pack?: string }
+export interface OrgSpace extends OrgNaming { space_id: string; name: string; description: string; member_count?: number | null; members_preview?: { user_id: string; display_name: string; avatar?: string | null }[]; doc_count?: number | null; level: MemberLevel; department_id: string | null; is_owner: boolean; status: 'ACTIVE' | 'PENDING' }
 export interface OrgDepartment { department_id: string; name: string }
 export interface OrgMember { user_id: string; display_name: string; email: string | null; avatar?: string | null; department_id: string | null; level: MemberLevel; is_owner: boolean; status: 'ACTIVE' | 'PENDING'; joined_at: string | null }
-export interface OrgDetail { space_id: string; name: string; description: string; me: { level: MemberLevel; department_id: string | null; is_owner: boolean }; departments: OrgDepartment[]; members: OrgMember[] }
+export interface OrgDetail extends OrgNaming { space_id: string; name: string; description: string; me: { level: MemberLevel; department_id: string | null; is_owner: boolean }; departments: OrgDepartment[]; members: OrgMember[] }
 export interface OrgInvite { invite_id: string; kind: 'USER' | 'LINK' | 'CODE'; invitee: string | null; level: MemberLevel; department_id: string | null; expires_at: string | null; max_uses: number | null; use_count: number; revoked: boolean }
-export interface MyInvite { invite_id: string; space_id: string; space_name: string; inviter: string; level: MemberLevel; department_id: string | null; expires_at: string | null }
+export interface MyInvite extends OrgNaming { invite_id: string; space_id: string; space_name: string; inviter: string; level: MemberLevel; department_id: string | null; expires_at: string | null }
 export interface OrgSource { source_id: string; source_name: string; status: string; chunk_count: number; classification: Classification; department_id: string | null; owner: string; mine: boolean; can_delete: boolean; created_at: string | null }
 export interface OrgShare { share_id: string; user_id: string | null; user: string | null; department_id: string | null; shared_by: string }
 export interface OrgNotification { notification_id: string; kind: string; space_id: string | null; payload: Record<string, any>; read: boolean; created_at: string }
@@ -604,13 +646,19 @@ const enc = encodeURIComponent;
 const send = <T>(method: string, path: string, body?: unknown) => call<T>(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
 export const listMySpaces = () => call<OrgSpace[]>('/org/spaces');
-export const createSpace = (name: string, departments: string[], description = '') => post<{ space_id: string; name: string }>('/org/spaces', { name, description, departments });
+export const createSpace = (name: string, departments: string[], preset: OrgPreset = 'business', labels: OrgLabels | null = null, domain_pack?: DomainPack) =>
+  post<{ space_id: string; name: string }>('/org/spaces', { name, departments, preset, labels, domain_pack });
+export const updateSpace = (id: string, body: { name?: string; description?: string; preset?: OrgPreset; labels?: OrgLabels | null; domain_pack?: DomainPack }) =>
+  send<{ preset: OrgPreset; labels: OrgLabels | null }>('PATCH', `/org/spaces/${enc(id)}`, body);
 export const getSpace = (id: string) => call<OrgDetail>(`/org/spaces/${enc(id)}`);
 export const createDepartment = (id: string, name: string) => post<OrgDepartment>(`/org/spaces/${enc(id)}/departments`, { name });
+export const renameDepartment = (id: string, dep: string, name: string) => send<OrgDepartment>('PATCH', `/org/spaces/${enc(id)}/departments/${enc(dep)}`, { name });
 export const deleteDepartment = (id: string, dep: string) => send(`DELETE`, `/org/spaces/${enc(id)}/departments/${enc(dep)}`);
 export const updateMember = (id: string, user: string, body: { level: MemberLevel; department_id: string | null; is_owner: boolean }) =>
   send('PATCH', `/org/spaces/${enc(id)}/members/${enc(user)}`, body);
 export const removeMember = (id: string, user: string) => send<{ handed_over_to: string | null; drafts: number }>('DELETE', `/org/spaces/${enc(id)}/members/${enc(user)}`);
+export const deleteSpace = (id: string, confirm_name: string) =>
+  send<{ deleted: string; sources_removed: number; members_removed: number }>('DELETE', `/org/spaces/${enc(id)}`, { confirm_name });
 export const leaveSpace = (id: string) => send<{ handed_over_to: string | null; drafts: number }>('POST', `/org/spaces/${enc(id)}/leave`);
 export const approveMember = (id: string, user: string, level: MemberLevel, department_id: string | null) =>
   post(`/org/spaces/${enc(id)}/members/${enc(user)}/approve`, { level, department_id });
@@ -631,20 +679,116 @@ export const shareSource = (id: string, source: string, target: { user_id?: stri
   post<{ share_id: string }>(`/org/spaces/${enc(id)}/sources/${enc(source)}/shares`, target);
 export const listShares = (id: string, source: string) => call<OrgShare[]>(`/org/spaces/${enc(id)}/sources/${enc(source)}/shares`);
 export const unshare = (id: string, share: string) => send('DELETE', `/org/spaces/${enc(id)}/shares/${enc(share)}`);
+export interface OrgAudience { counts: Partial<Record<Classification, number | null>>; total: number; unit_name: string | null }
+export const getAudience = (id: string) => call<OrgAudience>(`/org/spaces/${enc(id)}/audience`);
 export const getNotifications = () => call<{ unread: number; items: OrgNotification[] }>('/org/notifications');
 export const markNotificationsRead = (ids: string[] | 'all') => post<{ marked: number }>('/org/notifications/read', ids === 'all' ? { all: true } : { ids });
 
-export const LEVEL_LABEL: Record<MemberLevel, string> = { STAFF: 'Nhân viên', MANAGER: 'Trưởng phòng', EXECUTIVE: 'Ban giám đốc' };
-export const CLASS_LABEL: Record<Classification, string> = {
-  PRIVATE: 'Riêng tư', COMPANY: 'Toàn công ty', DEPARTMENT: 'Nội bộ phòng', RESTRICTED: 'Hạn chế', SECRET: 'Mật',
+// Mẫu tổ chức: cùng một luật quyền 3 cấp (thành viên / người đứng đầu đơn vị / lãnh đạo toàn tổ chức), chỉ khác tên gọi.
+type Naming = Required<OrgLabels>;
+const BUSINESS: Naming = { org: 'công ty', unit: 'phòng', STAFF: 'Nhân viên', MANAGER: 'Trưởng phòng', EXECUTIVE: 'Ban giám đốc' };
+export const ORG_PRESETS: Record<OrgPreset, { name: string; labels: Naming }> = {
+  business: { name: 'Doanh nghiệp', labels: BUSINESS },
+  school: { name: 'Trường học', labels: { org: 'trường', unit: 'khoa', STAFF: 'Giảng viên', MANAGER: 'Trưởng khoa', EXECUTIVE: 'Ban giám hiệu' } },
+  hospital: { name: 'Bệnh viện, phòng khám', labels: { org: 'bệnh viện', unit: 'khoa', STAFF: 'Nhân viên y tế', MANAGER: 'Trưởng khoa', EXECUTIVE: 'Ban giám đốc' } },
+  government: { name: 'Cơ quan nhà nước', labels: { org: 'cơ quan', unit: 'phòng', STAFF: 'Chuyên viên', MANAGER: 'Trưởng phòng', EXECUTIVE: 'Lãnh đạo cơ quan' } },
+  team: { name: 'Nhóm nhỏ, câu lạc bộ', labels: { org: 'nhóm', unit: 'tổ', STAFF: 'Thành viên', MANAGER: 'Tổ trưởng', EXECUTIVE: 'Trưởng nhóm' } },
+  custom: { name: 'Tự đặt cách gọi', labels: BUSINESS },
 };
-export const CLASS_HINT: Record<Classification, string> = {
-  PRIVATE: 'Chỉ bạn xem (bản nháp)', COMPANY: 'Mọi thành viên', DEPARTMENT: 'Thành viên trong phòng và Ban giám đốc',
-  RESTRICTED: 'Trưởng phòng của phòng và Ban giám đốc', SECRET: 'Chỉ Ban giám đốc',
-};
+export interface OrgTerms extends Naming { Unit: string; single: boolean; level: Record<MemberLevel, string>; cls: Record<Classification, string>; hint: Record<Classification, string> }
+export function orgTerms(src?: OrgNaming | null): OrgTerms {
+  const base = (ORG_PRESETS as Record<string, { labels: Naming }>)[src?.preset ?? ''] ?? ORG_PRESETS.business;
+  const own = Object.fromEntries(Object.entries(src?.labels ?? {}).filter(([, v]) => typeof v === 'string' && v.trim()).map(([k, v]) => [k, (v as string).trim()]));
+  // "Bộ môn" dùng giữa câu thành "bộ môn"; chữ viết tắt như "CLB" giữ nguyên
+  const lower = (v: string) => /^\p{Lu}\p{Ll}/u.test(v) ? v.charAt(0).toLowerCase() + v.slice(1) : v;
+  const merged: Naming = { ...base.labels, ...own };
+  const l: Naming = { ...merged, org: lower(merged.org), unit: lower(merged.unit) };
+  // chỉ một đơn vị: mọi thành viên (trừ cấp lãnh đạo chung) đều thuộc đơn vị đó nên "Nội bộ đơn vị" = "Toàn tổ chức"
+  const single = (src?.departments?.length ?? src?.unit_count) === 1;
+  return {
+    ...l, single, Unit: l.unit.charAt(0).toUpperCase() + l.unit.slice(1),
+    level: { STAFF: l.STAFF, MANAGER: l.MANAGER, EXECUTIVE: l.EXECUTIVE },
+    cls: { PRIVATE: 'Riêng tư', COMPANY: `Toàn ${l.org}`, DEPARTMENT: single ? `Toàn ${l.org}` : `Nội bộ ${l.unit}`, RESTRICTED: 'Hạn chế', SECRET: 'Mật' },
+    hint: {
+      PRIVATE: 'Chỉ bạn xem (bản nháp)', COMPANY: 'Mọi thành viên', DEPARTMENT: single ? 'Mọi thành viên' : `Thành viên trong ${l.unit} và ${l.EXECUTIVE}`,
+      RESTRICTED: single ? `${l.MANAGER} và ${l.EXECUTIVE}` : `${l.MANAGER} của ${l.unit} và ${l.EXECUTIVE}`, SECRET: `Chỉ ${l.EXECUTIVE}`,
+    },
+  };
+}
+/** Các mức mật hiện trong ô chọn. Chế độ một đơn vị: "Toàn tổ chức" và "Nội bộ đơn vị" cùng nghĩa nên chỉ hiện một
+ * (giữ mức đang đặt; mặc định giữ Nội bộ vì Nhân viên không đặt được Toàn tổ chức). Backend vẫn kiểm từng mức. */
+export function classChoices(t: OrgTerms, options: Classification[], current?: Classification): Classification[] {
+  const list = [...new Set(current ? [current, ...options] : options)];
+  if (!t.single || !list.includes('COMPANY') || !list.includes('DEPARTMENT')) return list;
+  const drop: Classification = current === 'COMPANY' ? 'DEPARTMENT' : 'COMPANY';
+  return list.filter(c => c !== drop);
+}
+const RANK: Record<Classification, number> = { PRIVATE: 0, COMPANY: 1, DEPARTMENT: 2, RESTRICTED: 3, SECRET: 4 };
+/** Bản sao của can_change_classification (backend/app/core/access.py) chỉ để KHÔNG hiện mức người dùng chắc chắn bị từ chối.
+ * Backend vẫn là nơi quyết định. unit = đơn vị tài liệu sẽ thuộc sau khi đổi (backend tự gắn khi tài liệu chưa có). */
+export function canChangeClass(me: { level: MemberLevel; department_id: string | null }, doc: { mine: boolean; department_id: string | null; current: Classification },
+  next: Classification, onlyUnit: string | null): boolean {
+  if (next === doc.current) return true;
+  if (!SETTABLE[me.level].includes(next)) return false;
+  const bound = next === 'DEPARTMENT' || next === 'RESTRICTED';
+  // backend chỉ tự gắn đơn vị khi mức mới cần đơn vị
+  const unit = doc.department_id ?? (bound ? me.department_id ?? onlyUnit : null);
+  if (bound && !unit) return false;
+  if (me.level === 'EXECUTIVE') return true;
+  if (doc.current === 'SECRET' || next === 'SECRET') return false;
+  if (next === 'PRIVATE') return doc.current === 'PRIVATE' && doc.mine;
+  if (me.level === 'MANAGER' && unit && unit === me.department_id) return true;
+  return doc.mine && (doc.current === 'PRIVATE' || RANK[next] > RANK[doc.current]);
+}
+/** Câu kết quả cho thẻ chọn phạm vi: nói AI XEM ĐƯỢC thay vì tên mức. Thứ tự từ rộng đến hẹp. */
+export const SCOPE_ORDER: Classification[] = ['COMPANY', 'DEPARTMENT', 'RESTRICTED', 'SECRET', 'PRIVATE'];
+export function scopeTitle(t: OrgTerms, c: Classification, unitName?: string | null): string {
+  const unit = unitName ? `${t.unit} ${unitName}` : `${t.unit} của bạn`;
+  switch (c) {
+    case 'COMPANY': return `Mọi người trong ${t.org}`;
+    case 'DEPARTMENT': return t.single ? `Mọi người trong ${t.org}` : `Mọi người trong ${unit}`;
+    case 'RESTRICTED': return t.single || !unitName ? `${t.MANAGER} và ${t.EXECUTIVE}` : `${t.MANAGER} ${unit} và ${t.EXECUTIVE}`;
+    case 'SECRET': return `Chỉ ${t.EXECUTIVE}`;
+    default: return 'Chỉ mình tôi';
+  }
+}
 // mức mật mỗi cấp bậc được đặt (khớp SETTABLE ở backend; backend vẫn là nơi quyết định)
 export const SETTABLE: Record<MemberLevel, Classification[]> = {
   STAFF: ['PRIVATE', 'DEPARTMENT', 'RESTRICTED'],
   MANAGER: ['PRIVATE', 'DEPARTMENT', 'RESTRICTED', 'COMPANY'],
   EXECUTIVE: ['PRIVATE', 'DEPARTMENT', 'RESTRICTED', 'COMPANY', 'SECRET'],
 };
+
+// ---------------- Công cụ riêng theo ngành (backend analysis/domain_tools.py). So sánh, tính toán do máy chủ làm bằng mã cố định.
+const pk = () => domainPack ?? undefined;
+export type Op = '>=' | '>' | '<=' | '<' | '=';
+export interface Table { columns: string[]; rows: string[][]; truncated: boolean }
+export interface Threshold { label: string; op: Op; value: number; unit: string; citation: string }
+export interface RosterResult { results: { row: number; name: string; status: 'PASS' | 'FAIL' | 'MISSING'; checks: { label: string; value: string; state: 'pass' | 'fail' | 'missing' }[] }[]; summary: { total: number; PASS: number; FAIL: number; MISSING: number } }
+interface ToolMeasured { agent: string; agent_name: string; removed?: number; input_tokens: number; output_tokens: number; latency_ms: number; evidence?: { chunk_id: string; source_name: string; score: number }[] }
+export interface QuizItem { question: string; options: string[]; answer: number; explanation: string; citation: string }
+export interface FaqItem { question: string; answer: string; citation: string }
+export interface Article { number: string; title: string; chapter: string; source_name: string; text: string }
+export interface PayRates { [key: string]: { value: number; citation: string } | null }
+export interface PayRow { name: string; leave_days: number | null; leave_left: number | null; overtime_pay: number | null; overtime_hours: number; notes: string[] }
+export interface ContractRisk { quote: string; level: 'HIGH' | 'MEDIUM' | 'LOW'; reason: string; citation: string }
+export interface DocValidity { source_id: string; source_name: string; number: string | null; kind: string; issued: string | null; effective: string | null; replaces: string[]; references: string[]; status: 'REPLACED' | 'NOT_YET' | 'IN_FORCE' | 'UNKNOWN'; status_note: string }
+export async function parseTable(file: File): Promise<Table> {
+  const form = new FormData(); form.append('file', file);
+  return call<Table>('/studio/tools/table', { method: 'POST', body: form });
+}
+export const extractThresholds = (topic: string, sourceIds: string[]) => post<ToolMeasured & { rules: Threshold[] }>('/studio/tools/thresholds', { topic, source_ids: sourceIds, domain_pack: pk() });
+export const evaluateRoster = (rules: { label: string; op: Op; value: number; column: number }[], columns: string[], rows: string[][], idColumn: number | null) =>
+  post<RosterResult>('/studio/tools/roster/evaluate', { rules, columns, rows, id_column: idColumn });
+export const generateItems = <T extends QuizItem | FaqItem>(kind: 'quiz' | 'faq', sourceIds: string[], count: number) =>
+  post<ToolMeasured & { items: T[] }>('/studio/tools/generate', { kind, source_ids: sourceIds, count, domain_pack: pk() });
+export const listArticles = (sourceIds: string[]) => post<{ articles: Article[] }>('/studio/tools/articles', { source_ids: sourceIds });
+export const lookupArticles = (question: string, sourceIds: string[]) =>
+  post<ToolMeasured & { answer: string; cited: string[]; articles: Article[]; flags: string[] }>('/studio/tools/lookup', { question, source_ids: sourceIds, domain_pack: pk() });
+export const extractPayRates = (sourceIds: string[]) => post<ToolMeasured & { rates: PayRates }>('/studio/tools/pay-rates', { source_ids: sourceIds, domain_pack: pk() });
+export const computePay = (rates: Record<string, number | null>, employees: Record<string, unknown>[]) => post<{ employees: PayRow[] }>('/studio/tools/pay-compute', { rates, employees });
+export const findApprover = (request: string, sourceIds: string[]) =>
+  post<ToolMeasured & { approver: string; rule: string; citation: string | null }>('/studio/tools/approver', { request, source_ids: sourceIds, domain_pack: pk() });
+export const contractCriteria = () => call<{ criteria: TraceRequirement[] }>('/studio/tools/contract-criteria');
+export const contractRisks = (sourceIds: string[]) => post<ToolMeasured & { risks: ContractRisk[]; looks_like_contract: boolean }>('/studio/tools/contract-risks', { source_ids: sourceIds, domain_pack: pk() });
+export const documentValidity = (sourceIds: string[]) => post<{ today: string; documents: DocValidity[] }>('/studio/tools/validity', { source_ids: sourceIds });

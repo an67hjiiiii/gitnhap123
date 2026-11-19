@@ -21,6 +21,7 @@ from sqlalchemy import text
 
 from app.core.access import Source, can_delete, load_member
 from app.research.decomposer import detect_domains
+from app.research.registry import PACKS
 from app.storage.postgres.models import KnowledgeSourceRecord
 
 # Cột được phép xem trong trang quản trị; cột bí mật (password_hash, token_hash) không bao giờ trả về.
@@ -52,6 +53,7 @@ class RetrievalTestRequest(BaseModel):
 class WorkspaceBody(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default="", max_length=500)
+    domain_pack: Literal[tuple(PACKS)] | None = None  # type: ignore[valid-type]  # None: tạo mới = general, sửa = giữ nguyên
 
 
 class WorkspaceItemBody(BaseModel):
@@ -188,7 +190,7 @@ def build_router(
         with session_factory()() as db:
             _sync_workspaces(db, owner)
             db.commit()
-            rows = db.execute(text("""SELECT w.workspace_id, w.name, w.description, w.created_at,
+            rows = db.execute(text("""SELECT w.workspace_id, w.name, w.description, w.domain_pack, w.created_at,
                     COUNT(*) FILTER (WHERE i.item_type = 'source') AS source_count,
                     COUNT(*) FILTER (WHERE i.item_type = 'conversation' AND NOT EXISTS (SELECT 1 FROM conversations hc WHERE hc.conversation_id = i.item_id AND hc.hidden_at IS NOT NULL)) AS conversation_count
                 FROM studio_workspaces w LEFT JOIN studio_workspace_items i ON i.workspace_id = w.workspace_id
@@ -200,20 +202,21 @@ def build_router(
         user = current_user(request); _require_postgres(); _personal_only(user)
         wid = "ws_" + secrets.token_hex(8)
         with session_factory()() as db:
-            db.execute(text("INSERT INTO studio_workspaces (workspace_id, owner_user_id, name, description) VALUES (:w, :o, :n, :d)"),
-                       {"w": wid, "o": str(user["user_id"]), "n": body.name.strip(), "d": (body.description or "").strip()})
+            db.execute(text("INSERT INTO studio_workspaces (workspace_id, owner_user_id, name, description, domain_pack) VALUES (:w, :o, :n, :d, :p)"),
+                       {"w": wid, "o": str(user["user_id"]), "n": body.name.strip(), "d": (body.description or "").strip(), "p": body.domain_pack or "general"})
             db.commit()
-        return {"workspace_id": wid, "name": body.name.strip(), "description": (body.description or "").strip(), "source_count": 0, "conversation_count": 0}
+        return {"workspace_id": wid, "name": body.name.strip(), "description": (body.description or "").strip(),
+                "domain_pack": body.domain_pack or "general", "source_count": 0, "conversation_count": 0}
 
     @router.patch("/workspaces/{workspace_id}")
     def rename_workspace(workspace_id: str, body: WorkspaceBody, request: Request) -> dict:
         user = current_user(request); _require_postgres(); _personal_only(user); owner = str(user["user_id"])
         with session_factory()() as db:
             _owned_workspace(db, owner, workspace_id)
-            db.execute(text("UPDATE studio_workspaces SET name = :n, description = :d WHERE workspace_id = :w"),
-                       {"n": body.name.strip(), "d": (body.description or "").strip(), "w": workspace_id})
+            db.execute(text("UPDATE studio_workspaces SET name = :n, description = :d, domain_pack = COALESCE(:p, domain_pack) WHERE workspace_id = :w"),
+                       {"n": body.name.strip(), "d": (body.description or "").strip(), "p": body.domain_pack, "w": workspace_id})
             db.commit()
-        return {"workspace_id": workspace_id, "name": body.name.strip()}
+        return {"workspace_id": workspace_id, "name": body.name.strip(), "domain_pack": body.domain_pack}
 
     @router.get("/workspaces/{workspace_id}/items")
     def workspace_items(workspace_id: str, request: Request) -> dict:

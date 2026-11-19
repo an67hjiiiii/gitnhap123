@@ -78,7 +78,40 @@ cd frontend; npm run dev -- --host 127.0.0.1
 
 ## Phân quyền
 
-CAP1 có hai vai trò: USER và ADMIN. Mỗi người chỉ thấy và xóa được tài liệu, cuộc trò chuyện, lượt chạy của chính mình (máy chủ kiểm tra). ADMIN thấy thêm trang Cơ sở dữ liệu; các API `/api/studio/admin/*` trả 403 với USER. Bốn vai trò cũ của C1SE.27 (developer, tech_lead, researcher, admin) không mang sang.
+CAP1 có hai vai trò hệ thống: USER và ADMIN. Mỗi người chỉ thấy và xóa được tài liệu, cuộc trò chuyện, lượt chạy của chính mình (máy chủ kiểm tra). ADMIN thấy thêm trang Cơ sở dữ liệu; các API `/api/studio/admin/*` trả 403 với USER. Bốn vai trò cũ của C1SE.27 (developer, tech_lead, researcher, admin) không mang sang.
+
+### Không gian tổ chức và phân quyền theo cấp bậc (16/11/2026)
+
+Thêm lớp thứ hai, độc lập với USER/ADMIN: **cấp bậc trong từng không gian tổ chức** (Nhân viên, Trưởng phòng, Ban giám đốc, cờ Chủ không gian). Một tài khoản có thể ở nhiều tổ chức với cấp bậc khác nhau. Không gian cá nhân (Kho chính, các thư mục) giữ nguyên hành vi cũ.
+
+**Mức mật tài liệu** (thang thấp đến cao; Riêng tư nằm ngoài thang):
+
+| Mức | Ai xem | Ai đặt được |
+|---|---|---|
+| Riêng tư | Người tải lên (khi rời tổ chức thì bàn giao cho Trưởng phòng hoặc Ban giám đốc) | Mọi cấp |
+| Toàn công ty | Mọi thành viên | Trưởng phòng trở lên |
+| Nội bộ phòng | Thành viên phòng đó và Ban giám đốc | Mọi cấp |
+| Hạn chế | Trưởng phòng của phòng đó và Ban giám đốc | Mọi cấp (nhân viên nộp báo cáo lên trên) |
+| Mật | Ban giám đốc | Ban giám đốc |
+
+Ngoài ra có chia sẻ trực tiếp cho một người hoặc một phòng. Người tải lên chỉ được tăng mức; hạ mức là việc của Trưởng phòng (trong phòng mình) hoặc Ban giám đốc. Bảng đầy đủ quyền mời, duyệt, gỡ, sửa thành viên nằm ở `backend/app/core/access.py`.
+
+**Kiến trúc**
+
+- Luật nằm ở **một module duy nhất** `backend/app/core/access.py`; API và luồng AI đều gọi module này. Nguyên tắc đóng khi nghi ngờ: thành viên chờ duyệt, mức mật lạ, thiếu dữ liệu đều coi là không có quyền.
+- Phạm vi của yêu cầu là tham số `?space_id=` (frontend tự gắn khi đang mở một tổ chức). `current_principal` trong `main.py` kiểm tra thành viên đang hoạt động (403 nếu không) rồi mọi kho (tài liệu, lượt chạy, hội thoại) đọc phạm vi từ đó.
+- **AI chỉ nhìn thấy tài liệu được phép**: kho tài liệu theo phạm vi là cửa duy nhất đưa đoạn văn vào pipeline, cả đường vector (Qdrant lọc theo danh sách tài liệu được phép) lẫn đường từ khóa dự phòng. Danh sách rỗng nghĩa là không tìm gì; bộ lọc vector từ chối mọi lượt tìm không có phạm vi. Câu trả lời không nhắc tới sự tồn tại của tài liệu cấm.
+- Lượt chạy và hội thoại mang phạm vi (`runs.space_id`, `conversations.space_id`). Câu trả lời cũ bị ẩn ("Nội dung đã ẩn do thay đổi quyền truy cập") khi người xem không còn quyền với mọi tài liệu nó dùng (bị hạ cấp, chuyển phòng, bị gỡ).
+- ADMIN hệ thống không đọc nội dung tổ chức qua ứng dụng: trang Cơ sở dữ liệu, phản hồi, nhật ký hoạt động che tên tài liệu, câu hỏi, tiêu đề hội thoại của tổ chức.
+- Thông báo tài liệu: khi một tài liệu được nộp vào tổ chức hoặc đổi mức mật, chỉ những người **vừa được quyền xem** nhận thông báo (tính bằng cùng luật `can_view`, gồm cả chia sẻ trực tiếp); người đã xem từ trước và người không có quyền không được báo, nên thông báo không làm lộ sự tồn tại của tài liệu cấm. Bảng tài liệu ở trang Tổ chức ghi người tải lên và ngày tải.
+- Báo cáo đã lưu và Chấm mù chỉ dùng trong không gian cá nhân (người chấm nhận câu trả lời qua mã nên không được mang nội dung tổ chức ra ngoài).
+- Điều kiện nghiên cứu A/B/C, planner, bước kiểm tra kế hoạch không đổi; phân quyền chỉ là lớp lọc đứng trước truy xuất. Dữ liệu cũ (39 tài liệu, 61 hội thoại, 374 lượt chạy lúc chuyển đổi) đều thuộc phạm vi cá nhân nên kết quả cũ không đổi.
+
+**Mã nguồn**: CSDL `models.py` + migration `20261115_08_org_access` và `20261116_09_run_space`; luật `core/access.py`; API `api/org.py` (`/api/org/*`: không gian, phòng ban, thành viên, lời mời theo email/link/mã có hạn dùng và lưu dạng băm, duyệt, bàn giao, nộp tài liệu, đổi mức mật, chia sẻ, thông báo); kho theo phạm vi `storage/postgres/runtime.py`; frontend `components/OrgView.tsx`, `styles/org.css`, chuông thông báo trong `Header.tsx`, chọn mức mật trước khi tải trong `LeftPanel.tsx`, gắn phạm vi tự động trong `services/api.ts`.
+
+**Kiểm tra**: 75 ca kiểm thử mới (`test_org_schema`, `test_access_policy`, `test_access_retrieval` gồm test rò rỉ 7 người × 6 câu trên cả đường vector và từ khóa có đối chứng, `test_access_api`, `test_org_api`); đã thử cố ý làm yếu bộ lọc để xác nhận test bắt được. Trình duyệt (16/11, 3 tài khoản thử, Ollama thật): tạo công ty, mời qua chuông, vào bằng mã chờ duyệt, tải tài liệu Mật; cùng câu hỏi về tài liệu Mật thì Trưởng phòng nhận "không có thông tin", Ban giám đốc nhận câu trả lời có trích dẫn; đổi mức mật làm nhân viên mất quyền ngay; chia sẻ có thông báo; gỡ thành viên; giao diện điện thoại 375 px không tràn ngang; chế độ tối.
+
+**Giới hạn**: chặn ở tầng ứng dụng, người quản trị máy chủ vẫn đọc được CSDL trực tiếp; danh sách tài liệu được phép tính bằng cách nạp mọi tài liệu của không gian (đủ cho vài nghìn tài liệu); bộ đếm đoán mã sai nằm trong bộ nhớ (về 0 khi khởi động lại); mỗi người thuộc một phòng trong một không gian; chưa có duyệt tài liệu nhiều cấp, chia sẻ có thời hạn, gửi email thật.
 
 ## Hiệu năng trang giới thiệu
 
@@ -107,6 +140,49 @@ Module riêng `backend/app/analysis/` và API `backend/app/api/analysis.py` (`/a
 | Phòng đánh giá | `analysis/evaluation.py`, `components/EvaluationView.tsx` | Bộ câu hỏi có ý chính, chạy A/B/C (cùng thiết lập ngôn ngữ cho mọi điều kiện), chấm mù, Wilcoxon cặp chính xác (đối chiếu ví dụ chuẩn của R), khoảng tin cậy 95%, rank-biserial, Cohen's dz |
 
 Truy xuất bằng chứng của module này dùng BM25 (cặp âm tiết) trước, thiếu mới bù vector: trên 12 câu có đáp án của bộ tài liệu mẫu, đoạn đúng vào top 4 ở 12/12 câu, so với 6/12 khi chỉ dùng vector nomic (kiểm tra kỹ thuật, không phải số liệu nghiên cứu). Truy xuất của A/B/C không đổi.
+
+## Đa ngành: lĩnh vực của không gian (18/11/2026)
+
+Trước đây planner chỉ có 3 tác tử phần mềm (Security, Database, API/Architecture). Chạy thử với tài liệu Giáo dục và Nhân sự (smoke test 12 lượt, tài liệu mẫu tự viết): A và Hỏi nhanh trả lời đúng; B và C cả 6 lượt "không có bằng chứng" vì giao "nghỉ phép" cho Security, "tiền làm thêm" cho Database và dịch từ khóa tìm kiếm sang tiếng Anh.
+
+**Bộ lĩnh vực** (`backend/app/research/registry.py`, `PACKS`): mỗi bộ gồm tác tử (tên, phạm vi, năng lực, loại trừ), từ khóa nhận diện, mẫu lập kế hoạch.
+
+| Bộ | Tác tử |
+|---|---|
+| `software` (Phần mềm) | security, database, api_architecture: **giữ nguyên từng ký tự prompt, từ khóa, mẫu của CAP1** |
+| `general` (Tổng quát) | general |
+| `education` (Giáo dục) | general, academic_affairs, student_affairs, faculty_research |
+| `legal_admin` (Hành chính – Pháp lý) | general, legal_basis, procedure, contract |
+| `business_hr` (Doanh nghiệp – Nhân sự) | general, hr_policy, operations, sales_customer |
+
+- Bộ đang dùng đặt theo từng lượt: `pipeline.run(..., domain_pack=...)` (ContextVar); decomposer, trích nghĩa vụ, kiểm tra kế hoạch, worker, mẫu lập kế hoạch đọc bộ đang dùng. Lượt chạy ghi `effective_config.domain_pack`.
+- **Không truyền = `software`**: trang Thực nghiệm, Phòng đánh giá, `/api/studio/compare` và `scripts/research/*` không gửi trường này nên điều kiện A/B/C chạy đúng như trước (test `test_software_is_default_and_prompts_unchanged`).
+- Bộ ngoài Phần mềm thêm: tác tử `general` cho câu ngoài phạm vi; quy tắc giữ goal, evidence_needs, mô tả nghĩa vụ bằng ngôn ngữ của yêu cầu; khi từ khóa ngành rõ ràng mà mô hình gán sai miền cho một mối quan tâm thì sửa nhãn thay vì hủy lượt (bộ Phần mềm vẫn hủy như cũ). Từ khóa tiếng Việt của mẫu lập kế hoạch chỉ dùng chấm điểm, không đưa vào prompt.
+- Lưu trữ: cột `domain_pack` ở `studio_workspaces` và `org_spaces` (migration `20261118_14`, sau `20261118_13`). Dòng cũ = `software`; không gian mới mặc định `general`; tổ chức mới gợi ý theo mẫu (Trường học → Giáo dục, Cơ quan → Hành chính – Pháp lý, Doanh nghiệp → Doanh nghiệp – Nhân sự). Giá trị kiểm ở API, không đặt CHECK.
+- Giao diện: chọn lĩnh vực khi tạo không gian và đổi trong menu không gian; câu hỏi trong không gian gửi kèm `domain_pack`. Ba công cụ chỉ dành cho Phần mềm (Chất lượng yêu cầu, Gói thiết kế, Rà soát bảo mật) gom vào nhóm "Bộ công cụ Phần mềm", chỉ hiện khi không gian là Phần mềm; "Truy vết yêu cầu" đổi tên "Đối chiếu yêu cầu"; bộ lọc Dữ liệu/API/Bảo mật ở kho tài liệu chỉ hiện ở Phần mềm.
+- Tải lên **Word (.docx) và Excel (.xlsx)**: đọc bằng thư viện chuẩn Python (zip + XML), không thêm phụ thuộc; tiêu đề Word thành dòng `#`, bảng và hàng Excel thành dòng `ô | ô`; chặn tệp hỏng và tệp nén bom (giới hạn 40 MB sau giải nén). Chưa đọc .doc/.xls cũ, chưa OCR.
+- Kiểm tra: `test_domain_packs.py`, `test_office_ingestion.py`. Chạy lại smoke test với bộ Giáo dục / Nhân sự: B và C giao đúng tác tử ngành, giữ tiếng Việt, cả 6 lượt có câu trả lời dựa trên tài liệu (đa số trạng thái "một phần"). Đây là kiểm tra kỹ thuật, chưa phải số liệu chất lượng.
+- **Bộ công cụ theo ngành (19/11)**: thanh bên có một mục "Bộ công cụ <ngành>" (`components/ToolkitView.tsx`). Trang đầu là các thẻ công cụ mang màu của ngành; bấm thẻ mở công cụ, có thanh chuyển nhanh giữa các công cụ cùng ngành. Mỗi ngành sở hữu bộ công cụ riêng theo nghiệp vụ:
+
+  | Ngành | Công cụ (thư mục `components/tools/`) | Cách làm |
+  |---|---|---|
+  | Giáo dục | Xét duyệt theo danh sách | Ngưỡng lấy từ quy chế (có trích dẫn, sửa được) → tải bảng điểm .xlsx/.csv → gán cột → so sánh từng hàng bằng mã cố định: Đạt / Không đạt / Thiếu số liệu |
+  | | Tạo câu hỏi ôn tập | Trắc nghiệm 4 phương án, sinh theo lượt 5 câu; bỏ câu có đáp án không nằm trong đoạn trích |
+  | | Tra cứu quy chế theo Điều | Cắt văn bản theo "Điều N" (không dùng mô hình); hỏi đáp chọn Điều bằng BM25, Điều được dẫn phải nằm trong danh sách đã tìm |
+  | Doanh nghiệp – Nhân sự | Tính phép năm, tiền làm thêm | 7 hệ số lấy từ nội quy (có trích dẫn) → công thức cố định; thiếu hệ số thì để trống kèm lý do |
+  | | Duyệt đơn từ | Kiểm điều kiện (bộ máy Kiểm tra điều kiện) + cấp duyệt (tên người duyệt phải có nguyên cụm trong nội quy; hỏi lại một lần nếu trả rỗng) |
+  | | Hỏi đáp chính sách | Bộ câu hỏi thường gặp; bỏ câu trả lời có con số không có trong đoạn trích |
+  | Hành chính – Pháp lý | Rà soát hợp đồng | 7 nội dung theo Điều 398 BLDS 2015 + 2 mục thực hành; nội dung không có chữ nào trong nhóm từ của nó → "Chưa thấy"; điều khoản rủi ro phải có nguyên văn trong hợp đồng |
+  | | Hồ sơ thủ tục | Giấy tờ cần nộp (đánh dấu đã có → còn thiếu), các bước, thời hạn, lệ phí (con số phải có trong đoạn trích) |
+  | | Hiệu lực văn bản | Không dùng mô hình: số hiệu (ưu tiên dòng "Số: …"), ngày ban hành, "có hiệu lực từ ngày…", "thay thế/bãi bỏ…". Chỉ coi là bị thay thế khi văn bản thay thế đã đến ngày hiệu lực; "bãi bỏ Điều 5 của…", "sửa đổi, bổ sung…" là sửa một phần, văn bản gốc vẫn còn hiệu lực |
+  | Phần mềm | Rà soát theo tiêu chí · Chất lượng yêu cầu · Gói thiết kế | Giữ bộ cũ; "Truy vết yêu cầu" + "Rà soát bảo mật" gộp thành Rà soát theo tiêu chí (nguồn: yêu cầu có mã / OWASP ASVS / danh mục tự nhập) |
+  | Tổng quát | Quy trình từng bước · Kiểm tra điều kiện · Rà soát theo tiêu chí | Công cụ chung cho mọi loại quy định |
+
+  Hồ sơ tài liệu, Kiểm tra mâu thuẫn giữ ở thanh bên cho mọi ngành; Phòng đánh giá chuyển vào nhóm Nghiên cứu. Câu lệnh của công cụ chung bỏ giả định "software project / engineer".
+  - API: `analysis/domain_tools.py` và `analysis/casework.py`, đường dẫn `/api/studio/tools/*` (table, thresholds, roster/evaluate, generate, articles, lookup, pay-rates, pay-compute, approver, contract-criteria, contract-risks, validity) và `/api/studio/casework/{conditions,procedure}`.
+  - Luật chung khi chạy thật với qwen3:4b: mô hình hay dẫn nhầm đoạn bên cạnh → tự chuyển trích dẫn sang đoạn chứa đúng con số; hay chép dữ kiện tình huống thành "điều kiện" → loại và hỏi lại một lần; hay trả rỗng → hỏi lại một lần; số thứ tự "Điều 10", "Mục 8", "2." không tính là con số của quy định; ô "Không có thông tin…" coi như trống; danh sách dài sinh theo lượt để JSON không bị cắt.
+  - Kiểm tra: `test_casework.py`, `test_domain_tools.py` (luật nghiệp vụ, kể cả các lỗi gặp khi chạy thật). Chạy thật trên tài liệu mẫu tự viết: 9/9 công cụ cho kết quả đúng kỳ vọng ở lần chạy cuối; đây là kiểm tra kỹ thuật, chưa phải đánh giá chất lượng.
+- Để sau: bộ Y tế, Tài chính (cần chuyên gia kiểm tra); cắt tài liệu theo Điều/Khoản; đo rồi mới cân nhắc đổi embedding (bge-m3); bộ câu hỏi đánh giá đa ngành và chấm mù; viết lại trang giới thiệu.
 
 ## Chưa có hoặc chưa làm
 

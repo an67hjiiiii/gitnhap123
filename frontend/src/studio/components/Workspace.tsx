@@ -199,7 +199,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     if (open) return;
     closedH.current = formRef.current?.offsetHeight ?? 0;
     setOpen(true);
-    speak(`Chào ${firstName(userName) || 'bạn'}! Hỏi nhanh về tài liệu, hoặc chọn Phân tích để mình chia việc cho ba tác tử.`);
+    speak(`Chào ${firstName(userName) || 'bạn'}! Hỏi nhanh về tài liệu, hoặc chọn Phân tích để mình chia việc cho các tác tử chuyên môn.`);
   };
   const pickMode = (m: Mode) => {
     setMode(m); setMethodOpen(false);
@@ -306,7 +306,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
           <div className="ws-seg" role="group" aria-label="Cách trả lời">
             <button type="button" className={mode === 'quick' ? 'is-on' : ''} onClick={() => pickMode('quick')} title={MODE_INFO.quick.hint}><Zap size={14} />Hỏi nhanh</button>
             <div className="ws-pop" ref={methodRef}>
-              <button type="button" className={mode !== 'quick' ? 'is-on' : ''} onClick={() => setMethodOpen(v => !v)} aria-expanded={methodOpen} aria-haspopup="menu" title="Phân tích sâu với ba tác tử">
+              <button type="button" className={mode !== 'quick' ? 'is-on' : ''} onClick={() => setMethodOpen(v => !v)} aria-expanded={methodOpen} aria-haspopup="menu" title="Phân tích sâu với các tác tử chuyên môn">
                 <Microscope size={14} />{mode === 'quick' ? 'Phân tích' : `Phân tích · ${mode}`}<ChevronDown size={13} />
               </button>
               {methodOpen && <div className="pop is-up-left" role="menu">

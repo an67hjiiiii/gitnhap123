@@ -19,7 +19,10 @@ from app.ingestion.documents import (
 from app.providers.ollama import OllamaProvider
 from app.retrieval.candidate_index import CandidateIndex, IndexingError
 from app.retrieval.embeddings import make_embedder
+from typing import Literal
+
 from app.research.pipeline import ResearchPipeline
+from app.research.registry import PACKS
 from app.research.conversation_context import build_conversation_context
 from app.storage.run_store import RunStore
 from app.storage.source_store import SourceStore
@@ -209,6 +212,8 @@ class ChatRequest(BaseModel):
     product_mode: bool = False
     # Studio: trả lời theo ngôn ngữ câu hỏi ở lượt phân tích; trang Thực nghiệm không bật để giữ prompt nghiên cứu.
     reply_in_query_language: bool = False
+    # lĩnh vực của không gian đang mở; bỏ trống = Phần mềm (prompt nghiên cứu như cũ, dùng cho script thực nghiệm)
+    domain_pack: Literal[tuple(PACKS)] | None = None  # type: ignore[valid-type]
 
 class SourceTextRequest(BaseModel):
     source_name: str
@@ -313,7 +318,9 @@ async def import_file(request: Request, file: UploadFile = File(...)):
             if "no extractable text" in str(exc)
             else "PDF_EXTRACTION_UNAVAILABLE"
         )
-        if not source_name.lower().endswith(".pdf"):
+        if source_name.lower().endswith((".docx", ".xlsx")):
+            detail = "OFFICE_EXTRACTION_FAILED"
+        elif not source_name.lower().endswith(".pdf"):
             detail = "UNSUPPORTED_DOCUMENT_TYPE"
         raise HTTPException(415 if detail != "PDF_NO_TEXT" else 422, detail) from exc
     except UnicodeError as exc:
@@ -390,6 +397,7 @@ async def chat(body: ChatRequest, request: Request):
             conversation_id=conversation_id,
             product_mode=body.product_mode,
             reply_in_query_language=body.reply_in_query_language,
+            domain_pack=body.domain_pack,
         )
         conversations.add_message(
             conversation_id,
@@ -477,7 +485,8 @@ app.include_router(_build_analysis_router(
 # Không gian tổ chức: phòng ban, thành viên, lời mời, tài liệu tổ chức, thông báo (luật ở app/core/access.py).
 from app.api.org import build_router as _build_org_router
 
-app.include_router(_build_org_router(current_user=current_user, session_factory=lambda: app.state.session_factory))
+app.include_router(_build_org_router(current_user=current_user, session_factory=lambda: app.state.session_factory,
+                                     vector_store=_configured_vector_store))
 
 # Quản lý người dùng cho ADMIN (tạo tài khoản, vai trò, khóa/mở khóa, đặt lại mật khẩu, thu hồi phiên).
 from app.api.users import build_router as _build_users_router
@@ -527,9 +536,10 @@ _AUDITED = [(m, _re.compile(p), label) for m, p, label in (
     ("POST", r"^/api/org/join$", "Xin vào tổ chức bằng link/mã"),
     ("POST", r"^/api/org/invites/(?P<t>[^/]+)/(accept|decline)$", "Trả lời lời mời vào tổ chức"),
     ("POST", r"^/api/org/spaces/[^/]+/members/(?P<t>[^/]+)/approve$", "Duyệt thành viên tổ chức"),
-    ("PATCH", r"^/api/org/spaces/[^/]+/members/(?P<t>[^/]+)$", "Đổi cấp bậc / phòng ban thành viên"),
+    ("PATCH", r"^/api/org/spaces/[^/]+/members/(?P<t>[^/]+)$", "Đổi cấp bậc / đơn vị thành viên"),
     ("DELETE", r"^/api/org/spaces/[^/]+/members/(?P<t>[^/]+)$", "Gỡ thành viên tổ chức"),
     ("POST", r"^/api/org/spaces/(?P<t>[^/]+)/leave$", "Rời không gian tổ chức"),
+    ("DELETE", r"^/api/org/spaces/(?P<t>[^/]+)$", "Xóa tổ chức"),
     ("POST", r"^/api/org/spaces/[^/]+/sources/(?P<t>[^/]+)/publish$", "Nộp tài liệu vào tổ chức"),
     ("PATCH", r"^/api/org/spaces/[^/]+/sources/(?P<t>[^/]+)$", "Đổi mức mật tài liệu"),
     ("POST", r"^/api/org/spaces/[^/]+/sources/(?P<t>[^/]+)/shares$", "Chia sẻ tài liệu tổ chức"),

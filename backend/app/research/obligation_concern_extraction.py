@@ -6,7 +6,9 @@ import unicodedata
 from collections.abc import Mapping
 from typing import Any
 
-from app.research.registry import REGISTRY, validate_domain
+from copy import deepcopy
+
+from app.research.registry import REGISTRY, active_domains, active_pack, validate_domain
 from app.research.decomposer import detect_domains
 from app.core.structured_output import decode_structured_json
 from app.retrieval.text import terms
@@ -71,6 +73,17 @@ _OBLIGATION_FIELDS = frozenset({"obligation_id", "description", "required"})
 _CONCERN_FIELDS = frozenset({"concern_id", "description", "domain"})
 
 
+def extraction_schema() -> str:
+    """Lược đồ theo bộ lĩnh vực đang dùng; bộ Phần mềm ra đúng EXTRACTION_SCHEMA cũ."""
+    return EXTRACTION_SCHEMA.replace("|".join(REGISTRY), "|".join(active_domains()))
+
+
+def extraction_response_schema() -> dict:
+    schema = deepcopy(EXTRACTION_RESPONSE_SCHEMA)
+    schema["properties"]["concerns"]["items"]["properties"]["domain"]["enum"] = list(active_domains())
+    return schema
+
+
 def build_extraction_prompt(request: str) -> str:
     """Build the bounded request-understanding prompt for this extraction step."""
 
@@ -78,14 +91,15 @@ def build_extraction_prompt(request: str) -> str:
         raise ValueError("request must be a non-empty string")
     request_domains = detect_domains(request)
     domain_guidance = "\n".join(
-        f"- {domain}: {REGISTRY[domain]['scope']}; "
-        f"subjects: {', '.join(REGISTRY[domain]['capabilities'])}"
+        f"- {domain}: {active_pack()['agents'][domain]['scope']}; "
+        f"subjects: {', '.join(active_pack()['agents'][domain]['capabilities'])}"
         for domain in request_domains
     ) or "none"
     return (
         "OUTPUT PROTOCOL:\n"
-        f"Schema: {EXTRACTION_SCHEMA}\n\n"
+        f"Schema: {extraction_schema()}\n\n"
         "Rules:\n"
+        f"{active_pack()['extraction_rules']}"
         "- Derive both arrays only from the current request.\n"
         "- Preserve questions as inquiries: determine whether or identify which, "
         "not an assertion that the proposed answer is true. Do not infer the answer.\n"
@@ -304,7 +318,7 @@ async def extract_obligations_and_concerns(
     result = (
         await structured(
             system=EXTRACTION_SYSTEM_PROMPT, user=prompt,
-            response_schema=EXTRACTION_RESPONSE_SCHEMA,
+            response_schema=extraction_response_schema(),
         )
         if callable(structured)
         else await provider.generate(system=EXTRACTION_SYSTEM_PROMPT, user=prompt)
@@ -321,7 +335,10 @@ async def extract_obligations_and_concerns(
         # Ambiguous subjects are not relabeled to the first matching domain.
         if len(subject_domains) == 1 and subject_domains[0] in request_domains:
             expected = subject_domains[0]
-            if concern.domain != expected:
+            if concern.domain != expected and active_pack()["plan_rules"]:
+                # ngành ngoài Phần mềm: từ khóa ngành rõ ràng thì sửa nhãn thay vì hủy cả lượt
+                concern.domain = expected
+            elif concern.domain != expected:
                 raise ValueError(
                     f"concern {concern.concern_id} subject-domain mismatch: "
                     f"expected {expected}, received {concern.domain}"

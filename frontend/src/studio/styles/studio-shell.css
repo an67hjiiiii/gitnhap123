@@ -185,6 +185,7 @@
 .sb-ico[data-tone="overview"]{--c1:#3fdcc6;--c2:#0c9a88}
 .sb-ico[data-tone="documents"]{--c1:#ffbd55;--c2:#f0760f}
 .sb-ico[data-tone="traceability"]{--c1:#62e392;--c2:#1ca451}
+.sb-ico[data-tone="toolkit"]{--c1:#ffc46b;--c2:#e08a12}
 .sb-ico[data-tone="req_quality"]{--c1:#ff86b8;--c2:#dd3f7c}
 .sb-ico[data-tone="design"]{--c1:#cb92ff;--c2:#8a3ddd}
 .sb-ico[data-tone="security"]{--c1:#ff8582;--c2:#d93636}
@@ -409,6 +410,11 @@
 .wsp-new{width:100%;display:flex;align-items:center;gap:11px;margin-top:6px;padding:9px 8px;border:1px dashed color-mix(in srgb,var(--accent) 35%,transparent);border-radius:14px;
   background:color-mix(in srgb,var(--accent) 4%,transparent);text-align:left;cursor:pointer;color:var(--ink);transition:background-color .12s,border-color .12s}
 .wsp-new:hover{background:color-mix(in srgb,var(--accent) 9%,transparent);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+/* lĩnh vực của không gian đang mở (đa ngành) */
+.wsp-pack{display:grid;gap:5px;margin-top:8px;padding:9px 8px;border-top:1px solid var(--line,#e6e9ee);font-size:12px;color:var(--muted,#5b6472)}
+.wsp-pack select{width:100%;padding:7px 10px;font:inherit;font-size:13px;color:var(--ink);background:var(--panel,#fff);border:1px solid var(--line-2,#dfe3e8);border-radius:10px}
+.wsp-pack select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.wsp-pack-err{color:var(--danger,#c0392b)}
 .wsp-new-ico{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:var(--grad,#1d66c9);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 4px 10px -4px color-mix(in srgb,var(--accent) 80%,transparent)}
 .wsp-new .wsp-info b{color:var(--accent)}
 /* thiết bị cảm ứng: không có rê chuột nên nút xóa luôn hiện */
@@ -448,6 +454,7 @@
 .sb-ico[data-tone="overview"]{--c1:#4fcfbd;--c2:#179987}
 .sb-ico[data-tone="documents"]{--c1:#ffb562;--c2:#e2772a}
 .sb-ico[data-tone="traceability"]{--c1:#6ad79a;--c2:#23a35e}
+.sb-ico[data-tone="toolkit"]{--c1:#f5bf6a;--c2:#d98a1c}
 .sb-ico[data-tone="req_quality"]{--c1:#f590b8;--c2:#cf4f7e}
 .sb-ico[data-tone="design"]{--c1:#c39af5;--c2:#8550d6}
 .sb-ico[data-tone="security"]{--c1:#f68f88;--c2:#cc4741}

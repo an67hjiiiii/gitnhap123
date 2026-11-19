@@ -15,10 +15,11 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import bindparam, delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.access import (
+    SETTABLE,
     Department,
     Member,
     Source,
@@ -35,7 +36,10 @@ from app.core.access import (
     require_active_member,
     visible_source_ids,
 )
+from app.research.registry import PACKS
 from app.storage.postgres.models import (
+    ORG_PRESETS,
+    ConversationRecord,
     KnowledgeChunkRecord,
     KnowledgeSourceRecord,
     NotificationRecord,
@@ -59,15 +63,46 @@ class _Body(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+PresetName = Literal[ORG_PRESETS]  # type: ignore[valid-type]
+PackName = Literal[tuple(PACKS)]  # type: ignore[valid-type]
+# lĩnh vực gợi ý khi tạo tổ chức mà chưa chọn (Y tế chưa có bộ riêng nên dùng Tổng quát)
+PRESET_PACK = {"school": "education", "government": "legal_admin", "business": "business_hr"}
+
+
+class OrgLabels(_Body):
+    """Tên gọi tự đặt, chỉ để hiển thị; trống thì giao diện dùng tên của mẫu."""
+
+    org: str | None = Field(default=None, max_length=40)
+    unit: str | None = Field(default=None, max_length=40)
+    STAFF: str | None = Field(default=None, max_length=40)
+    MANAGER: str | None = Field(default=None, max_length=40)
+    EXECUTIVE: str | None = Field(default=None, max_length=40)
+
+
+def _clean_labels(labels: OrgLabels | None) -> dict[str, str] | None:
+    kept = {k: v.strip() for k, v in (labels.model_dump() if labels else {}).items() if v and v.strip()}
+    return kept or None
+
+
 class SpaceBody(_Body):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
     departments: list[str] = Field(default_factory=list, max_length=50)
+    preset: PresetName = "business"
+    labels: OrgLabels | None = None
+    domain_pack: PackName | None = None  # bỏ trống = gợi ý theo mẫu tổ chức
+
+
+class DeleteSpaceBody(_Body):
+    confirm_name: str = Field(min_length=1, max_length=120)
 
 
 class SpaceUpdate(_Body):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
+    preset: PresetName | None = None
+    labels: OrgLabels | None = None  # gửi null để bỏ tên tự đặt
+    domain_pack: PackName | None = None
 
 
 class DepartmentBody(_Body):
@@ -143,7 +178,8 @@ def _aware(value: datetime | None) -> datetime | None:
     return None if value is None or value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def build_router(*, current_user: Callable[[Request], dict], session_factory: Callable[[], Any]) -> APIRouter:
+def build_router(*, current_user: Callable[[Request], dict], session_factory: Callable[[], Any],
+                 vector_store: Callable[[], Any] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api/org", tags=["org"])
     join_failures: dict[str, list[float]] = {}  # shortcut: đếm sai trong bộ nhớ một tiến trình; nhiều tiến trình thì chuyển vào CSDL
 
@@ -173,7 +209,7 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             return
         row = db.get(OrgDepartmentRecord, department_id)
         if row is None or row.space_id != space_id:
-            raise HTTPException(404, "Không tìm thấy phòng ban.")
+            raise HTTPException(404, "Không tìm thấy đơn vị.")
 
     def _owner_count(db, space_id: str) -> int:
         return int(db.scalar(select(func.count()).select_from(OrgMemberRecord).where(
@@ -192,6 +228,12 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             conds.append((OrgMemberRecord.level == "MANAGER") & (OrgMemberRecord.department_id == department_id))
         return list(db.scalars(select(OrgMemberRecord.user_id).where(
             OrgMemberRecord.space_id == space_id, OrgMemberRecord.status == "ACTIVE", or_(*conds))))
+
+    def _only_department(db, space_id: str) -> str | None:
+        """Tổ chức chỉ có một đơn vị (chế độ nhóm nhỏ): người không thuộc đơn vị nào mặc định gắn vào đơn vị đó."""
+        ids = db.scalars(select(OrgDepartmentRecord.department_id).where(
+            OrgDepartmentRecord.space_id == space_id).limit(2)).all()
+        return ids[0] if len(ids) == 1 else None
 
     def _space_name(db, space_id: str) -> str:
         row = db.get(OrgSpaceRecord, space_id)
@@ -255,7 +297,8 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
         space_id = _new_id("sp")
         with _db() as db:
             db.add(OrgSpaceRecord(space_id=space_id, name=body.name.strip(), description=body.description.strip(),
-                                  created_by=uid))
+                                  preset=body.preset, labels=_clean_labels(body.labels), created_by=uid,
+                                  domain_pack=body.domain_pack or PRESET_PACK.get(body.preset, "general")))
             db.flush()
             for name in names:
                 db.add(OrgDepartmentRecord(department_id=_new_id("dep"), space_id=space_id, name=name))
@@ -272,7 +315,27 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             rows = db.execute(select(OrgSpaceRecord, OrgMemberRecord).join(
                 OrgMemberRecord, OrgMemberRecord.space_id == OrgSpaceRecord.space_id).where(
                 OrgMemberRecord.user_id == uid).order_by(OrgSpaceRecord.name)).all()
-            return [{"space_id": s.space_id, "name": s.name, "description": s.description, "level": m.level,
+            counts = dict(db.execute(select(OrgDepartmentRecord.space_id, func.count()).group_by(
+                OrgDepartmentRecord.space_id)).all())
+            people = dict(db.execute(select(OrgMemberRecord.space_id, func.count()).where(
+                OrgMemberRecord.status == "ACTIVE").group_by(OrgMemberRecord.space_id)).all())
+            # vài thành viên và số tài liệu bạn xem được, chỉ cho tổ chức bạn đã được duyệt
+            mine = [s.space_id for s, m in rows if m.status == "ACTIVE"]
+            preview: dict[str, list[dict]] = {k: [] for k in mine}
+            for mem, usr in db.execute(select(OrgMemberRecord, UserRecord).join(
+                    UserRecord, UserRecord.user_id == OrgMemberRecord.user_id).where(
+                    OrgMemberRecord.space_id.in_(mine), OrgMemberRecord.status == "ACTIVE")
+                    .order_by(OrgMemberRecord.is_owner.desc(), OrgMemberRecord.joined_at)).all():
+                if len(preview[mem.space_id]) < 5:
+                    preview[mem.space_id].append({"user_id": usr.user_id, "display_name": usr.display_name, "avatar": usr.avatar})
+            docs = {k: len(visible_source_ids(db, uid, k)) for k in mine}
+            return [{"space_id": s.space_id, "name": s.name, "description": s.description, "preset": s.preset,
+                     "domain_pack": s.domain_pack,
+                     "labels": s.labels, "unit_count": counts.get(s.space_id, 0),
+                     # người chưa được duyệt không xem được quy mô tổ chức
+                     "member_count": people.get(s.space_id, 0) if m.status == "ACTIVE" else None,
+                     "members_preview": preview.get(s.space_id, []), "doc_count": docs.get(s.space_id),
+                     "level": m.level,
                      "department_id": m.department_id, "is_owner": bool(m.is_owner), "status": m.status}
                     for s, m in rows]
 
@@ -293,23 +356,73 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             if not (me.executive or me.level == "MANAGER"):
                 members = [m for m in members if m["status"] == "ACTIVE"]  # yêu cầu chờ duyệt chỉ người duyệt thấy
             return {"space_id": space_id, "name": space.name, "description": space.description,
+                    "preset": space.preset, "labels": space.labels, "domain_pack": space.domain_pack,
                     "me": {"level": me.level, "department_id": me.department_id, "is_owner": me.is_owner},
                     "departments": [{"department_id": d.department_id, "name": d.name} for d in departments],
                     "members": members}
+
+    @router.delete("/spaces/{space_id}")
+    def delete_space(space_id: str, body: DeleteSpaceBody, request: Request) -> dict:
+        """Chủ xóa tổ chức: gỡ mọi quyền truy cập và tài liệu tổ chức; lượt chạy AI, hội thoại được giữ nhưng ẩn."""
+        uid = _uid(request)
+        with _db() as db:
+            actor = _actor(db, uid, space_id)
+            space = db.get(OrgSpaceRecord, space_id)
+            if not actor.is_owner:
+                raise HTTPException(403, "Chỉ chủ tổ chức được xóa tổ chức.")
+            if body.confirm_name.strip() != space.name.strip():
+                raise HTTPException(422, "Tên nhập lại không khớp với tên tổ chức.")
+            sources = db.execute(select(KnowledgeSourceRecord.source_id, KnowledgeSourceRecord.owner_user_id).where(
+                KnowledgeSourceRecord.space_id == space_id)).all()
+            chunks = db.execute(select(KnowledgeChunkRecord.chunk_id, KnowledgeSourceRecord.owner_user_id).join(
+                KnowledgeSourceRecord, KnowledgeSourceRecord.source_id == KnowledgeChunkRecord.source_id).where(
+                KnowledgeSourceRecord.space_id == space_id)).all()
+            others = [m for m in db.scalars(select(OrgMemberRecord.user_id).where(
+                OrgMemberRecord.space_id == space_id, OrgMemberRecord.status == "ACTIVE")) if m != uid]
+        # vector dẫn xuất xóa trước, như xóa từng tài liệu; mở chỉ mục lỗi thì vẫn xóa bản có thẩm quyền trong CSDL
+        try:
+            store = vector_store() if vector_store else None
+        except Exception:
+            store = None
+        if store is not None and chunks:
+            store.delete([f"{owner}:{cid}" for cid, owner in chunks])
+        with _db() as db:
+            ids = [s for s, _ in sources]
+            if ids:
+                db.execute(delete(KnowledgeSourceRecord).where(KnowledgeSourceRecord.source_id.in_(ids)))
+                # bảng thư mục Studio chỉ có trên PostgreSQL thật (và trong test)
+                db.execute(text("DELETE FROM studio_workspace_items WHERE item_type = 'source' AND item_id IN :ids")
+                           .bindparams(bindparam("ids", expanding=True)), {"ids": ids})
+            for model in (OrgInviteRecord, OrgMemberRecord, OrgDepartmentRecord):
+                db.execute(delete(model).where(model.space_id == space_id))
+            db.execute(update(ConversationRecord).where(ConversationRecord.space_id == space_id,
+                                                        ConversationRecord.hidden_at.is_(None)).values(hidden_at=_now()))
+            db.get(OrgSpaceRecord, space_id).deleted_at = _now()
+            _notify(db, others, None, "space_deleted", {"space_name": space.name, "by": _user_label(db, uid)})
+            _commit(db)
+        request.state.audit_target = space_id
+        return {"deleted": space_id, "sources_removed": len(sources), "members_removed": len(others) + 1}
 
     @router.patch("/spaces/{space_id}")
     def update_space(space_id: str, body: SpaceUpdate, request: Request) -> dict:
         uid = _uid(request)
         with _db() as db:
             if not _actor(db, uid, space_id).executive:
-                raise HTTPException(403, "Chỉ Ban giám đốc được sửa thông tin không gian.")
+                raise HTTPException(403, "Bạn không có quyền sửa thông tin tổ chức.")
             space = db.get(OrgSpaceRecord, space_id)
             if body.name is not None:
                 space.name = body.name.strip() or space.name
             if body.description is not None:
                 space.description = body.description.strip()
+            if body.preset is not None:
+                space.preset = body.preset
+            if "labels" in body.model_fields_set:
+                space.labels = _clean_labels(body.labels)
+            if body.domain_pack is not None:
+                space.domain_pack = body.domain_pack
             _commit(db)
-            return {"space_id": space_id, "name": space.name, "description": space.description}
+            return {"space_id": space_id, "name": space.name, "description": space.description,
+                    "preset": space.preset, "labels": space.labels, "domain_pack": space.domain_pack}
 
     # ---------------- Phòng ban
     @router.post("/spaces/{space_id}/departments")
@@ -318,9 +431,17 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
         department_id = _new_id("dep")
         with _db() as db:
             if not _actor(db, uid, space_id).executive:
-                raise HTTPException(403, "Chỉ Ban giám đốc được tạo phòng ban.")
+                raise HTTPException(403, "Bạn không có quyền thêm đơn vị.")
+            only = _only_department(db, space_id)
+            if only is not None:
+                # Khi chỉ có một đơn vị, giao diện gọi mức Nội bộ là "Toàn tổ chức" vì nó đúng là cho mọi người.
+                # Chia thêm đơn vị thì Nội bộ sẽ hẹp lại; đổi các tài liệu đó sang COMPANY để ai đang xem vẫn xem được
+                # và người của đơn vị mới cũng thấy, đúng như nhãn người tải lên đã chọn.
+                db.execute(update(KnowledgeSourceRecord).where(
+                    KnowledgeSourceRecord.space_id == space_id, KnowledgeSourceRecord.department_id == only,
+                    KnowledgeSourceRecord.classification == "DEPARTMENT").values(classification="COMPANY"))
             db.add(OrgDepartmentRecord(department_id=department_id, space_id=space_id, name=body.name.strip()))
-            _commit(db, "Phòng ban này đã có.")
+            _commit(db, "Tên đơn vị này đã có.")
         return {"department_id": department_id, "name": body.name.strip()}
 
     @router.patch("/spaces/{space_id}/departments/{department_id}")
@@ -328,10 +449,10 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
         uid = _uid(request)
         with _db() as db:
             if not _actor(db, uid, space_id).executive:
-                raise HTTPException(403, "Chỉ Ban giám đốc được sửa phòng ban.")
+                raise HTTPException(403, "Bạn không có quyền đổi tên đơn vị.")
             _department(db, space_id, department_id)
             db.get(OrgDepartmentRecord, department_id).name = body.name.strip()
-            _commit(db, "Phòng ban này đã có.")
+            _commit(db, "Tên đơn vị này đã có.")
         return {"department_id": department_id, "name": body.name.strip()}
 
     @router.delete("/spaces/{space_id}/departments/{department_id}")
@@ -339,10 +460,10 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
         uid = _uid(request)
         with _db() as db:
             if not _actor(db, uid, space_id).executive:
-                raise HTTPException(403, "Chỉ Ban giám đốc được xóa phòng ban.")
+                raise HTTPException(403, "Bạn không có quyền xóa đơn vị.")
             _department(db, space_id, department_id)
             db.delete(db.get(OrgDepartmentRecord, department_id))
-            _commit(db, "Phòng ban còn thành viên hoặc tài liệu: chuyển họ sang phòng khác trước.")
+            _commit(db, "Đơn vị còn thành viên hoặc tài liệu: chuyển sang đơn vị khác trước.")
         return {"deleted": department_id}
 
     # ---------------- Thành viên
@@ -370,7 +491,11 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
 
     def _remove(db, actor: Member, target: Member, handover_to: str | None) -> dict:
         space_id = target.space_id
-        if not can_remove_member(actor, target, _owner_count(db, space_id)):
+        owners = _owner_count(db, space_id)
+        if actor.user_id == target.user_id and target.is_owner and owners <= 1:
+            raise HTTPException(409, "Bạn là chủ duy nhất của tổ chức này. Hãy trao quyền chủ cho một thành viên khác "
+                                     "trước khi rời, hoặc xóa tổ chức.")
+        if not can_remove_member(actor, target, owners):
             raise HTTPException(403, "Bạn không có quyền gỡ thành viên này.")
         drafts = list(db.scalars(select(KnowledgeSourceRecord.source_id).where(
             KnowledgeSourceRecord.space_id == space_id, KnowledgeSourceRecord.owner_user_id == target.user_id,
@@ -390,7 +515,7 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             recipient = load_member(db, handover_to, space_id) if handover_to else None
             if (recipient is None or not recipient.active or recipient.user_id == target.user_id
                     or not (recipient.executive or recipient.manages(target.department_id))):
-                raise HTTPException(422, "Người nhận bàn giao phải là Trưởng phòng của người này hoặc Ban giám đốc.")
+                raise HTTPException(422, "Người nhận bàn giao phải là trưởng đơn vị của người này hoặc thuộc cấp lãnh đạo.")
             existing = set(db.scalars(select(OrgSourceShareRecord.source_id).where(
                 OrgSourceShareRecord.target_user_id == recipient.user_id,
                 OrgSourceShareRecord.source_id.in_(drafts))))
@@ -445,7 +570,7 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             department_id = None if body.level == "EXECUTIVE" and body.department_id is None else body.department_id
             _department(db, space_id, department_id)
             if not can_approve(actor, target, body.level, department_id):
-                raise HTTPException(403, "Bạn không có quyền duyệt với cấp bậc và phòng ban này.")
+                raise HTTPException(403, "Bạn không có quyền duyệt với cấp bậc và đơn vị này.")
             row = db.get(OrgMemberRecord, (space_id, user_id))
             row.status, row.level, row.department_id = "ACTIVE", body.level, department_id
             _notify(db, [user_id], space_id, "join_approved",
@@ -464,7 +589,7 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             if body.kind == "USER":
                 department_id = None if body.level == "EXECUTIVE" and body.department_id is None else body.department_id
                 if not can_invite(actor, body.level, department_id):
-                    raise HTTPException(403, "Bạn không có quyền mời với cấp bậc và phòng ban này.")
+                    raise HTTPException(403, "Bạn không có quyền mời với cấp bậc và đơn vị này.")
                 email = (body.email or "").strip().lower()
                 invitee = db.scalar(select(UserRecord).where(func.lower(UserRecord.email) == email)) if email else None
                 if invitee is None or invitee.status != "ACTIVE":
@@ -481,7 +606,7 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
                 return {"invite_id": invite_id, "kind": "USER"}
             # link/mã: chỉ người duyệt được yêu cầu tham gia mới được tạo
             if not (actor.executive or (actor.level == "MANAGER" and body.department_id in (None, actor.department_id))):
-                raise HTTPException(403, "Chỉ Ban giám đốc hoặc Trưởng phòng được tạo link, mã mời.")
+                raise HTTPException(403, "Bạn không có quyền tạo link hoặc mã mời.")
             hint = body.department_id if body.department_id is not None else (None if actor.executive else actor.department_id)
             if body.kind == "LINK":
                 token = secrets.token_urlsafe(24)
@@ -502,7 +627,7 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
         with _db() as db:
             actor = _actor(db, uid, space_id)
             if not (actor.executive or actor.level == "MANAGER"):
-                raise HTTPException(403, "Chỉ Ban giám đốc hoặc Trưởng phòng xem được lời mời.")
+                raise HTTPException(403, "Bạn không có quyền xem danh sách lời mời.")
             query = select(OrgInviteRecord).where(OrgInviteRecord.space_id == space_id)
             if not actor.executive:
                 query = query.where(OrgInviteRecord.created_by == uid)
@@ -536,9 +661,16 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
         with _db() as db:
             rows = db.scalars(select(OrgInviteRecord).where(OrgInviteRecord.invitee_user_id == uid)
                               .order_by(OrgInviteRecord.created_at.desc())).all()
-            return [{"invite_id": r.invite_id, "space_id": r.space_id, "space_name": _space_name(db, r.space_id),
-                     "inviter": _user_label(db, r.created_by), "level": r.level, "department_id": r.department_id,
-                     "expires_at": _iso(r.expires_at)} for r in rows if _usable(r)]
+            out = []
+            for r in rows:
+                if not _usable(r):
+                    continue
+                space = db.get(OrgSpaceRecord, r.space_id)
+                out.append({"invite_id": r.invite_id, "space_id": r.space_id, "space_name": space.name if space else "",
+                            "preset": space.preset if space else "business", "labels": space.labels if space else None,
+                            "inviter": _user_label(db, r.created_by), "level": r.level, "department_id": r.department_id,
+                            "expires_at": _iso(r.expires_at)})
+            return out
 
     @router.post("/invites/{invite_id}/{decision}")
     def answer_invite(invite_id: str, decision: Literal["accept", "decline"], request: Request) -> dict:
@@ -589,6 +721,27 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             return {"space_id": space_id, "space_name": _space_name(db, space_id), "status": "PENDING"}
 
     # ---------------- Tài liệu tổ chức
+    @router.get("/spaces/{space_id}/audience")
+    def audience(space_id: str, request: Request) -> dict:
+        """Nếu tôi tải tài liệu lên với từng mức mật, bao nhiêu người xem được (cùng luật can_view, như lúc công bố)."""
+        uid = _uid(request)
+        with _db() as db:
+            me = _actor(db, uid, space_id)
+            unit = me.department_id or _only_department(db, space_id)
+            rows = db.scalars(select(OrgMemberRecord).where(
+                OrgMemberRecord.space_id == space_id, OrgMemberRecord.status == "ACTIVE")).all()
+            members = [Member(m.user_id, m.space_id, m.department_id, m.level, bool(m.is_owner), m.status) for m in rows]
+            counts: dict[str, int | None] = {}
+            for level in sorted(SETTABLE.get(me.level, ())):
+                bound = level in ("DEPARTMENT", "RESTRICTED")
+                if bound and unit is None:
+                    counts[level] = None  # cần chọn đơn vị: không đoán
+                    continue
+                src = Source("_", uid, space_id, unit if bound else None, level)
+                counts[level] = sum(can_view(m.user_id, m, src) for m in members)
+            dep = db.get(OrgDepartmentRecord, unit) if unit else None
+            return {"counts": counts, "total": len(members), "unit_name": dep.name if dep else None}
+
     @router.get("/spaces/{space_id}/sources")
     def list_sources(space_id: str, request: Request) -> list[dict]:
         uid = _uid(request)
@@ -618,10 +771,10 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
                 raise HTTPException(404, "Không tìm thấy tài liệu cá nhân này.")
             department_id = body.department_id
             if department_id is None and body.classification in ("DEPARTMENT", "RESTRICTED"):
-                department_id = actor.department_id
+                department_id = actor.department_id or _only_department(db, space_id)
             _department(db, space_id, department_id)
             if not can_upload(actor, body.classification, department_id):
-                raise HTTPException(403, "Bạn không được đặt mức mật hoặc phòng ban này.")
+                raise HTTPException(403, "Bạn không được đặt mức mật hoặc đơn vị này.")
             row.space_id, row.department_id, row.classification = space_id, department_id, body.classification
             # rời thư mục cá nhân (Studio); bảng chỉ có trên PostgreSQL thật
             db.execute(text("DELETE FROM studio_workspace_items WHERE item_type = 'source' AND item_id = :s"),
@@ -644,10 +797,14 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             before = _viewers(db, row)
             if body.department_id is not None and body.department_id != row.department_id:
                 if not actor.executive:
-                    raise HTTPException(403, "Chỉ Ban giám đốc được chuyển tài liệu sang phòng khác.")
+                    raise HTTPException(403, "Bạn không có quyền chuyển tài liệu sang đơn vị khác.")
                 _department(db, space_id, body.department_id)
                 row.department_id = body.department_id
             if body.classification is not None and body.classification != row.classification:
+                if body.classification in ("DEPARTMENT", "RESTRICTED") and row.department_id is None:
+                    row.department_id = actor.department_id or _only_department(db, space_id)
+                    if row.department_id is None:
+                        raise HTTPException(409, "Mức này chỉ đặt được khi tài liệu thuộc một đơn vị: chọn đơn vị cho tài liệu trước.")
                 if not can_change_classification(actor, _source(row), body.classification):
                     raise HTTPException(403, "Bạn không được đổi sang mức mật này.")
                 row.classification = body.classification
@@ -655,8 +812,8 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
                 _notify_new_viewers(db, row, before, uid, "source_access_granted")
             except IntegrityError as exc:  # mức mật cần phòng ban mà tài liệu chưa có: báo lỗi rõ thay vì 500
                 db.rollback()
-                raise HTTPException(409, "Mức mật này cần tài liệu thuộc một phòng ban.") from exc
-            _commit(db, "Mức mật này cần tài liệu thuộc một phòng ban.")
+                raise HTTPException(409, "Mức này chỉ đặt được khi tài liệu thuộc một đơn vị: chọn đơn vị cho tài liệu trước.") from exc
+            _commit(db, "Mức này chỉ đặt được khi tài liệu thuộc một đơn vị: chọn đơn vị cho tài liệu trước.")
             return {"source_id": source_id, "classification": row.classification, "department_id": row.department_id}
 
     @router.post("/spaces/{space_id}/sources/{source_id}/shares")
@@ -666,7 +823,7 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             actor = _actor(db, uid, space_id)
             row = _space_source(db, space_id, source_id, uid)
             if (body.user_id is None) == (body.department_id is None):
-                raise HTTPException(422, "Chọn đúng một người hoặc một phòng ban để chia sẻ.")
+                raise HTTPException(422, "Chọn đúng một người hoặc một đơn vị để chia sẻ.")
             target_member = load_member(db, body.user_id, space_id) if body.user_id else None
             if body.user_id and target_member is None:
                 raise HTTPException(404, "Không tìm thấy thành viên.")

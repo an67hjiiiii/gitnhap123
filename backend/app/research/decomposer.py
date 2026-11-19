@@ -14,7 +14,7 @@ from app.core.types import (
     Task,
     TaskPlan,
 )
-from app.research.registry import REGISTRY, validate_domain
+from app.research.registry import REGISTRY, _SOFTWARE_HINTS, active_domains, active_pack, validate_domain
 from app.retrieval.text import terms
 
 
@@ -30,7 +30,7 @@ def _extract_json(text: str) -> dict:
 
 async def decompose(provider, query: str, planning_context: str, metrics: RunMetrics) -> list[Task]:
     system = "TASK_DECOMPOSER. Return JSON only. Preserve atomic obligations and dependencies. Do not invent requirements."
-    user = f"USER REQUEST:\n{query}\n\nPLANNING CONTEXT:\n{planning_context}\n\nSchema: {{\"tasks\":[{{\"id\":\"T1\",\"goal\":\"...\",\"domain\":\"security|database|api_architecture\",\"depends_on\":[],\"evidence_needs\":[]}}]}}"
+    user = f"USER REQUEST:\n{query}\n\nPLANNING CONTEXT:\n{planning_context}\n\nSchema: {{\"tasks\":[{{\"id\":\"T1\",\"goal\":\"...\",\"domain\":\"{"|".join(active_domains())}\",\"depends_on\":[],\"evidence_needs\":[]}}]}}"
     result = await provider.generate(system=system, user=user)
     metrics.add_usage(result.usage)
     obj = _extract_json(result.text)
@@ -39,7 +39,7 @@ async def decompose(provider, query: str, planning_context: str, metrics: RunMet
         tasks.append(Task(
             task_id=str(raw.get("id") or f"T{i+1}"),
             goal=str(raw.get("goal") or query),
-            domain=str(raw.get("domain") or "api_architecture"),
+            domain=str(raw.get("domain") or active_pack()["default_domain"]),
             depends_on=[str(x) for x in raw.get("depends_on") or []],
             evidence_needs=[str(x) for x in raw.get("evidence_needs") or []],
         ))
@@ -51,55 +51,7 @@ async def decompose(provider, query: str, planning_context: str, metrics: RunMet
 # helpers provide the structured Sprint 3 planning seam without moving plan
 # verification, normalization, workers, dispatch, or execution into this file.
 CANONICAL_TASK_DOMAINS = tuple(REGISTRY)
-_DOMAIN_HINTS = {
-    "security": (
-        "security",
-        "auth",
-        "authentication",
-        "authorization",
-        "jwt",
-        "token",
-        "permission",
-        "identity",
-        "login",
-        "session",
-        "signed",
-        "tamper",
-        "ký",
-        "mã hóa",
-        "đăng nhập",
-        "phân quyền",
-    ),
-    "database": (
-        "database",
-        "db",
-        "schema",
-        "query",
-        "sql",
-        "index",
-        "transaction",
-        "consistency",
-        "table",
-        "persistence",
-        "relational",
-        "cơ sở dữ liệu",
-        "giao dịch",
-        "lược đồ",
-        "truy vấn",
-    ),
-    "api_architecture": (
-        "api",
-        "endpoint",
-        "rest",
-        "service",
-        "architecture",
-        "integration",
-        "contract",
-        "response",
-        "kiến trúc",
-        "giao diện api",
-    ),
-}
+_DOMAIN_HINTS = _SOFTWARE_HINTS  # bộ Phần mềm; bộ đang dùng đọc qua active_pack()
 TASK_PLAN_SCHEMA = (
     '{"tasks":[{"task_id":"T1","goal":"...",'
     f'"domain":"{"|".join(CANONICAL_TASK_DOMAINS)}",'
@@ -149,6 +101,7 @@ _TASK_FIELDS = frozenset(
 
 def task_plan_response_schema(extraction: ObligationConcernExtraction | None = None) -> dict:
     schema = deepcopy(TASK_PLAN_RESPONSE_SCHEMA)
+    schema["properties"]["tasks"]["items"]["properties"]["domain"]["enum"] = list(active_domains())
     if extraction is not None:
         fields = schema["properties"]["tasks"]["items"]["properties"]
         for name, ids in (
@@ -217,8 +170,8 @@ def detect_domains(request: str) -> list[str]:
     text = _non_empty_request(request).casefold()
     return [
         domain
-        for domain in CANONICAL_TASK_DOMAINS
-        if any(_contains_hint(text, hint) for hint in _DOMAIN_HINTS[domain])
+        for domain in active_domains()
+        if any(_contains_hint(text, hint) for hint in active_pack()["hints"][domain])
     ]
 
 
@@ -247,6 +200,18 @@ def _format_requirements(
         for item in extraction.concerns
     ) or "none"
     return obligations, concerns
+
+
+def domain_rules() -> str:
+    """Dòng giới hạn miền cho prompt; bộ Phần mềm ra đúng câu cũ, bộ khác thêm phạm vi và quy tắc ngôn ngữ."""
+    domains = active_domains()
+    listed = domains[0] if len(domains) == 1 else ", ".join(domains[:-1]) + ", or " + domains[-1]
+    line = f"- Use only {listed} task domains.\n"
+    pack = active_pack()
+    if not pack["plan_rules"]:
+        return line
+    scopes = "; ".join(f"{d} = {a['scope']}" for d, a in pack["agents"].items())
+    return line + f"- Domain scopes: {scopes}.\n" + pack["plan_rules"]
 
 
 def build_task_plan_prompt(
@@ -299,7 +264,7 @@ def build_task_plan_prompt(
         "available planning context; describe needed evidence, not guessed chunks. "
         "Do not use empty arrays, placeholder words or Planning KB locator IDs "
         "as substitutes. Do not invent facts or pretend retrieval occurred.\n"
-        "- Use only security, database, or api_architecture task domains.\n"
+        f"{domain_rules()}"
         "- Emit no plan-verification, repair, worker, dispatch, or execution fields.\n"
         "Return JSON only.\n\n"
         "CURRENT REQUEST:\n"
