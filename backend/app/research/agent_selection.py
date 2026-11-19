@@ -73,4 +73,32 @@ def select_agents(query: str, embed: Callable[[str], tuple[float, ...]] | None =
     }
 
 
-__all__ = ["DESCRIPTIONS", "SELECTION_VERSION", "keyword_hits", "select_agents"]
+__all__ = ["CLARIFY_LABELS", "DESCRIPTIONS", "SELECTION_VERSION", "clarify_options", "forced_selection", "keyword_hits", "select_agents"]
+
+
+# Hỏi lại khi mơ hồ (mục 3.4): hai cách hiểu sát nhau thì hỏi một câu ngắn kèm 2 nút thay vì đoán.
+CLARIFY_LABELS = {
+    "conditions": "xét điều kiện (ai được gì, đủ điều kiện không)",
+    "procedure": "các bước làm và cấp duyệt",
+    "terms": "điều khoản, quyền và nghĩa vụ",
+    "figures": "tính số liệu (bao nhiêu, tỷ lệ)",
+}
+CLARIFY_MIN_WORDS = 5  # câu quá ngắn ("Xin chào") không hỏi lại, giao Chuyên viên tổng hợp
+
+
+def clarify_options(query: str, selection: dict) -> list[str] | None:
+    """Hai tác tử để hỏi lại, hoặc None khi không cần hỏi (không mơ hồ, câu quá ngắn, hay chỉ chọn theo từ khóa)."""
+    if not selection.get("ambiguous") or selection.get("method") != "semantic+keyword":
+        return None
+    if len(query.split()) < CLARIFY_MIN_WORDS:
+        return None
+    scores = selection["scores"]
+    return sorted(scores, key=lambda a: (-scores[a], a))[:2]
+
+
+def forced_selection(agent: str) -> dict:
+    """Người dùng chọn một cách hiểu (bấm nút khi được hỏi lại): chỉ giao tác tử đó + Tổng hợp."""
+    if agent not in DESCRIPTIONS:
+        raise ValueError(f"Unknown work agent: {agent}")
+    return {"agents": [agent, "general"], "primary": agent, "scores": {}, "keyword_hits": {}, "ambiguous": False,
+            "method": "user_choice", "version": SELECTION_VERSION}

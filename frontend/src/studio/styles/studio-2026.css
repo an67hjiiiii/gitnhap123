@@ -1183,3 +1183,4 @@
 .ws-msg.is-card{width:100%;max-width:100%;padding:0;background:none;border:0;box-shadow:none}
 .ws-auto{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#1d5fc4;background:#eef4fd;border-radius:999px;padding:6px 12px;margin-right:auto}
 .st-app[data-theme="dark"] .ws-auto{background:rgba(29,102,201,.18);color:#9cc2f5}
+.ws-clarify{display:grid;gap:10px}.ws-clarify>p{margin:0;font-weight:600;color:var(--ink)}.ws-clarify>div{display:flex;flex-wrap:wrap;gap:8px}

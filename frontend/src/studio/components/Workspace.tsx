@@ -101,6 +101,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   // thẻ kết quả kỹ năng (bản làm thử: chỉ giữ trong phiên, chưa lưu vào cuộc trò chuyện); after = số tin nhắn lúc tạo
   const [cards, setCards] = useState<{ id: number; convo: string; after: number; question: string; label: string; reason: string; out?: SkillOutput; error?: string }[]>([]);
   const [forced, setForced] = useState<SkillKey | null>(null);
+  // hỏi lại khi mơ hồ: câu hỏi chờ người dùng chọn một cách hiểu (mục 3.4)
+  const [clarify, setClarify] = useState<{ text: string; question: string; options: { agent: string; label: string }[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [allDocs, setAllDocs] = useState<{ id?: number | string; source_file: string }[]>([]);
   const [trace, setTrace] = useState<{ result: ModeExecutionResult; step: PipelineStep } | null>(null);
@@ -200,9 +202,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     speak(`Chào ${firstName(userName) || 'bạn'}! Cứ hỏi về tài liệu, mình tự chọn cách làm: trả lời thẳng, gọi kỹ năng hay chia việc cho các tác tử.`);
   };
 
-  const send = async (e?: React.FormEvent) => {
+  const send = async (e?: React.FormEvent, again?: { text: string; agent: string }) => {
     e?.preventDefault();
-    const text = draft.trim();
+    const text = again?.text ?? draft.trim();
+    setClarify(null);
     if (!text || pending) return;
     const spoken = spokenAsk.current; spokenAsk.current = false;
     setPending({ text, mode }); setDraft(''); setError(null);
@@ -210,11 +213,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     speak(mode === 'quick' ? 'Đang tìm trong tài liệu…' : 'Đang lập kế hoạch và chia việc cho các tác tử…');
     try {
       const scope = only ? [only.id] : undefined;
-      if (mode === 'quick') {
+      if (mode === 'quick' && !again) {
         // Tự động: câu khớp rõ một kỹ năng (hoặc chọn bằng "/") thì gọi kỹ năng, không thì để pipeline tự chọn
         const ids = await chatScope(workspaceId, scope);
         const pick = forced; setForced(null);
         const r = await routeSkill(text, ids, pick ?? undefined).catch(() => ({ route: 'pipeline' } as SkillRoute));
+        if (r.route === 'clarify') {
+          setClarify({ text, question: r.question, options: r.options }); setState('idle'); speak(r.question);
+          return;
+        }
         if (r.route === 'skill') {
           setLive({ steps: [r.reason, `Đang chạy kỹ năng ${r.label}`], answer: '' });
           speak(`Mình dùng kỹ năng ${r.label} cho câu này…`);
@@ -244,7 +251,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         const label = progressLabel(e);
         return !label || prev.steps[prev.steps.length - 1] === label ? prev : { ...prev, steps: [...prev.steps, label] };
       });
-      let run = mode === 'quick' ? await sendChat(text, conversationId, workspaceId, scope, onEvent) : await sendAnalysis(text, mode, conversationId, workspaceId, scope);
+      let run = mode === 'quick' ? await sendChat(text, conversationId, workspaceId, scope, onEvent, again?.agent) : await sendAnalysis(text, mode, conversationId, workspaceId, scope);
       setRuns(prev => ({ ...prev, [run.run_id]: run }));
       // Kế hoạch bị bước kiểm tra của CAP1 từ chối (hành vi nghiên cứu, giữ nguyên): lượt thất bại vẫn lưu và hiện,
       // rồi trả lời lại bằng Hỏi nhanh trong cùng cuộc trò chuyện để người dùng không phải tự gửi lại.
@@ -315,7 +322,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   };
 
   const myCards = cards.filter(c => c.convo === (conversationId ?? ''));
-  const fresh = messages.length === 0 && !pending && myCards.length === 0;
+  const fresh = messages.length === 0 && !pending && myCards.length === 0 && !clarify;
   const docsForCite = allDocs.length ? allDocs : docs;
   const cardsAt = (i: number) => myCards.filter(c => (i < 0 ? c.after >= messages.length : c.after === i)).map(c => (
     <React.Fragment key={`card-${c.id}`}>
@@ -475,6 +482,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
               );
             })()])}
             {cardsAt(-1)}
+            {clarify && !pending && <>
+              <div className="ws-msg is-user"><p>{clarify.text}</p></div>
+              <div className="ws-msg is-bot ws-clarify" role="group" aria-label="Chọn cách hiểu câu hỏi">
+                <p>{clarify.question}</p>
+                <div>{clarify.options.map(o => <button key={o.agent} type="button" className="btn btn-dark is-sm" onClick={() => void send(undefined, { text: clarify.text, agent: o.agent })}>{o.label}</button>)}
+                  <button type="button" className="btn btn-ghost is-sm" onClick={() => { setDraft(clarify.text); setClarify(null); inputRef.current?.focus(); }}>Sửa câu hỏi</button></div>
+              </div>
+            </>}
             {pending && <>
               <div className="ws-msg is-user"><p>{pending.text}</p></div>
               <div className="ws-msg is-bot is-wait is-live">

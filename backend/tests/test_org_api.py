@@ -522,3 +522,58 @@ def test_secret_access_log_failure_never_blocks_user():
             raise RuntimeError("db down")
 
     assert log_secret_access(Broken(), "an", ["src_x"], "VIEW") == 0
+
+
+def test_skill_reading_secret_doc_is_logged(env):
+    """Đợt 9: kỹ năng (ví dụ Hiệu lực văn bản) đưa đoạn tài liệu Mật cho AI/luật đọc cũng được ghi nhật ký."""
+    from types import SimpleNamespace
+
+    from app.api.analysis import build_router as build_analysis_router
+    from app.core.types import SourceChunk
+
+    factory, u = env
+    sp, kd, kt = _setup_company(factory, u)
+    secret = _upload(factory, "an", "qd_mat.txt")
+    assert u["an"].post(f"/api/org/spaces/{sp}/sources/{secret}/publish", json={"classification": "SECRET"}).status_code == 200
+    chunk = SourceChunk(f"{secret}_c0000", secret, "qd_mat.txt", "Số: 01/2026/QĐ. Quyết định có hiệu lực từ ngày 01/01/2026.", 0)
+    store = SimpleNamespace(chunks=lambda ids: [chunk] if ids == [secret] else [])
+    app = FastAPI()
+    app.include_router(build_analysis_router(current_user=lambda r: {"user_id": "an", "space_id": sp},
+                                             owner_pipeline=lambda user, *a: SimpleNamespace(source_store=store),
+                                             session_factory=lambda: factory))
+    assert TestClient(app).post("/api/studio/tools/validity", json={"source_ids": [secret]}).status_code == 200
+    rows = u["an"].get(f"/api/org/spaces/{sp}/secret-access").json()
+    assert [(r["action"], r["source_name"]) for r in rows] == [("ASK", "qd_mat.txt")]
+
+
+def test_request_flow_routes_to_right_approver_and_keeps_history(env):
+    """Đợt 10: nhân viên gửi đơn cấp phòng → Trưởng phòng (và Ban giám đốc) thấy và duyệt; người gửi được báo; có lịch sử."""
+    factory, u = env
+    sp, kd, kt = _setup_company(factory, u)
+    body = {"kind": "leave", "title": "Xin nghỉ phép 3 ngày", "details": "Từ 2/12", "days": 3, "approver_level": "MANAGER",
+            "check_result": {"skill": "approver", "approver": "Trưởng phòng"}}
+    r = u["chi"].post(f"/api/org/spaces/{sp}/requests", json=body)
+    assert r.status_code == 200 and r.json()["status"] == "PENDING" and r.json()["can_decide"] is False
+    rid = r.json()["request_id"]
+    assert [x["request_id"] for x in u["binh"].get(f"/api/org/spaces/{sp}/requests").json()["to_me"]] == [rid]
+    assert [x["request_id"] for x in u["an"].get(f"/api/org/spaces/{sp}/requests").json()["to_me"]] == [rid]
+    assert u["chi"].get(f"/api/org/spaces/{sp}/requests").json()["to_me"] == []
+    assert u["chi"].post(f"/api/org/spaces/{sp}/requests/{rid}/decide", json={"decision": "APPROVED"}).status_code == 403  # không tự duyệt
+    d = u["binh"].post(f"/api/org/spaces/{sp}/requests/{rid}/decide", json={"decision": "APPROVED", "note": "Đồng ý"})
+    assert d.status_code == 200 and d.json()["status"] == "APPROVED"
+    assert [h["action"] for h in d.json()["history"]] == ["SUBMITTED", "APPROVED"]
+    assert u["an"].post(f"/api/org/spaces/{sp}/requests/{rid}/decide", json={"decision": "REJECTED"}).status_code == 409
+    assert u["chi"].post(f"/api/org/spaces/{sp}/requests/{rid}/withdraw").status_code == 409
+    kinds = [n["kind"] for n in u["chi"].get("/api/org/notifications").json()["items"]]
+    assert "request_decided" in kinds
+    assert "request_submitted" in [n["kind"] for n in u["binh"].get("/api/org/notifications").json()["items"]]
+
+
+def test_executive_level_request_only_executive_decides(env):
+    factory, u = env
+    sp, kd, kt = _setup_company(factory, u)
+    rid = u["chi"].post(f"/api/org/spaces/{sp}/requests", json={"title": "Nghỉ phép 6 ngày", "days": 6, "approver_level": "EXECUTIVE"}).json()["request_id"]
+    assert u["binh"].get(f"/api/org/spaces/{sp}/requests").json()["to_me"] == []  # Trưởng phòng không duyệt cấp Ban giám đốc
+    assert u["binh"].post(f"/api/org/spaces/{sp}/requests/{rid}/decide", json={"decision": "APPROVED"}).status_code == 403
+    assert u["chi"].post(f"/api/org/spaces/{sp}/requests/{rid}/withdraw").json()["status"] == "WITHDRAWN"
+    assert u["an"].get(f"/api/org/spaces/{sp}/requests").json()["to_me"][0]["can_decide"] is False  # đã rút: không duyệt nữa

@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.analysis.skill_router import SKILLS, route_skill
+from app.core.secret_audit import log_secret_access
+from app.research.agent_selection import CLARIFY_LABELS, clarify_options, select_agents
 from app.analysis import blind_rating, casework, consistency, domain_tools, design, evaluation, grounding, insights, reading, req_quality, security_review
 from app.analysis.traceability import (Requirement, assign_agent, check_requirement, extract_checklist, extract_requirements, missing_term_groups,
                                        evidence_for, requirement_query)
@@ -327,18 +329,40 @@ def build_router(
         return result
 
     # ---------------- Công cụ nghiệp vụ theo ngành: kiểm tra điều kiện, quy trình từng bước (analysis/casework.py)
+    def _audit(user: dict, chunks: list[SourceChunk]) -> None:
+        """Nhật ký Mật (đợt 9): kỹ năng đưa đoạn của tài liệu Mật cho AI đọc cũng được ghi như một lượt hỏi."""
+        log_secret_access(session_factory(), str(user["user_id"]), {c.source_id for c in chunks}, "ASK")
+
     def _case_evidence(user: dict, query: str, source_ids: list[str]) -> list[SourceChunk]:
         pipeline = owner_pipeline(user)
         chunks = pipeline.source_store.chunks(source_ids)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.")
-        return evidence_for(pipeline, query, chunks, top_k=6, min_score=RuntimeConfig.from_env().retrieval_min_score,
-                            source_ids=source_ids)
+        evidence = evidence_for(pipeline, query, chunks, top_k=6, min_score=RuntimeConfig.from_env().retrieval_min_score,
+                                source_ids=source_ids)
+        _audit(user, evidence)
+        return evidence
+
+    def _clarify_or_pipeline(user: dict, message: str) -> dict:
+        """Không khớp kỹ năng: hai cách hiểu sát nhau thì hỏi lại bằng 2 nút (mục 3.4), không thì để pipeline."""
+        embedder = getattr(getattr(owner_pipeline(user), "candidate_index", None), "embedder", None)
+        if embedder is None:
+            return {"route": "pipeline"}
+        try:
+            options = clarify_options(message, select_agents(message, embedder.embed))
+        except Exception:  # mô hình nhúng lỗi: không hỏi lại, pipeline tự chọn như cũ
+            return {"route": "pipeline"}
+        if not options:
+            return {"route": "pipeline"}
+        a, b = (CLARIFY_LABELS[o] for o in options)
+        return {"route": "clarify", "question": f"Bạn muốn hỏi về {a} hay {b}?",
+                "options": [{"agent": o, "label": CLARIFY_LABELS[o]} for o in options]}
 
     @router.post("/route")
     def route(body: RouteBody, request: Request) -> dict:
         """Ô chat Tự động: chọn một kỹ năng nếu câu hỏi khớp rõ; không thì để pipeline (trả lời thẳng/nhiều tác tử)."""
-        listed = owner_pipeline(current_user(request)).source_store.list_sources()
+        user = current_user(request)
+        listed = owner_pipeline(user).source_store.list_sources()
         wanted = set(body.source_ids) if body.source_ids is not None else None
         rows = [s for s in listed if wanted is None or s["source_id"] in wanted]
         if body.skill is not None:
@@ -349,7 +373,7 @@ def build_router(
         else:
             hit = route_skill(body.message, [s.get("doc_type") for s in rows])
         if hit is None:
-            return {"route": "pipeline"}
+            return _clarify_or_pipeline(user, body.message)
         need = set(hit.pop("doc_types") or [])
         # kỹ năng cần loại tài liệu: chỉ đưa tài liệu đúng loại (hợp đồng, văn bản pháp quy) vào kỹ năng
         ids = [s["source_id"] for s in rows if not need or s.get("doc_type") in need]
@@ -374,6 +398,7 @@ def build_router(
         chunks = owner_pipeline(user).source_store.chunks(source_ids)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.")
+        _audit(user, chunks)
         return sorted(chunks, key=lambda c: (c.source_id, c.index))
 
     @router.post("/tools/table")

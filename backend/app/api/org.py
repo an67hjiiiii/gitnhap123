@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.access import (
     SETTABLE,
+    can_decide_request,
     Department,
     Member,
     Source,
@@ -46,6 +47,7 @@ from app.storage.postgres.models import (
     OrgDepartmentRecord,
     OrgInviteRecord,
     OrgMemberRecord,
+    OrgRequestRecord,
     OrgSecretAccessRecord,
     OrgSourceShareRecord,
     OrgSpaceRecord,
@@ -177,6 +179,23 @@ def _normalize_code(value: str) -> str:
 def _aware(value: datetime | None) -> datetime | None:
     # SQLite trả datetime không múi giờ; PostgreSQL trả có múi giờ
     return None if value is None or value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+class RequestBody(BaseModel):
+    """Đơn từ (đợt 10). check_result: kết quả kỹ năng Kiểm tra điều kiện / Ai duyệt người gửi đã chạy (lưu kèm để người duyệt xem)."""
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["leave", "purchase", "other"] = "leave"
+    title: str = Field(min_length=3, max_length=200)
+    details: str = Field(default="", max_length=4000)
+    days: float | None = Field(default=None, ge=0, le=366, allow_inf_nan=False)
+    approver_level: Literal["MANAGER", "EXECUTIVE"]
+    check_result: dict = Field(default_factory=dict)
+
+
+class DecideBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["APPROVED", "REJECTED"]
+    note: str = Field(default="", max_length=1000)
 
 
 def build_router(*, current_user: Callable[[Request], dict], session_factory: Callable[[], Any],
@@ -742,6 +761,81 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
                 counts[level] = sum(can_view(m.user_id, m, src) for m in members)
             dep = db.get(OrgDepartmentRecord, unit) if unit else None
             return {"counts": counts, "total": len(members), "unit_name": dep.name if dep else None}
+
+    # ---------------- Đơn từ và duyệt theo cấp (đợt 10)
+    def _request_out(db, r: OrgRequestRecord, uid: str, me) -> dict:
+        return {"request_id": r.request_id, "kind": r.kind, "title": r.title, "details": r.details, "days": r.days,
+                "approver_level": r.approver_level, "department_id": r.department_id, "status": r.status,
+                "requester": _user_label(db, r.requester_id), "mine": r.requester_id == uid,
+                "can_decide": r.status == "PENDING" and can_decide_request(me, r.approver_level, r.department_id, r.requester_id),
+                "check_result": r.check_result or {}, "history": r.history or [],
+                "created_at": _iso(r.created_at), "decided_at": _iso(r.decided_at)}
+
+    @router.post("/spaces/{space_id}/requests")
+    def create_request(space_id: str, body: RequestBody, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db, db.begin():
+            me = _actor(db, uid, space_id)
+            department = me.department_id or _only_department(db, space_id)
+            if body.approver_level == "MANAGER" and department is None:
+                raise HTTPException(400, "Bạn chưa thuộc phòng ban nào nên đơn phải gửi Ban giám đốc duyệt.")
+            row = OrgRequestRecord(request_id=_new_id("req"), space_id=space_id, requester_id=uid, department_id=department,
+                                   kind=body.kind, title=body.title.strip(), details=body.details.strip(), days=body.days,
+                                   approver_level=body.approver_level, status="PENDING", check_result=body.check_result,
+                                   history=[{"at": _iso(_now()), "by": _user_label(db, uid), "action": "SUBMITTED"}], created_at=_now())
+            db.add(row)
+            approvers = [a for a in _approvers(db, space_id, department if body.approver_level == "MANAGER" else None) if a != uid]
+            _notify(db, approvers, space_id, "request_submitted",
+                    {"space_name": _space_name(db, space_id), "user": _user_label(db, uid), "title": row.title, "request_id": row.request_id})
+            db.flush()
+            return _request_out(db, row, uid, me)
+
+    @router.get("/spaces/{space_id}/requests")
+    def list_requests(space_id: str, request: Request) -> dict:
+        """Đơn tôi đã gửi và đơn chờ tôi duyệt (chỉ người gửi và người có quyền duyệt thấy đơn)."""
+        uid = _uid(request)
+        with _db() as db:
+            me = _actor(db, uid, space_id)
+            rows = db.scalars(select(OrgRequestRecord).where(OrgRequestRecord.space_id == space_id)
+                              .order_by(OrgRequestRecord.created_at.desc()).limit(500)).all()
+            mine = [_request_out(db, r, uid, me) for r in rows if r.requester_id == uid]
+            to_me = [_request_out(db, r, uid, me) for r in rows
+                     if r.requester_id != uid and can_decide_request(me, r.approver_level, r.department_id, r.requester_id)]
+            return {"mine": mine, "to_me": to_me}
+
+    @router.post("/spaces/{space_id}/requests/{request_id}/decide")
+    def decide_request(space_id: str, request_id: str, body: DecideBody, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db, db.begin():
+            me = _actor(db, uid, space_id)
+            row = db.get(OrgRequestRecord, request_id, with_for_update=True)
+            if row is None or row.space_id != space_id:
+                raise HTTPException(404, "Không tìm thấy đơn.")
+            if not can_decide_request(me, row.approver_level, row.department_id, row.requester_id):
+                raise HTTPException(403, "Bạn không có quyền duyệt đơn này.")
+            if row.status != "PENDING":
+                raise HTTPException(409, "Đơn đã được xử lý.")
+            row.status, row.decided_at = body.decision, _now()
+            row.history = [*(row.history or []), {"at": _iso(row.decided_at), "by": _user_label(db, uid), "action": body.decision, "note": body.note.strip()}]
+            _notify(db, [row.requester_id], space_id, "request_decided",
+                    {"space_name": _space_name(db, space_id), "by": _user_label(db, uid), "title": row.title, "decision": body.decision})
+            db.flush()
+            return _request_out(db, row, uid, me)
+
+    @router.post("/spaces/{space_id}/requests/{request_id}/withdraw")
+    def withdraw_request(space_id: str, request_id: str, request: Request) -> dict:
+        uid = _uid(request)
+        with _db() as db, db.begin():
+            me = _actor(db, uid, space_id)
+            row = db.get(OrgRequestRecord, request_id, with_for_update=True)
+            if row is None or row.space_id != space_id or row.requester_id != uid:
+                raise HTTPException(404, "Không tìm thấy đơn.")
+            if row.status != "PENDING":
+                raise HTTPException(409, "Đơn đã được xử lý, không rút lại được.")
+            row.status = "WITHDRAWN"
+            row.history = [*(row.history or []), {"at": _iso(_now()), "by": _user_label(db, uid), "action": "WITHDRAWN"}]
+            db.flush()
+            return _request_out(db, row, uid, me)
 
     @router.get("/spaces/{space_id}/secret-access")
     def secret_access(space_id: str, request: Request, limit: int = 200) -> list[dict]:
