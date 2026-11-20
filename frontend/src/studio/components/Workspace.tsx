@@ -385,7 +385,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     <form ref={formRef} className={`ws-composer${open || !fresh ? ' is-open' : ''}${pending ? ' is-busy' : ''}`} onSubmit={send} onClick={expand}>
       {!(open || !fresh) ? (
         <button type="button" className="ws-launch" onClick={expand} aria-label="Mở khung hỏi đáp">
-          <Sparkles size={16} /><span>Hỏi C27 về tài liệu của bạn…</span><kbd>Nhấn để bắt đầu</kbd>
+          <Sparkles size={16} /><span>Hỏi C27 về tài liệu của bạn…</span>
         </button>
       ) : <>
         {listening && <div className="ws-only is-live"><Mic size={13} /><span>Đang nghe… nói câu hỏi rồi dừng lại. Giọng nói do trình duyệt nhận dạng.</span><button type="button" onClick={() => recRef.current?.stop()}>Xong</button></div>}
