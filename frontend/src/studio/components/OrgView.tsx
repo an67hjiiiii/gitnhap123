@@ -169,9 +169,9 @@ function OrgHome({ onOpenSpace, onChanged, currentId, onBack }: Pick<OrgViewProp
         {!spaces.length ? <section className="dz-card og-empty-hero">
           <span className="og-create-ico" aria-hidden="true"><Building2 size={24} /></span>
           <h3>Bạn chưa thuộc tổ chức nào</h3>
-          <p className="is-muted">Tạo tổ chức cho đơn vị của bạn trong khoảng 30 giây, hoặc nhập mã mời bên dưới nếu đồng nghiệp đã mời bạn.</p>
+          <p className="is-muted">Tạo tổ chức cho đơn vị của bạn trong khoảng 30 giây, hoặc nhập mã mời ở ô phía trên nếu đồng nghiệp đã mời bạn.</p>
           <div className="og-create-kinds" aria-hidden="true">{(['business', 'school', 'hospital', 'government', 'team'] as const).map(p => { const I = PRESET_ICON[p]; return <span key={p}><I size={15} /></span>; })}</div>
-          <button className="btn btn-dark" onClick={() => setWizard(true)}><Plus size={15} />Tạo tổ chức đầu tiên</button>
+          <button className="btn btn-dark og-first" onClick={() => setWizard(true)}><Plus size={15} />Tạo tổ chức đầu tiên</button>
         </section> : <>
         <h2 className="og-home-h">Tất cả tổ chức</h2>
         <section className="og-orgs" aria-label="Tổ chức của bạn">

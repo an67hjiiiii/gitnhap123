@@ -144,7 +144,7 @@ export const Topbar: React.FC<TopbarProps> = ({
 
   return (
     <>
-      <header className="st-topbar" aria-label="Thanh trên cùng">
+      <header className={`st-topbar${activeTab === 'orchestration' ? ' is-home' : ''}`} aria-label="Thanh trên cùng">
         <button className="tb-btn tb-menu" onClick={onOpenMenu} aria-label="Mở thanh điều hướng" aria-expanded={!!menuOpen}><Menu size={20} /></button>
         <div className="tb-page">
           {NAV_ICONS[ICON_OF[activeTab] ?? activeTab] && <span className="sb-ico" data-tone={ICON_OF[activeTab] ?? activeTab} aria-hidden="true">{NAV_ICONS[ICON_OF[activeTab] ?? activeTab]}</span>}

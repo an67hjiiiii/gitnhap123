@@ -11,7 +11,7 @@ import { shouldPlayIntro, StudioIntro } from './components/StudioIntro';
 import { PageGuide } from './components/PageGuide';
 import gsap from 'gsap';
 import { Users, BarChart3, ClipboardCheck, Database, EyeOff, FileSearch, FlaskConical, GitCompareArrows, MessageSquarePlus, MessagesSquare, Sparkles } from 'lucide-react';
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Wrench } from 'lucide-react';
 import { Topbar } from './components/Topbar';
@@ -38,6 +38,7 @@ import { TasksView } from './components/TasksView';
 import { SettingsView } from './components/SettingsView';
 import { CompareView } from './components/CompareView';
 import { ResultsHub, HubTab } from './components/ResultsHub';
+import { OverviewActions } from './components/OverviewActions';
 import { orgNoteText } from './components/Header';
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({default: module.LandingPage}))); 
 import { LoginPage } from './pages/LoginPage';
@@ -45,6 +46,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { RobotProvider, useRobotAssistant } from './components/robot/RobotContext';
 import './styles/shell-2026.css';  // khung mới (Đợt 1–2): nạp sau CSS của các thành phần
+import './styles/calm-2026.css';   // bảng màu tiết chế (20/11): nạp cuối cùng
 import { 
   analyzeQuery, 
   getReport,
@@ -161,6 +163,8 @@ function DashboardWorkspace({
   // thiếu lĩnh vực (dữ liệu cũ) = Phần mềm; quyết định bộ lọc kho tài liệu và nội dung trang Bộ công cụ
   const isSoftware = (currentWs?.domain_pack ?? 'software') === 'software';
 
+  const overviewActions = React.useMemo(() => <OverviewActions recent={conversations} spaceId={inOrg ? String(currentWorkspaceId) : undefined}
+    onOpenConversation={id => { setActiveConversationId(id); setActiveTab('orchestration'); }} onGo={setActiveTab} />, [conversations, inOrg, currentWorkspaceId]);
   const refreshSequence = useRef(0);
   const selectedWorkspace = useRef(currentWorkspaceId);
   selectedWorkspace.current = currentWorkspaceId;
@@ -481,7 +485,7 @@ function DashboardWorkspace({
             onOpenPlayground={() => handleOpenPlayground()} onDeleteDocument={handleDeleteSingleDoc} isUploading={isUploading} totalChunks={totalChunks} user={user}
             orgLevel={inOrg ? currentWs?.level : undefined} terms={inOrg ? orgTerms(currentWs) : undefined} softwareFilter={isSoftware} spaceId={inOrg ? String(currentWorkspaceId) : undefined} />} />}
         {activeTab === 'organization' && <OrgView workspaceId={currentWorkspaceId} docs={documents} onOpenSpace={id => { void openSpace(id); }} onChanged={refreshState} onAsk={() => setActiveTab('orchestration')} />}
-        {activeTab === 'overview' && <OverviewView health={health} userName={user?.full_name} />}
+        {activeTab === 'overview' && <OverviewView health={health} userName={user?.full_name} actions={overviewActions} />}
         {activeTab === 'documents' && <DocumentProfileView key={`doc-${currentWorkspaceId}-${profileSource}`} docs={documents} initialSourceId={profileSource || undefined}
           onAsk={(q, sourceId, sourceName) => { setActiveConversationId(null); setPrefill({ text: q, key: Date.now(), sourceId, sourceName }); setActiveTab('orchestration'); }} />}
         {activeTab === 'library' && <LibraryView docs={documents} onUploadFile={async f => { await handleUpload(f); }}

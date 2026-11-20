@@ -101,28 +101,24 @@ export const ToolkitView: React.FC<{ pack?: string | null; initialTool?: { pack:
     <main className="pg tk tk-home tk-catalog">
       <div className="pg-col">
         <header className="tk-hero"><p className="tk-kicker">Danh mục kỹ năng</p><h1>Kỹ năng theo ngành</h1>
-          <p>{all.length} kỹ năng dùng chung một kho tài liệu. Kỹ năng có nhãn "Trong ô chat" gọi được ngay khi hỏi, hoặc gõ "/" ở Không gian làm việc.</p>
+          <p>{all.length + 1} kỹ năng dùng chung một kho tài liệu, đều có kiểm thử tự động. "Trong chat": gọi được ngay khi hỏi hoặc gõ "/". "Đã thử thật": đã chạy trên giao diện ngày 20/11.</p>
           <div className="tk-filter">
             <nav className="tk-packs" aria-label="Lọc theo ngành">{['all', ...Object.keys(CATEGORY)].map(c => <button key={c} type="button" className={c === cat ? 'is-on' : ''} aria-pressed={c === cat} onClick={() => setCat(c)}>
               {c === 'all' ? 'Tất cả' : CATEGORY[c]} <em>{count(c)}</em></button>)}</nav>
             <label className="lib-find tk-find"><Search size={15} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm kỹ năng…" aria-label="Tìm kỹ năng" /></label>
           </div></header>
         {shown.length === 0 ? <p className="tk-note">Không có kỹ năng nào khớp “{q}”.</p> : <div className="tk-grid">{shown.map((t, i) => (
-          <button key={t.id} className={`tk-card is-${t.pack}`} onClick={() => setOpen({ pack: t.pack, id: t.id })} style={{ animationDelay: `${i * 40}ms` }}>
-            <span className="tk-ico"><t.Icon size={22} /></span>
-            <span className="tk-tags"><i className="tk-cat">{CATEGORY[t.pack]}</i>{IN_CHAT[t.id] && <i className="tk-chat"><MessageCircleQuestion size={12} />Trong ô chat</i>}
-              <i className={RAN.has(t.id) ? 'tk-ran' : 'tk-tested'} title={RAN.has(t.id) ? 'Có kiểm thử tự động và đã chạy thử thật trên giao diện 20/11' : 'Có kiểm thử tự động; chưa chạy lại thật trong đợt 20/11'}>
-                <CheckCircle2 size={12} />{RAN.has(t.id) ? 'Đã chạy thật' : 'Có kiểm thử'}</i></span>
+          <button key={t.id} className={`tk-card tk-card2 is-${t.pack}`} onClick={() => setOpen({ pack: t.pack, id: t.id })} title={`Dùng khi: ${t.when}`} style={{ animationDelay: `${i * 30}ms` }}>
+            <span className="tk-top"><span className="tk-ico"><t.Icon size={20} /></span><i className="tk-cat">{CATEGORY[t.pack]}</i></span>
             <b>{t.title}</b><span className="tk-what">{t.what}</span>
-            <span className="tk-when"><em>Dùng khi</em>{t.when}</span>
-            <span className="tk-go">Mở kỹ năng <ArrowRight size={15} /></span>
+            <span className="tk-foot"><span className="tk-go">Mở <ArrowRight size={14} /></span>
+              {IN_CHAT[t.id] && <i className="tk-chat" title="Gọi được ngay trong ô chat hoặc gõ /"><MessageCircleQuestion size={12} />Trong chat</i>}
+              {RAN.has(t.id) && <i className="tk-ran" title="Đã chạy thử thật trên giao diện 20/11"><CheckCircle2 size={12} />Đã thử thật</i>}</span>
           </button>))}
-          <button className="tk-card is-legal_admin" onClick={() => window.dispatchEvent(new CustomEvent('oq-go', { detail: 'compare' }))}>
-            <span className="tk-ico"><GitCompareArrows size={22} /></span>
-            <span className="tk-tags"><i className="tk-cat">Văn phòng</i><i className="tk-chat"><MessageCircleQuestion size={12} />Trong ô chat</i><i className="tk-ran"><CheckCircle2 size={12} />Đã chạy thật</i></span>
+          <button className="tk-card tk-card2 is-legal_admin" onClick={() => window.dispatchEvent(new CustomEvent('oq-go', { detail: 'compare' }))} title="Dùng khi: có quy chế, quy định, hợp đồng bản mới thay bản cũ">
+            <span className="tk-top"><span className="tk-ico"><GitCompareArrows size={20} /></span><i className="tk-cat">Văn phòng</i></span>
             <b>So sánh phiên bản</b><span className="tk-what">Bản mới khác bản cũ ở Chương, Điều, Khoản nào: thêm, sửa, bỏ, giữ, di chuyển.</span>
-            <span className="tk-when"><em>Dùng khi</em>Có quy chế, quy định, hợp đồng bản mới thay bản cũ.</span>
-            <span className="tk-go">Mở trang So sánh <ArrowRight size={15} /></span>
+            <span className="tk-foot"><span className="tk-go">Mở <ArrowRight size={14} /></span><i className="tk-chat"><MessageCircleQuestion size={12} />Trong chat</i><i className="tk-ran"><CheckCircle2 size={12} />Đã thử thật</i></span>
           </button></div>}
         <p className="tk-note">Kết quả của các kỹ năng kèm trích dẫn đoạn tài liệu gốc; phép so sánh, tính toán và kết luận cuối do luật cố định thực hiện, mô hình chỉ đọc và trích thông tin.</p>
       </div>

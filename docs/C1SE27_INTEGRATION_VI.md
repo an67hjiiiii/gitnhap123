@@ -382,6 +382,15 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Lỗi tìm ra khi đo và đã sửa: bộ nhớ vector của bộ chọn tác tử khóa theo `id()` của phương thức nên gần như luôn trượt, và mỗi lần gọi Ollama tạo kết nối mới (~0,3 giây trên Windows) → phép đo quá 10 phút, câu có nhiều ví dụ chậm. Nay nhớ theo (mô hình, chữ) và dùng lại một kết nối: phép đo còn 6 giây.
 - Kiểm tra: backend 372 đạt; frontend 16 kiểm thử, build đạt.
 
+### Đợt 9: Tổng quan có hành động, rà và làm gọn giao diện theo góp ý chủ dự án
+- Tổng quan có khối "Việc cần làm ngay" (`OverviewActions.tsx`): tiếp tục cuộc trò chuyện gần nhất, cảnh báo kho (vấn đề chất lượng, trùng), đơn chờ bạn duyệt (trong tổ chức), tài liệu mới thay bản cũ chưa xem; mỗi thẻ dẫn tới đúng trang. Số lấy từ máy chủ, không có gì thì nói "không có".
+- Góp ý 20/11 ("ô bộ mẫu rối, thẻ kỹ năng nhiều nhãn, nhiều màu quá, nhìn AI hóa") → làm lại: màn trống chỉ còn một nút chính "Tải tài liệu của bạn lên" và hàng viên "Hoặc thử bộ mẫu"; cột phải lúc kho trống có 3 bước hướng dẫn; thẻ kỹ năng gọn (biểu tượng, ngành, tên, mô tả 2 dòng, chân thẻ "Trong chat" / "Đã thử thật"; "Dùng khi" chuyển vào chú thích khi rê chuột).
+- Bảng màu tiết chế (`styles/calm-2026.css`, nạp cuối): một màu nhấn xanh thương hiệu dùng đặc cho hành động chính và mục đang chọn; biểu tượng điều hướng một sắc trên nền nhạt; ngành của kỹ năng là chữ trung tính; bỏ nút/viên chuyển sắc, chữ tô chuyển sắc ở lời chào, nhãn chữ nhỏ viết hoa đặt trên tiêu đề (ToolHeader, Kỹ năng); màu xanh lá/hổ phách/đỏ chỉ còn cho trạng thái thật (đạt, cảnh báo, lỗi; thêm/bỏ ở So sánh). Robot C27 và nền kính sáng giữ nguyên.
+- Robot C27: trên máy tính đứng cố định góc dưới phải các trang con (trước đó đôi khi đậu đè lên tiêu đề hoặc nút đầu trang); trên điện thoại đậu bên trái cụm nút thanh trên, không hiện bong bóng ở trang con (không đủ chỗ); vùng tìm chỗ trống không gồm thanh trên.
+- Sửa lặt vặt khi rà: tab Kết quả lệch với nội dung; chữ "Bộ công cụ" cũ; trang Tổ chức nút "Tạo tổ chức đầu tiên" lệch trái và chữ "mã mời bên dưới" (ô mã ở phía trên); viên "Tất cả" ở Kỹ năng không thấy trong giao diện tối; biểu tượng điều hướng thành khối trắng ở giao diện tối.
+- Kiểm tra: ảnh mọi trang ở 1440, 768, 390 px, sáng và tối (Playwright), không tràn ngang, không lỗi console; tài khoản quản trị thử xem được nhóm Nghiên cứu và Quản trị; bộ dò thiết kế (impeccable detect) không báo lỗi trên tệp CSS mới. Frontend 16 kiểm thử, build đạt.
+- Giới hạn: các trang cũ (Phòng đánh giá, Thực nghiệm, Cơ sở dữ liệu, cổng quản trị) chỉ đổi theo bảng màu chung, chưa làm lại bố cục; biểu đồ ở Tổng quan vẫn dùng màu theo nhóm (đã kiểm khả năng phân biệt màu từ trước).
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

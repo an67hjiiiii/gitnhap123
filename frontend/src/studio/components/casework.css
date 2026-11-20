@@ -179,3 +179,17 @@
 .st-app[data-theme="dark"] .tk-ran{background:rgba(47,174,116,.16);color:#6ee7b7}
 .st-app[data-theme="dark"] .tk-tested{background:rgba(255,255,255,.06)}
 @media (max-width:640px){.tk-find{min-width:0;width:100%}}
+/* thẻ kỹ năng gọn (20/11): biểu tượng + ngành trên cùng, tên, mô tả 2 dòng, chân thẻ có trạng thái */
+.tk-card2{gap:10px;padding:18px}
+.tk-card2 .tk-top{display:flex;align-items:center;justify-content:space-between}
+.tk-card2 .tk-ico{width:42px;height:42px;border-radius:13px}
+.tk-card2 b{font-size:16px;line-height:1.3}
+.tk-card2 .tk-what{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.9em}
+.tk-card2 .tk-cat{padding:3px 10px;border-radius:999px;font-style:normal;font-size:11.5px;font-weight:700}
+.tk-card2 .tk-foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px;padding-top:10px;border-top:1px solid var(--line)}
+.tk-card2 .tk-go{margin:0 auto 0 0;font-size:13.5px}
+.tk-card2 .tk-chat,.tk-card2 .tk-ran{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-style:normal;font-size:11px;font-weight:700}
+.tk-catalog .tk-hero{display:grid;gap:4px}
+.tk-catalog .tk-grid{grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.tk-card2 .tk-foot{flex-wrap:nowrap}.tk-card2 .tk-chat,.tk-card2 .tk-ran{white-space:nowrap}
+.st-app[data-theme="dark"] .tk-packs button.is-on{background:linear-gradient(135deg,#2a6fd0,#2f93dd);color:#fff;border-color:transparent}

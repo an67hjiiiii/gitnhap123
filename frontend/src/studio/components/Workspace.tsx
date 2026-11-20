@@ -450,9 +450,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
           {open && suggested.length > 0 && <div className="ws-suggest"><p>{freshQ.forId ? 'Bạn có thể hỏi' : 'Gợi ý từ hồ sơ tài liệu'}</p><div>
             {suggested.map(s => <button key={s.question} type="button" title={s.source} onClick={() => { setMode('quick'); setDraft(s.question); inputRef.current?.focus(); }}>{s.question}</button>)}
           </div></div>}
-          {docCount === 0 && onSeed && <div className="ws-empty-kb"><div className="ws-empty-head"><Inbox size={18} /><span>Kho đang trống. Tải tài liệu của bạn lên, hoặc thử với một bộ mẫu theo ngành:</span></div>
-            <div className="ws-packs">{Object.entries(SAMPLE_PACKS).map(([k, p]) => <button key={k} type="button" onClick={() => onSeed(k)} title={p.hint}><b>{p.label}</b><small>{p.hint}</small></button>)}
-              <button type="button" className="is-upload" onClick={() => fileRef.current?.click()}><Upload size={16} /><b>Tải tài liệu lên</b><small>PDF, Word, Excel, ảnh chụp</small></button></div></div>}
+          {docCount === 0 && onSeed && <div className="ws-start" aria-label="Bắt đầu với tài liệu">
+            <button type="button" className="ws-start-up" onClick={() => fileRef.current?.click()}><Upload size={16} />Tải tài liệu của bạn lên</button>
+            <span className="ws-start-packs"><span className="ws-start-or">Hoặc thử bộ mẫu:</span>{Object.entries(SAMPLE_PACKS).map(([k, p]) => <button key={k} type="button" onClick={() => onSeed(k)} title={p.hint}>{p.label}</button>)}</span>
+          </div>}
           {docs.length > 0 && <div className="ws-docs">
             <p>Tài liệu trong không gian <small>Bấm để hỏi về tài liệu</small></p>
             <div className="ws-docs-row">
