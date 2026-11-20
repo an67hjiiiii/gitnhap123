@@ -1,4 +1,5 @@
 from __future__ import annotations
+import threading
 
 import hashlib
 import re
@@ -45,8 +46,20 @@ from app.storage.postgres.models import (
 )
 
 
+_LAST_NOW: datetime | None = None
+_NOW_LOCK = threading.Lock()
+
+
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    """Giờ UTC tăng nghiêm ngặt trong tiến trình: đồng hồ Windows có thể trả cùng giá trị cho hai lần gọi liền nhau,
+    làm hai bản ghi tạo liền nhau (cuộc trò chuyện, tin nhắn) có thứ tự không xác định (kiểm thử chập chờn 20/11)."""
+    global _LAST_NOW
+    with _NOW_LOCK:
+        now = datetime.now(timezone.utc)
+        if _LAST_NOW is not None and now <= _LAST_NOW:
+            now = _LAST_NOW + timedelta(microseconds=1)
+        _LAST_NOW = now
+        return now
 
 
 def _public_user(user: UserRecord) -> dict[str, Any]:

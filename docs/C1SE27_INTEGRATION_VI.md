@@ -337,6 +337,7 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Bộ đo `data/research/retrieval-v1` (40 câu tự soạn trên 7 tài liệu mẫu PayNhanh; id lẻ để chỉnh, id chẵn để kiểm tra; đáp án là dòng nội dung đầu tiên dưới tiêu đề mục, script tự lấy). Script `scripts/research/retrieval_eval.py` dùng đúng hàm truy xuất của hệ thống, kho tạm trong bộ nhớ, mô hình nhúng thật nomic-embed-text; ghi từng câu ra `results-<split>-<ngày>.json`.
 - Kết quả phần kiểm tra (n = 20, top_k = 6, ngưỡng vector 0,18): truy xuất cũ hit@1 0,15 · hit@3 0,35 · hit@6 0,55; truy xuất lai 0,75 · 0,80 · 0,90. Phần kiểm tra chạy hai lần: lần 1 với bản v1, rồi bổ sung luật tên tài liệu và "Danh sách…" dựa trên câu số 1 của phần chỉnh, lần 2 với bản v2; hai lần cho cùng số (giữ cả hai tệp `-v1`). Đây là phép thử kỹ thuật do một người soạn, n nhỏ, một bộ tài liệu, không phải benchmark nghiên cứu.
 - Câu "CSDL gồm những bảng nào?" chạy thật trên giao diện: trả lời đủ 12 bảng, trích đúng đoạn "Danh sách bảng chính" (8,6 giây, 2.149 token). Trước khi sửa: chỉ liệt kê một phần. Trong bộ đo câu này ở hạng 6 (vẫn nằm trong 6 đoạn đưa cho mô hình).
+- Sửa thêm: kiểm thử chập chờn (hai cuộc trò chuyện tạo cùng một thời điểm đồng hồ thì thứ tự không xác định) → `_now()` của kho PostgreSQL tăng nghiêm ngặt trong tiến trình. Backend 354 đạt, chạy 3 lần liên tiếp.
 - Giới hạn: chưa đo trên tài liệu ngành khác (Đợt 7 thêm bộ mẫu); BM25 tính trên toàn bộ đoạn của người dùng mỗi lượt (đủ nhanh với vài nghìn đoạn, kho lớn hơn cần chỉ mục từ khóa riêng).
 
 ## Chưa có hoặc chưa làm
