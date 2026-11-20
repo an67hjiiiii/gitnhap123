@@ -72,7 +72,7 @@
 /* ---------- Thu gọn thành dải biểu tượng (màn rộng) ---------- */
 @media (min-width:1024px){
   .st-app .sb.is-rail{width:78px;padding-left:8px;padding-right:8px}
-  .st-app .sb.is-rail :is(.brand-lockup>span,.sb-ws-name,.sb-ws>svg:last-child,.sb-search span,.sb-search kbd,.sb-link>span:not(.sb-ico),.sb-section,.sb-user-text,.sb-user>svg,.sb-status){display:none}
+  .st-app .sb.is-rail :is(.brand-lockup>span,.sb-ws-name,.sb-ws>svg:last-child,.sb-search span,.sb-search kbd,.sb-link>span:not(.sb-ico):not(.sb-ico2),.sb-section,.sb-user-text,.sb-user>svg,.sb-status){display:none}
   .st-app .sb.is-rail .sb-brand{flex-direction:column;gap:8px;padding:2px 0 12px}
   .st-app .sb.is-rail .sb-logo{flex:none}
   .st-app .sb.is-rail .sb-tools{flex-direction:column}
