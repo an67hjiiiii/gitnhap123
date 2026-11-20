@@ -52,7 +52,8 @@ def test_conditions_are_grounded_and_overall_is_derived():
     assert out["removed"] == 1 and len(verdicts) == 4
     assert verdicts[0] == ("MET", []) and verdicts[1] == ("NOT_MET", [])
     assert verdicts[2] == ("UNKNOWN", ["numbers_not_in_source"])
-    assert verdicts[3] == ("UNKNOWN", ["fact_not_in_case"])
+    # mô hình bịa "rèn luyện 80"; luật cố định đọc đúng tình huống (65 < 70) → Không đạt, vẫn giữ cờ cảnh báo (20/11)
+    assert verdicts[3] == ("NOT_MET", ["fact_not_in_case", "numeric_rule"])
     assert out["overall"] == "NOT_ELIGIBLE" and out["agent"] == "student_affairs"  # "học bổng" thuộc Công tác sinh viên
 
 
@@ -60,7 +61,8 @@ def test_met_without_case_fact_is_unknown_and_no_evidence_short_circuits():
     with use_pack("education"):
         out = asyncio.run(check_conditions(Provider({"note": "", "conditions": [_cond(condition="Điểm trung bình học kỳ từ 3,2")]}),
                                            "Có đủ điều kiện học bổng không?", CASE, [RULE]))
-        assert out["conditions"][0]["flags"] == ["no_case_fact"] and out["overall"] == "INSUFFICIENT_INFO"
+        # mô hình không nêu dữ kiện; luật cố định đọc "3,4" trong tình huống → Đạt (20/11), cờ "no_case_fact" vẫn giữ
+        assert out["conditions"][0]["flags"] == ["no_case_fact", "numeric_rule"] and out["overall"] == "ELIGIBLE"
         empty = asyncio.run(check_conditions(Provider({}), "Có đủ điều kiện không?", CASE, []))
     assert empty["overall"] == "NO_RULE" and empty["conditions"] == []
 
@@ -194,3 +196,28 @@ def test_generic_pairs_do_not_count_as_mentioning():
     from app.analysis.casework import mentions_question
     sec = SourceChunk("s2", "su_co", "su_co.md", "Nhân viên trực ca xác nhận cảnh báo trong 5 phút; 3 lần liên tiếp thất bại thì báo động.", 0)
     assert not mentions_question("Nhân viên làm 2 năm có được nghỉ phép 6 ngày liên tiếp không?", [sec])
+
+
+def test_numeric_verdict_by_fixed_rule():
+    """Thử theo vai 20/11: so con số bằng luật cố định thay vì để mô hình kết luận "chưa rõ"."""
+    from app.analysis.casework import numeric_verdict
+    cond = "Sinh viên được xét học bổng khi điểm trung bình học kỳ từ 3,2 trở lên (thang 4) và điểm rèn luyện từ 70 trở lên."
+    assert numeric_verdict(cond, "Điểm trung bình học kỳ 3,4; điểm rèn luyện 65.") == "NOT_MET"
+    assert numeric_verdict(cond, "Điểm trung bình học kỳ 3,4; điểm rèn luyện 80.") == "MET"
+    assert numeric_verdict(cond, "Điểm trung bình học kỳ 3,4.") is None          # thiếu số rèn luyện: không kết luận
+    assert numeric_verdict("Tạm ứng tối đa 70% dự toán", "Xin tạm ứng 80% dự toán") == "NOT_MET"
+    assert numeric_verdict("Có giấy của cơ sở y tế", "Nghỉ ốm 2 ngày") is None     # không có ngưỡng số
+
+
+def test_check_conditions_overrides_unknown_with_numbers():
+    payload = {"note": "", "conditions": [_cond(condition="Điểm trung bình học kỳ từ 3,2 trở lên và điểm rèn luyện từ 70 trở lên",
+                                                case_fact="", verdict="UNKNOWN")]}
+    with use_pack("education"):
+        out = asyncio.run(check_conditions(Provider(payload), "Có đủ điều kiện học bổng không?", CASE, [RULE]))
+    assert out["overall"] == "NOT_ELIGIBLE" and out["conditions"][0]["verdict"] == "NOT_MET" and "numeric_rule" in out["conditions"][0]["flags"]
+
+
+def test_numeric_verdict_skips_negated_conditions_and_facts():
+    from app.analysis.casework import numeric_verdict
+    assert numeric_verdict("Sinh viên có học phần dưới 5,0 trong học kỳ không được xét học bổng.", "Không có học phần dưới 5.") is None
+    assert numeric_verdict("Học phần đạt khi điểm từ 4,0 trở lên", "Chưa có điểm học phần") is None

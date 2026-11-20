@@ -406,8 +406,11 @@ def compute_pay(rates: dict[str, float | None], employees: list[dict]) -> dict:
 
 # ------------------------------------------------------------------ Nhân sự: cấp duyệt đơn từ
 _DAYS = re.compile(r"(\d+(?:[.,]\d+)?)\s*ngày", re.I)
-_LEVEL_HI = re.compile(r"từ\s+(\d+)\s+ngày\s+trở\s+lên[^;.\n]*?\b(?:do|bởi)\s+([^;.,\n]+?)\s+(?:phê\s+)?duyệt", re.I)
-_LEVEL_LO = re.compile(r"dưới\s+(\d+)\s+ngày[^;.\n]*?\b(?:do|bởi)\s+([^;.,\n]+?)\s+(?:phê\s+)?duyệt", re.I)
+# "từ N ngày trở lên do X duyệt" / "Nghỉ từ N ngày trở lên: X duyệt" / "từ N ngày liên tiếp trở lên phải được X phê duyệt"
+# (thử theo vai 20/11: dạng có dấu hai chấm không được nhận, đơn 4 ngày bị trả về Trưởng phòng thay vì Giám đốc)
+_SEP = r"(?::|\b(?:do|bởi)\b|\bphải\s+được\b)"
+_LEVEL_HI = re.compile(r"từ\s+(\d+)\s+ngày(?:\s+liên\s+tiếp)?\s+trở\s+lên[^;.\n]*?" + _SEP + r"\s*([^;.,:\n]+?)\s+(?:phê\s+)?duyệt", re.I)
+_LEVEL_LO = re.compile(r"dưới\s+(\d+)\s+ngày[^;.\n]*?" + _SEP + r"\s*([^;.,:\n]+?)\s+(?:phê\s+)?duyệt", re.I)
 
 
 def approver_by_days(request: str, text: str) -> str | None:

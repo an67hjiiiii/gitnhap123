@@ -86,6 +86,46 @@ def _text(value: object, limit: int = 400) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+# So con số bằng luật cố định (thử theo vai 20/11: "ĐTB từ 3,2 và rèn luyện từ 70" với tình huống "ĐTB 3,4; rèn luyện 65"
+# bị mô hình kết luận "chưa rõ"). Mỗi vế "<tên> từ N trở lên / dưới N / tối đa N" được so với số đứng sau tên đó trong
+# tình huống. Thiếu số của vế nào thì không kết luận (giữ nhận định của mô hình).
+_CLAUSE_SPLIT = re.compile(r"\s+và\s+|;|,\s+(?=[^\d])")
+_THRESH = re.compile(r"(?P<label>[^\d]{2,60}?)\s+(?P<op>từ|tối thiểu|ít nhất|không dưới|trên|dưới|tối đa|không quá|nhỏ hơn|lớn hơn)\s+(?P<num>\d+(?:[.,]\d+)?)", re.I)
+_OPS = {"từ": ">=", "tối thiểu": ">=", "ít nhất": ">=", "không dưới": ">=", "trên": ">", "lớn hơn": ">",
+        "dưới": "<", "nhỏ hơn": "<", "tối đa": "<=", "không quá": "<="}
+
+
+def _num(v: str) -> float:
+    return float(v.replace(",", "."))
+
+
+def numeric_verdict(condition: str, case: str) -> str | None:
+    from app.retrieval.hybrid import fold
+    folded_case = fold(case)
+    if re.search(r"\bkhong\b|\bchua\b|\bcam\b", fold(condition)):
+        return None  # điều kiện phủ định hoặc loại trừ ("không được xét nếu…"): không so số, giữ nhận định ban đầu
+    results = []
+    for clause in _CLAUSE_SPLIT.split(condition):
+        m = _THRESH.search(clause)
+        if not m:
+            continue
+        words = [w for w in re.findall(r"[a-z]+", fold(m.group("label"))) if len(w) > 1 and w not in {"sinh", "vien", "co", "duoc", "khi", "la", "phai"}]
+        if not words:
+            continue
+        key = r"\s+".join(words[-2:])  # hai chữ cuối của tên tiêu chí ("trung binh", "ren luyen")
+        hit = re.search(key + r"[^\d;]{0,25}?(\d+(?:[.,]\d+)?)", folded_case)
+        if not hit:
+            return None
+        if re.search(r"\b(khong|chua)\b", folded_case[max(0, hit.start() - 20):hit.end()]):
+            return None  # tình huống phủ định ("không có học phần dưới 5"): không đọc thành con số
+        value, target, op = _num(hit.group(1)), _num(m.group("num")), _OPS[m.group("op").lower()]
+        ok = {">=": value >= target, ">": value > target, "<": value < target, "<=": value <= target}[op]
+        results.append(ok)
+    if not results:
+        return None
+    return "MET" if all(results) else "NOT_MET"
+
+
 _SUBJECT = re.compile(r"\b(duoc|dieu kien|tieu chuan|huong|xin)\s+([a-z ]+?)(?=\s+\d|\s+khong\b|\s+(neu|khi|trong|tai)\b|[?.,;]|$)")
 
 
@@ -162,6 +202,11 @@ async def check_conditions(provider, question: str, case: str, evidence: list[So
         obj = _decode(response.text)
         conditions, more, _ = _grounded_conditions(obj, case, evidence)
         removed += more
+    for c in conditions:
+        ruled = numeric_verdict(c["condition"], case)
+        if ruled and ruled != c["verdict"]:  # phép so con số do luật cố định làm, thay nhận định của mô hình
+            c["verdict"], c["flags"] = ruled, [*c["flags"], "numeric_rule"]
+            c["reason"] = (c["reason"] + " " if c["reason"] else "") + "(So con số theo luật cố định.)"
     return {**base, **usage, "conditions": conditions, "removed": removed, "overall": overall_verdict(conditions, removed) if conditions else "UNRESOLVED",  # có đoạn quy định mà không trích được điều kiện
             "note": _text(obj.get("note"), 500), "latency_ms": int((time.perf_counter() - started) * 1000)}
 
