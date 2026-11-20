@@ -74,3 +74,9 @@ def test_compose_requests_are_not_forced_into_lookup_skills():
     assert route_skill("Soạn email nhắc các bước thủ tục nghỉ phép", []) is None
     assert route_skill("Tóm tắt hợp đồng và rà soát hợp đồng", ["contract"]) is None
     assert route_skill("Quy trình xử lý sự cố gồm các bước nào?", [])["skill"] == "procedure"
+
+
+def test_compare_versions_intent():
+    for q in ("So sánh quy chế 2024 với bản 2026", "Bản mới khác gì so với bản cũ?", "Đối chiếu hai phiên bản quy định nghỉ phép"):
+        assert route_skill(q, [])["skill"] == "compare", q
+    assert route_skill("Quy chế có hiệu lực từ ngày nào?", ["regulation"])["skill"] == "validity"

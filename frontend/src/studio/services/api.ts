@@ -838,16 +838,35 @@ export const findApprover = (request: string, sourceIds: string[]) =>
   post<ToolMeasured & { approver: string; rule: string; citation: string | null }>('/studio/tools/approver', { request, source_ids: sourceIds, domain_pack: pk() });
 export const contractCriteria = () => call<{ criteria: TraceRequirement[] }>('/studio/tools/contract-criteria');
 export const contractRisks = (sourceIds: string[]) => post<ToolMeasured & { risks: ContractRisk[]; looks_like_contract: boolean }>('/studio/tools/contract-risks', { source_ids: sourceIds, domain_pack: pk() });
+// ---------------- So sánh phiên bản (Đợt 4): tách Điều/Khoản và phân loại bằng mã, không gọi mô hình
+export type ChangeKind = 'ADDED' | 'MODIFIED' | 'REMOVED' | 'UNCHANGED' | 'MOVED' | 'MOVED_MODIFIED';
+export interface VersionUnit { key: string; number: string; title: string; chapter: string; body: string }
+export interface VersionItem { change: ChangeKind; old: VersionUnit | null; new: VersionUnit | null; similarity?: number; title_changed?: boolean;
+  clauses?: { clause: string; change: 'ADDED' | 'REMOVED' | 'MODIFIED'; old?: string; new?: string }[]; numbers_changed?: string[] }
+export interface VersionCompare { version: string; unit_kind: 'article' | 'heading'; old_units: number; new_units: number; counts: Record<ChangeKind, number>; items: VersionItem[];
+  old: { source_id: string; source_name: string }; new: { source_id: string; source_name: string } }
+export const compareVersions = (oldId: string, newId: string) => post<VersionCompare>('/studio/tools/compare', { old_source_id: oldId, new_source_id: newId });
+/** Cặp bản cũ/bản mới trong các tài liệu: ưu tiên cặp có câu "thay thế <số hiệu>" (đã xác nhận); không có thì đúng hai tài liệu. */
+export async function pickVersionPair(sourceIds: string[]): Promise<{ old: string; new: string; confirmed: boolean } | null> {
+  const v = await documentValidity(sourceIds).catch(() => null);
+  const docs = v?.documents ?? [];
+  for (const d of docs) for (const n of d.replaces) {
+    const old = docs.find(x => x.number === n);
+    if (old) return { old: old.source_id, new: d.source_id, confirmed: true };
+  }
+  return sourceIds.length === 2 ? { old: sourceIds[0], new: sourceIds[1], confirmed: false } : null;
+}
 export const documentValidity = (sourceIds: string[]) => post<{ today: string; documents: DocValidity[] }>('/studio/tools/validity', { source_ids: sourceIds });
 
 // ---------------- Ô chat Tự động (đợt 4, bản làm thử): chọn một kỹ năng khi câu hỏi khớp rõ, không thì để pipeline
-export type SkillKey = 'conditions' | 'procedure' | 'approver' | 'contract_review' | 'validity';
+export type SkillKey = 'conditions' | 'procedure' | 'approver' | 'contract_review' | 'validity' | 'compare';
 export const SKILL_LIST: { key: SkillKey; label: string; hint: string; needs?: string[] }[] = [
   { key: 'conditions', label: 'Kiểm tra điều kiện', hint: 'Một trường hợp có đủ điều kiện theo quy định không' },
   { key: 'procedure', label: 'Quy trình từng bước', hint: 'Các bước, người làm, thời hạn, giấy tờ' },
   { key: 'approver', label: 'Ai duyệt', hint: 'Cấp duyệt theo quy định cho một yêu cầu' },
   { key: 'contract_review', label: 'Rà soát hợp đồng', hint: 'Điều khoản rủi ro kèm nguyên văn', needs: ['contract'] },
   { key: 'validity', label: 'Hiệu lực văn bản', hint: 'Số hiệu, ngày hiệu lực, bị thay thế chưa', needs: ['legal_doc', 'regulation'] },
+  { key: 'compare', label: 'So sánh phiên bản', hint: 'Bản mới khác bản cũ ở Điều, Khoản nào' },
 ];
 export type SkillRoute = { route: 'pipeline' } | { route: 'skill'; skill: SkillKey; label: string; reason: string; source_ids: string[] }
   | { route: 'clarify'; question: string; options: { agent: string; label: string }[] };  // hỏi lại khi mơ hồ (mục 3.4)
@@ -856,7 +875,8 @@ export type SkillOutput =
   | { skill: 'procedure'; data: ProcedureResult }
   | { skill: 'approver'; data: Awaited<ReturnType<typeof findApprover>> }
   | { skill: 'contract_review'; data: Awaited<ReturnType<typeof contractRisks>> }
-  | { skill: 'validity'; data: Awaited<ReturnType<typeof documentValidity>> };
+  | { skill: 'validity'; data: Awaited<ReturnType<typeof documentValidity>> }
+  | { skill: 'compare'; data: VersionCompare };
 
 /** Phạm vi tài liệu của một câu hỏi: tài liệu chọn riêng, hoặc tài liệu của không gian cá nhân đang mở (tổ chức: backend tự lọc). */
 export async function chatScope(ws?: WorkspaceId, only?: string[]): Promise<string[] | undefined> {
@@ -872,6 +892,11 @@ export async function runSkill(skill: SkillKey, message: string, sourceIds: stri
     case 'approver': return { skill, data: await findApprover(message, sourceIds) };
     case 'contract_review': return { skill, data: await contractRisks(sourceIds) };
     case 'validity': return { skill, data: await documentValidity(sourceIds) };
+    case 'compare': {
+      const pair = await pickVersionPair(sourceIds);
+      if (!pair) throw new Error('Chọn đúng hai tài liệu (bản cũ và bản mới) trong Phạm vi hỏi ở cột phải, hoặc mở trang So sánh phiên bản.');
+      return { skill, data: await compareVersions(pair.old, pair.new) };
+    }
   }
 }
 

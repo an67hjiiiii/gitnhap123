@@ -340,6 +340,15 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Sửa thêm: kiểm thử chập chờn (hai cuộc trò chuyện tạo cùng một thời điểm đồng hồ thì thứ tự không xác định) → `_now()` của kho PostgreSQL tăng nghiêm ngặt trong tiến trình. Backend 354 đạt, chạy 3 lần liên tiếp.
 - Giới hạn: chưa đo trên tài liệu ngành khác (Đợt 7 thêm bộ mẫu); BM25 tính trên toàn bộ đoạn của người dùng mỗi lượt (đủ nhanh với vài nghìn đoạn, kho lớn hơn cần chỉ mục từ khóa riêng).
 
+### Đợt 4: So sánh phiên bản
+- Backend `app/analysis/versions.py` (chỉ mã, difflib, không gọi mô hình): tách Chương/Điều/Khoản (văn bản không có "Điều" thì theo tiêu đề mục), ghép hai bản theo số và độ giống tiêu đề/nội dung, phân loại Thêm/Sửa/Bỏ/Giữ/Di chuyển/Di chuyển và sửa; mục sửa liệt kê khoản thêm/bỏ/sửa và con số thay đổi (đổi một con số như 12 → 14 ngày luôn tính là sửa). API `POST /api/studio/tools/compare` kiểm quyền như các công cụ khác (tài liệu ngoài phạm vi trả 404).
+- Trang So sánh phiên bản (`CompareView.tsx`): chọn bản cũ/bản mới, cặp gợi ý từ câu "thay thế <số hiệu>" (luật hiệu lực văn bản), cảnh báo khi cặp chưa xác nhận, ô số theo loại thay đổi để lọc, bảng song song có tô chữ thêm/bỏ, mở toàn văn từng bản, xuất Word và Excel (.csv có BOM, không thêm thư viện), lưu vào Kết quả.
+- Kỹ năng "So sánh phiên bản" trong ô chat (định tuyến theo ý định, chọn cặp đã xác nhận hoặc đúng hai tài liệu trong phạm vi): thẻ tóm tắt chỉ từ các mục đã đối chiếu, nút "Mở bảng chi tiết" mở trang So sánh với đúng cặp.
+- Tài liệu mẫu tự viết: `frontend/public/samples/mau/Quy_che_lam_viec_2024_MAU.md` và `..._2026_MAU.md` (ghi rõ là mẫu, công ty giả định). Chạy thật: 1 thêm (Điều 6 Làm việc từ xa), 3 sửa, 1 di chuyển và sửa (Công tác phí Điều 6 → 7, đổi mức tiền), 1 bỏ (Khen thưởng), 3 giữ; cặp được gợi ý và xác nhận.
+- Sửa thêm: Robot C27 trên điện thoại đậu bên trái cụm nút thanh trên (trước đó che ảnh đại diện).
+- Kiểm tra: backend 360 đạt (`test_versions.py`, ý định so sánh trong `test_skill_router.py`); frontend 15 kiểm thử (`compareText.test.mjs`), build đạt; ảnh 1440 sáng, 390 tối, không tràn ngang.
+- Giới hạn: chưa so bảng biểu bên trong Điều; văn bản scan cần OCR trước; độ giống dùng ngưỡng cố định (0,6 tiêu đề, 0,55 nội dung), chưa đo trên văn bản thật của khách.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.
