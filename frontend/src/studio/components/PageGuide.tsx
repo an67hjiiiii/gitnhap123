@@ -71,7 +71,11 @@ function paints(n: Element): boolean {
 function scan() {
   const host = document.querySelector('.st-main');
   if (!host) return null;
-  const main = host.getBoundingClientRect();
+  // vùng trang không gồm thanh trên cùng (khung mới 20/11): robot không đậu đè lên tên trang và các nút
+  const r0 = host.getBoundingClientRect();
+  const tb = host.querySelector('.st-topbar')?.getBoundingClientRect();
+  const top = tb && window.innerWidth >= 640 ? Math.max(r0.top, tb.bottom + 6) : r0.top;
+  const main = { left: r0.left, right: r0.right, width: r0.width, top, bottom: r0.bottom };
   const bottom = Math.min(main.bottom, window.innerHeight);
   const cols = Math.max(1, Math.ceil(main.width / CELL));
   const rows = Math.max(1, Math.ceil((bottom - main.top) / CELL));
@@ -170,7 +174,13 @@ function findSpot({ main, bottom, rank }: ScanMap): Spot & { score: number } {
 
 /** Điện thoại: trang kín hết chiều ngang nên robot đậu cố định ở đầu phải thanh trên cùng; bong bóng hiện bên dưới vài giây rồi ẩn. */
 function dockSpot(): Spot | null {
-  if (window.innerWidth >= 640) return null;
+  if (window.innerWidth >= 640) {
+    // máy tính (20/11): đứng cố định góc dưới phải vùng trang như trợ lý nổi; tìm chỗ trống giữa nội dung hay đậu chồng
+    // lên nút ở đầu trang. Bong bóng hiện ngang bên trái robot.
+    const host = document.querySelector('.st-main')?.getBoundingClientRect();
+    if (!host) return null;
+    return { x: host.right - BOT - 18, y: Math.min(host.bottom, window.innerHeight) - BOT - 18, side: 'left', vert: 'mid' };
+  }
   const bar = document.querySelector('.st-topbar')?.getBoundingClientRect();
   if (!bar || !bar.height) return null;
   // đậu ngay bên trái cụm nút (không che ảnh đại diện); CSS chừa sẵn chỗ ở cuối tên trang

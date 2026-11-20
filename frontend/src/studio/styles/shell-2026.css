@@ -219,20 +219,46 @@
 .st-app .skc-cite{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 10px;border-radius:999px;font-family:inherit!important;font-size:12px;font-weight:600;
   border:1px solid color-mix(in srgb,var(--accent) 22%,transparent)!important;background:var(--accent-soft)!important;color:var(--accent)!important;box-shadow:none!important}
 .st-app[data-theme="dark"] .skc-cite,.st-app[data-theme="dark"] .cht-cites button{background:rgba(127,211,255,.1)!important;color:#9fd8ff!important;border-color:rgba(127,211,255,.22)!important}
-@media (max-width:639px){.st-app .tb-page{margin-right:44px}}  /* chỗ đậu của Robot C27 trên điện thoại */
-/* chọn bộ tài liệu mẫu theo ngành (Đợt 7) */
-.st-app .ws-empty-kb:has(.ws-packs){display:grid;gap:10px;justify-items:stretch;width:min(780px,100%);padding:14px;text-align:left}
-.st-app .ws-empty-head{display:flex;align-items:center;gap:8px;font-size:13.5px}
-.st-app .ws-packs{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
-.st-app .ws-packs button{display:grid;gap:2px;min-height:64px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--glass-strong);text-align:left;transition:border-color .15s,transform .15s var(--ease)}
-.st-app .ws-packs button:hover{border-color:var(--accent);transform:translateY(-1px)}
-.st-app .ws-packs b{font-size:13.5px;color:var(--ink)}
-.st-app .ws-packs small{font-size:11.5px;color:var(--muted);line-height:1.35}
-.st-app .ws-packs .is-upload{grid-template-columns:auto 1fr;column-gap:8px;align-items:center;border-style:dashed}
-.st-app .ws-packs .is-upload svg{grid-row:span 2;color:var(--accent)}
-.st-app[data-theme="dark"] .ws-packs button{background:rgba(255,255,255,.05)}
+@media (max-width:639px){.st-app .st-topbar:not(.is-home) .tb-page{margin-right:44px}}  /* chỗ đậu của Robot C27 trên điện thoại */
+/* bắt đầu với tài liệu (Đợt 7, làm gọn 20/11): một hàng: nút chính tải lên + viên bộ mẫu theo ngành */
+.st-app .ws-start{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px 12px;margin-top:4px}
+.st-app .ws-start-up{display:inline-flex;align-items:center;gap:8px;min-height:42px;padding:0 18px;border:0;border-radius:999px;background:linear-gradient(135deg,#1d66c9,#2a7fdb 60%,#3aa3e6);color:#fff;font-weight:650;font-size:14px;box-shadow:0 10px 22px -12px rgba(29,102,201,.8);transition:transform .15s var(--ease)}
+.st-app .ws-start-up:hover{transform:translateY(-1px)}
+.st-app .ws-start-or{font-size:13px;color:var(--muted)}
+.st-app .ws-start-packs{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
+.st-app .ws-start-packs button{min-height:36px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--glass-strong);font-size:13px;font-weight:600;color:var(--ink);transition:border-color .15s,color .15s,background .15s}
+.st-app .ws-start-packs button:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.st-app[data-theme="dark"] .ws-start-packs button{background:rgba(255,255,255,.05)}
 .st-app .ws-reask{position:relative;display:inline-flex}
 .st-app .ws-reask-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;display:grid;gap:2px;min-width:280px;padding:6px;border:1px solid var(--line);border-radius:14px;background:var(--glass-strong);box-shadow:var(--sh-3)}
 .st-app[data-theme="dark"] .ws-reask-menu{background:rgba(16,26,44,.97)}
 .st-app .ws-next .ws-reask-menu button{justify-content:flex-start;border:0;border-radius:10px;background:transparent;min-height:36px;text-align:left}
 .st-app .ws-next .ws-reask-menu button:hover{background:var(--accent-soft)}
+/* Tổng quan: việc cần làm ngay (Đợt 9) */
+.st-app .ova{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.st-app .ova-card{--a:#1d66c9;--b:rgba(29,102,201,.09);display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr auto;column-gap:10px;row-gap:6px;padding:14px 16px;border:1px solid var(--glass-edge);border-radius:18px;background:var(--glass-strong);text-align:left;box-shadow:var(--sh-1);transition:transform .15s var(--ease),box-shadow .15s}
+.st-app .ova-card:hover{transform:translateY(-2px);box-shadow:var(--sh-2)}
+.st-app[data-theme="dark"] .ova-card{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.08)}
+.st-app .ova-card.is-amber{--a:#b7791f;--b:rgba(224,160,32,.13)} .st-app .ova-card.is-violet{--a:#7c3aed;--b:rgba(124,58,237,.1)}
+.st-app .ova-card.is-teal{--a:#0f8f86;--b:rgba(15,143,134,.11)} .st-app .ova-card.is-green{--a:#167a50;--b:rgba(47,174,116,.1)}
+.st-app[data-theme="dark"] .ova-card.is-blue{--a:#8fd0ff} .st-app[data-theme="dark"] .ova-card.is-amber{--a:#fcd34d} .st-app[data-theme="dark"] .ova-card.is-violet{--a:#c4b5fd}
+.st-app[data-theme="dark"] .ova-card.is-teal{--a:#5eead4} .st-app[data-theme="dark"] .ova-card.is-green{--a:#6ee7b7}
+.st-app .ova-ico{grid-row:span 1;display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:var(--b);color:var(--a)}
+.st-app .ova-card b{align-self:center;font-size:14.5px;color:var(--ink)}
+.st-app .ova-body{grid-column:1/-1;font-size:13px;color:var(--text);line-height:1.5}
+.st-app .ova-cta{grid-column:1/-1;display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;color:var(--a)}
+.st-app .ova-card.is-quiet{opacity:.82}
+.st-app .ova-card{background:linear-gradient(135deg,var(--b),transparent 55%),var(--glass-strong)}
+.st-app[data-theme="dark"] .ova-card{background:linear-gradient(135deg,var(--b),transparent 55%),rgba(255,255,255,.04)}
+.st-app .ova-body{font-size:13.5px}
+.st-app .ws-start{flex-direction:column}
+.st-app .ws-start-packs{align-items:center}
+.st-app .ws-start-or{margin-right:2px}
+.st-app .wc-guide{list-style:none;margin:0;padding:0;display:grid;gap:10px;counter-reset:g}
+.st-app .wc-guide li{position:relative;display:grid;gap:2px;padding-left:34px;counter-increment:g}
+.st-app .wc-guide li::before{content:counter(g);position:absolute;left:0;top:0;display:grid;place-items:center;width:24px;height:24px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:800}
+.st-app .wc-guide b{font-size:13.5px;color:var(--ink)}
+.st-app .wc-guide small{font-size:12.5px;color:var(--muted);line-height:1.45}
+/* điện thoại: không hiện bong bóng lời Robot C27 ở các trang con (không đủ chỗ, che tab); Robot vẫn đứng ở thanh trên */
+@media (max-width:639px){.st-app .pgd-say{display:none!important}}
+.st-app .og-first{justify-self:center;align-self:center;margin:4px auto 0}

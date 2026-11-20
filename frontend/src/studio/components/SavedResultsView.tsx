@@ -31,7 +31,7 @@ const KINDS: Record<string, { label: string; tab?: NavigationTab; hue: string }>
 const MAKERS: { tab: NavigationTab; title: string; desc: string; Icon: typeof FileSearch }[] = [
   { tab: 'documents', title: 'Lập hồ sơ tài liệu', desc: 'Tóm tắt, thuật ngữ, sơ đồ tư duy', Icon: FileSearch },
   { tab: 'consistency', title: 'Kiểm tra mâu thuẫn', desc: 'Câu trái nhau giữa các tài liệu', Icon: GitCompareArrows },
-  { tab: 'toolkit', title: 'Bộ công cụ', desc: 'Rà soát, gói thiết kế, đơn từ…', Icon: Wrench },
+  { tab: 'toolkit', title: 'Kỹ năng', desc: 'Rà soát, gói thiết kế, câu hỏi ôn tập…', Icon: Wrench },
   { tab: 'evaluation', title: 'Phòng đánh giá', desc: 'So sánh cách trả lời trên bộ câu hỏi', Icon: ClipboardCheck },
 ];
 const when = (r: SavedReport) => new Date(r.updated_at ?? r.created_at);

@@ -70,7 +70,11 @@ export const WorkspaceContext: React.FC<Props> = ({ tab, onTab, docs, picked, on
             <section className="wc-card" aria-label="Phạm vi hỏi">
               <header><span className="wc-ico"><Layers size={15} /></span><span className="wc-h"><small>Phạm vi hỏi</small><b>{all ? `Cả không gian · ${docs.length} tài liệu` : `${picked.length}/${docs.length} tài liệu được chọn`}</b></span>
                 {!all && <button className="dp-link" onClick={() => onPick([])}>Chọn tất cả</button>}</header>
-              {docs.length === 0 ? <p className="wc-empty">Chưa có tài liệu. Tải lên ở mục bên dưới hoặc nạp bộ mẫu.</p> :
+              {docs.length === 0 ? <ol className="wc-guide">
+                  <li><b>Tải tài liệu lên</b><small>PDF, Word, Excel, ảnh chụp; hoặc nạp một bộ mẫu ở giữa màn hình.</small></li>
+                  <li><b>Chọn tài liệu để hỏi</b><small>Danh sách hiện ở đây; bỏ chọn tài liệu không muốn dùng.</small></li>
+                  <li><b>Bấm nguồn trong câu trả lời</b><small>Đoạn gốc mở ở cột này, từ khóa được tô.</small></li>
+                </ol> :
                 <ul className="wc-docs">{docs.map(d => {
                   const id = String(d.id ?? ''), on = all || picked.includes(id), v = validity[id];
                   return <li key={id}><label className={on ? 'is-on' : ''}>

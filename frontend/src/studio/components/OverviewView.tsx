@@ -87,7 +87,7 @@ function smoothPath(pts: [number, number][]): string {
 // Số liệu nhớ trong phiên: quay lại trang Tổng quan hiện ngay bản gần nhất rồi tải mới ở nền.
 let cache: { data: Overview; at: number } | null = null;
 
-const OverviewViewImpl: React.FC<{ health?: HealthResponse | null; userName?: string }> = ({ health, userName }) => {
+const OverviewViewImpl: React.FC<{ health?: HealthResponse | null; userName?: string; actions?: React.ReactNode }> = ({ health, userName, actions }) => {
   const [data, setData] = useState<Overview | null>(cache?.data ?? null);
   const [at, setAt] = useState<number | null>(cache?.at ?? null);
   const [range, setRange] = useState<7 | 14>(14);
@@ -121,6 +121,7 @@ const OverviewViewImpl: React.FC<{ health?: HealthResponse | null; userName?: st
             <button className="btn btn-ghost" onClick={refresh} disabled={busy}>{busy ? <span className="spin is-dark" /> : <RefreshCw size={15} />}Làm mới</button>
             {at && <span className="ov-updated" aria-live="polite">Cập nhật lúc {tfmt.format(at)}</span>}
           </div>} />
+        {actions}
         {error && <p className="note is-error" role="alert">{error}</p>}
         {!data ? (busy ? <p className="muted-line"><span className="spin is-dark" />Đang tải số liệu…</p> : null) : <>
           <div className="dp-kpis is-6 ov-kpis">
@@ -202,7 +203,7 @@ const OverviewViewImpl: React.FC<{ health?: HealthResponse | null; userName?: st
 
 // Trang chỉ vẽ lại khi các trường sức khỏe nó hiển thị thay đổi (App làm mới sức khỏe mỗi 15 giây với object mới).
 export const OverviewView = React.memo(OverviewViewImpl, (a, b) =>
-  a.userName === b.userName && a.health?.ollama_status === b.health?.ollama_status && a.health?.ollama_model === b.health?.ollama_model && a.health?.database_type === b.health?.database_type);
+  a.userName === b.userName && a.actions === b.actions && a.health?.ollama_status === b.health?.ollama_status && a.health?.ollama_model === b.health?.ollama_model && a.health?.database_type === b.health?.database_type);
 
 /** Thẻ chỉ số: nhãn kèm biểu tượng, số lớn, huy hiệu ngữ cảnh; vòng tỉ lệ (nếu có) ở góc phải. */
 function Kpi({ I, label, value, unit, ctx, ring, extra }: { I: LucideIcon; label: string; value: React.ReactNode; unit?: string; ctx: string; ring?: { value: number | null; color: string }; extra?: React.ReactNode }) {

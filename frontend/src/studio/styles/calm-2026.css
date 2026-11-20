@@ -1,0 +1,89 @@
+/* Bảng màu tiết chế (20/11, theo góp ý chủ dự án "nhiều màu quá, nhìn AI hóa"). Nạp sau cùng.
+   Một màu nhấn: xanh thương hiệu #1d66c9, dùng đặc (không chuyển sắc) cho hành động chính và mục đang chọn.
+   Còn lại là trung tính ánh xanh (slate). Màu trạng thái (xanh lá, hổ phách, đỏ) chỉ dùng cho trạng thái thật.
+   Bỏ: ô biểu tượng nhiều màu, nút/viên chuyển sắc, chữ tô chuyển sắc, nhãn chữ nhỏ viết hoa đặt trên tiêu đề. */
+.st-app{
+  --accent:#1d66c9;--accent-strong:#1857ab;--accent-soft:rgba(29,102,201,.08);
+  --tile:#edf1f6;--glyph:#4f6078;--glyph2:#a3b1c3;
+  --calm-shadow:0 1px 2px rgba(15,27,43,.05),0 8px 20px -14px rgba(15,27,43,.25);
+}
+.st-app[data-theme="dark"]{--accent:#4c8fe6;--accent-strong:#6aa3ee;--accent-soft:rgba(76,143,230,.14);--tile:rgba(255,255,255,.07);--glyph:#c4d0df;--glyph2:rgba(196,208,223,.45)}
+
+/* ---- biểu tượng điều hướng: một sắc, nền nhạt; mục đang chọn chữ và biểu tượng trắng trên viên xanh đặc ---- */
+.st-app .sb .sb-ico,.st-app .tb-page .sb-ico{background:var(--tile)!important;box-shadow:none!important;--c2:var(--tile)}
+.st-app .sb .sb-ico::before,.st-app .tb-page .sb-ico::before{display:none}
+.st-app .sb .sb-link .sb-ico svg,.st-app .tb-page .sb-ico svg{color:var(--glyph)!important;filter:none!important}
+.st-app .sb-ico .ni .w{fill:var(--glyph)}
+.st-app .sb-ico .ni .w2{fill:var(--glyph2)}
+.st-app .sb-ico .ni .d{fill:var(--tile)}
+.st-app .sb-ico .ni .ds{stroke:var(--tile)}
+.st-app .sb .sb-link:hover .sb-ico{transform:none;box-shadow:none}
+.st-app .sb .sb-link.is-on .sb-ico{--tile:rgba(255,255,255,.16);--glyph:#fff;--glyph2:rgba(255,255,255,.6);box-shadow:none!important}
+.st-app .sb .sb-link.is-on .sb-ico .ni .d{fill:var(--accent)}
+.st-app .sb .sb-link.is-on .sb-ico .ni .ds{stroke:var(--accent)}
+.st-app .sb-nav-only .sb-glide{background:var(--accent)!important;box-shadow:0 6px 16px -8px rgba(29,102,201,.6)!important}
+.st-app .sb.sb-nav-only .sb-link.is-on .sb-ico{box-shadow:none!important}
+.st-app .sb .sb-group{color:var(--muted)}
+.st-app .sb .sb-group::after{background:var(--line)}
+
+/* ---- khối Kho tri thức, chọn không gian: phẳng, một sắc ---- */
+.st-app .sb-kb{background:var(--accent-soft);border-color:rgba(29,102,201,.12)}
+.st-app .sb-kb::after{display:none}
+.st-app .sb-kb-head b{color:var(--ink)}
+.st-app .tb-ws-mark,.st-app .wsp-hue{background:var(--accent)!important;background-image:none!important}
+.st-app .wsp-hue.is-org{background:#334155!important}
+.st-app .tb-ws-text small{letter-spacing:0;text-transform:none;font-size:11.5px;font-weight:600}
+
+/* ---- hành động chính: xanh đặc, không chuyển sắc ---- */
+.st-app .ws-start-up,.st-app .rh-tabs [role="tab"].is-on,.st-app .send:not(:disabled){background:var(--accent)!important;background-image:none!important;box-shadow:0 6px 14px -8px rgba(29,102,201,.55)!important}
+.st-app .ws-start-up:hover,.st-app .send:not(:disabled):hover{background:var(--accent-strong)!important}
+.st-app .tk-packs button.is-on,.st-app[data-theme="dark"] .tk-packs button.is-on{background:var(--ink);color:#fff;border-color:var(--ink);background-image:none}
+.st-app[data-theme="dark"] .tk-packs button.is-on{background:#e6edf6;color:#0f1b2b;border-color:#e6edf6}
+
+/* ---- chữ: một màu cho tiêu đề; bỏ nhãn chữ nhỏ viết hoa trên tiêu đề ---- */
+.st-app .ws-hero h1 span{background:none;-webkit-background-clip:border-box;background-clip:border-box;color:var(--accent)}
+.st-app .tl-kicker,.st-app .tk-kicker{display:none!important}
+.st-app .wc-h small,.st-app .ws-next>span,.st-app .rh-h{letter-spacing:0;text-transform:none;font-size:12px;font-weight:600;color:var(--muted)}
+
+/* ---- Kỹ năng: một màu nhấn cho mọi ngành; ngành là chữ trung tính ---- */
+.st-app .tk-card,.st-app .tk-card2,.st-app .tk.is-education,.st-app .tk.is-business_hr,.st-app .tk.is-legal_admin,.st-app .tk.is-software,.st-app .tk.is-general{--tk-a:var(--accent);--tk-b:var(--accent-soft)}
+.st-app .tk-hero{background:var(--glass);border-color:var(--glass-edge)}
+.st-app .tk-cat{background:var(--tile)!important;color:var(--glyph)!important}
+.st-app .tk-card2 .tk-chat{background:var(--accent-soft);color:var(--accent)}
+.st-app .tk-card2 .tk-ran{background:transparent;color:var(--ok-ink,#167a50);padding-left:0;padding-right:0}
+.st-app[data-theme="dark"] .tk-card2 .tk-ran{color:#7dd3a8}
+.st-app .tk-card2{box-shadow:var(--calm-shadow)}
+.st-app .tk-card2:hover{box-shadow:0 2px 4px rgba(15,27,43,.05),0 14px 28px -16px rgba(15,27,43,.3)}
+
+/* ---- Tổng quan, Cần xem xét, cột phải: biểu tượng một sắc; chỉ cảnh báo thật mới có màu hổ phách ---- */
+.st-app .ova-card,.st-app .ova-card.is-violet,.st-app .ova-card.is-teal,.st-app .ova-card.is-green,.st-app .ova-card.is-blue{--a:var(--accent);--b:var(--accent-soft)}
+.st-app .ova-card,.st-app[data-theme="dark"] .ova-card{background:var(--glass-strong);box-shadow:var(--calm-shadow)}
+.st-app[data-theme="dark"] .ova-card{background:rgba(255,255,255,.04)}
+.st-app .ova-card.is-amber .ova-cta{color:var(--accent)}
+.st-app .ova-card.is-quiet .ova-ico{background:var(--tile);color:var(--glyph)}
+.st-app .ova-card.is-quiet{opacity:1}
+.st-app .rh-item .rh-ico,.st-app .rh-item.is-approval .rh-ico,.st-app .rh-item.is-watch .rh-ico{background:var(--accent-soft);color:var(--accent)}
+.st-app .rh-tabs em{background:var(--tile);color:var(--ink)}
+.st-app .wc-ico,.st-app .wc-ico.is-violet{background:var(--tile);color:var(--glyph)}
+.st-app .wc-skills button:hover,.st-app .ws-skillbtn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.st-app .wc-agents span{background:var(--tile);color:var(--ink)}
+.st-app .cv-pairs svg{color:var(--accent)}
+.st-app .cv-pairs button{border-color:rgba(29,102,201,.25);background:var(--accent-soft);color:var(--accent)}
+.st-app .cv-stat.is-info b,.st-app .cv-stat.is-warn b{color:var(--ink)}
+.st-app .lib-health-stats .is-info b,.st-app .lib-health-stats .is-ok b{color:var(--ink)}
+.st-app .ws-stepbar li{background:var(--tile);color:var(--glyph)}
+.st-app .ws-stepbar li.is-now{background:var(--accent-soft);color:var(--accent)}
+.st-app .wc-steps.is-done li::before{background:var(--tile);color:var(--glyph)}
+
+/* ---- nền: giữ kính sáng nhưng dịu hơn ---- */
+.st-app .st-aurora{opacity:.55}
+
+/* chế độ tối: nền ô biểu tượng phải đặc để các nét chi tiết (đục lỗ) không biến mất thành khối trắng */
+.st-app[data-theme="dark"]{--tile:#1c2a40;--glyph:#c4d0df;--glyph2:#6f8199}
+.st-app[data-theme="dark"] .sb .sb-link.is-on .sb-ico{--tile:rgba(255,255,255,.16)}
+.st-app[data-theme="dark"] .ova-card.is-green,.st-app[data-theme="dark"] .ova-card.is-blue,.st-app[data-theme="dark"] .ova-card.is-teal,
+.st-app[data-theme="dark"] .ova-card.is-violet,.st-app[data-theme="dark"] .ova-card.is-amber{--a:var(--accent);--b:var(--accent-soft)}
+/* thẻ số chính ở Tổng quan: xanh đặc thay vì chuyển sắc và hoa văn */
+.st-app .ov-lead{background:var(--accent)!important;background-image:none!important}
+.st-app .ov-lead::before,.st-app .ov-lead::after{display:none!important}
+.st-app[data-theme="dark"] .ov-lead{background:#1d5bb3!important}
