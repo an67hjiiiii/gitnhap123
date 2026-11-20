@@ -54,12 +54,15 @@ interface TopbarProps {
   /** nội dung ngăn kéo Lịch sử trò chuyện */
   history?: React.ReactNode;
   historyOpen: boolean;
+  /** vị trí đặt (20/11: bỏ thanh trên): 'top' = chọn không gian ở đầu thanh bên; 'bottom' = tài khoản, lịch sử,
+   *  thông báo, trợ giúp ở chân thanh bên; 'mobile' = dải mỏng trên điện thoại (nút menu, tên trang, lịch sử) */
+  slot: 'top' | 'bottom' | 'mobile';
   onHistoryOpen: (open: boolean) => void;
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
   activeTab, onTabChange, user, workspaces, currentWorkspaceId, onWorkspaceChange, onCreateWorkspace, onDeleteWorkspace, onLogout, onUserChange,
-  theme = 'light', onThemeChange, onOpenPalette, onOpenMenu, menuOpen, onOrgChanged, history, historyOpen, onHistoryOpen,
+  theme = 'light', onThemeChange, onOpenPalette, onOpenMenu, menuOpen, onOrgChanged, history, historyOpen, onHistoryOpen, slot,
 }) => {
   const [menu, setMenu] = useState<'ws' | 'profile' | 'notif' | 'help' | null>(null);
   const closeMenu = React.useCallback(() => setMenu(null), []);
@@ -69,6 +72,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   const profileRef = useDismiss(menu === 'profile', closeMenu);
   const [avatarOpen, setAvatarOpen] = useState(false);
   useEffect(() => {
+    if (slot !== 'bottom') return;
     const open = () => setAvatarOpen(true);  // trang Cài đặt mở hộp đổi ảnh đại diện
     window.addEventListener('oq-open-avatar', open);
     return () => window.removeEventListener('oq-open-avatar', open);
@@ -103,7 +107,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   const [notes, setNotes] = useState<ActivityRow[]>([]);
   const [seenAt, setSeenAt] = useState(() => { try { return localStorage.getItem('orchestriq-notif-seen') || ''; } catch { return ''; } });
   useEffect(() => {
-    if (!user) return;
+    if (!user || slot !== 'bottom') return;
     let alive = true;
     const load = () => getActivity(8).then(r => alive && setNotes(r)).catch(() => undefined);
     load(); const t = window.setInterval(() => { if (!document.hidden) load(); }, 60000);
@@ -116,7 +120,7 @@ export const Topbar: React.FC<TopbarProps> = ({
     setOrgNotes(r.items.slice(0, 8)); setOrgUnread(r.unread); setOpenInvites(new Set(inv.map(i => i.invite_id)));
   }).catch(() => undefined);
   useEffect(() => {
-    if (!user) return;
+    if (!user || slot !== 'bottom') return;
     void loadOrg(); const t = window.setInterval(() => { if (!document.hidden) void loadOrg(); }, 30000);
     return () => window.clearInterval(t);
   }, [user?.username]);
@@ -144,14 +148,14 @@ export const Topbar: React.FC<TopbarProps> = ({
 
   return (
     <>
-      <header className={`st-topbar${activeTab === 'orchestration' ? ' is-home' : ''}`} aria-label="Thanh trên cùng">
+      {slot === 'mobile' && <header className="st-mobilehead" aria-label="Thanh trên cùng (điện thoại)">
         <button className="tb-btn tb-menu" onClick={onOpenMenu} aria-label="Mở thanh điều hướng" aria-expanded={!!menuOpen}><Menu size={20} /></button>
-        <div className="tb-page">
-          {NAV_ICONS[ICON_OF[activeTab] ?? activeTab] && <span className="sb-ico" data-tone={ICON_OF[activeTab] ?? activeTab} aria-hidden="true">{NAV_ICONS[ICON_OF[activeTab] ?? activeTab]}</span>}
-          <div className="tb-title"><h1>{meta.title}</h1>{meta.desc && <p>{meta.desc}</p>}</div>
-        </div>
+        <b className="mh-title">{meta.title}</b>
+          {user && history && <button ref={histBtn} className={`tb-btn${historyOpen ? ' is-on' : ''}`} onClick={() => onHistoryOpen(!historyOpen)} aria-expanded={historyOpen} aria-controls="tb-history" aria-label="Lịch sử trò chuyện" title="Lịch sử trò chuyện">
+            <History size={18} /></button>}
 
-        <div className="tb-actions">
+      </header>}
+      {slot === 'top' && <div className="sb-wsbox">
           {user && <div className="tb-pop" ref={wsRef}>
             <button className="tb-ws" onClick={() => setMenu(menu === 'ws' ? null : 'ws')} aria-expanded={menu === 'ws'} aria-haspopup="menu" title="Chuyển không gian làm việc">
               {current ? <WsTile ws={current} className="tb-ws-mark" variant={wsVariant.get(current.id)} /> : <span className="tb-ws-mark">?</span>}
@@ -197,6 +201,28 @@ export const Topbar: React.FC<TopbarProps> = ({
             })()}
           </div>}
 
+      </div>}
+      {slot === 'bottom' && <div className="sb-account">
+          {user ? <div className="tb-pop" ref={profileRef}>
+            <button className="tb-user" onClick={() => setMenu(menu === 'profile' ? null : 'profile')} aria-expanded={menu === 'profile'} aria-haspopup="menu" aria-label={`Tài khoản ${user.full_name}`}>
+              <Avatar value={user.avatar} className="sb-avatar">{user.full_name.charAt(0)}</Avatar>
+              <span className="tb-user-text"><b>{user.full_name}</b><small>{ROLE_LABEL[user.role] ?? user.role}</small></span>
+            </button>
+            {menu === 'profile' && <div className="pop tb-drop tb-profile" role="menu">
+              <div className="sb-me"><Avatar value={user.avatar} className="sb-avatar is-lg">{user.full_name.charAt(0)}</Avatar><span><b>{user.full_name}</b><small>{user.username} · {ROLE_LABEL[user.role] ?? user.role}</small></span></div>
+              {onThemeChange && <div className="sb-set"><span><Palette size={15} />Giao diện</span>
+                <span className="sb-seg" role="group" aria-label="Chọn giao diện">
+                  <button type="button" aria-pressed={theme === 'light'} onClick={e => onThemeChange('light', { x: e.clientX, y: e.clientY })}><Sun size={13} />Sáng</button>
+                  <button type="button" aria-pressed={theme === 'dark'} onClick={e => onThemeChange('dark', { x: e.clientX, y: e.clientY })}><Moon size={13} />Tối</button>
+                </span></div>}
+              <button role="menuitem" className="pop-item" onClick={() => go('settings')}><Settings2 size={15} />Cài đặt</button>
+              {onUserChange && <button role="menuitem" className="pop-item" onClick={() => { setMenu(null); setAvatarOpen(true); }}><ImageUp size={15} />Đổi ảnh đại diện</button>}
+              <div className="pop-sep" />
+              <Link to="/login" role="menuitem" className="pop-item" onClick={() => setMenu(null)}><UserCheck size={15} />Đổi tài khoản</Link>
+              <button role="menuitem" className="pop-item is-danger" onClick={() => { setMenu(null); onLogout(); }}><LogOut size={15} />Đăng xuất</button>
+            </div>}
+          </div> : <Link to="/login" className="btn btn-dark is-sm">Đăng nhập</Link>}
+        <div className="sb-account-tools">
           {user && history && <button ref={histBtn} className={`tb-btn${historyOpen ? ' is-on' : ''}`} onClick={() => onHistoryOpen(!historyOpen)} aria-expanded={historyOpen} aria-controls="tb-history" aria-label="Lịch sử trò chuyện" title="Lịch sử trò chuyện">
             <History size={18} /><span className="tb-btn-t">Lịch sử</span></button>}
 
@@ -236,28 +262,10 @@ export const Topbar: React.FC<TopbarProps> = ({
             </div>}
           </div>
 
-          {user ? <div className="tb-pop" ref={profileRef}>
-            <button className="tb-user" onClick={() => setMenu(menu === 'profile' ? null : 'profile')} aria-expanded={menu === 'profile'} aria-haspopup="menu" aria-label={`Tài khoản ${user.full_name}`}>
-              <Avatar value={user.avatar} className="sb-avatar">{user.full_name.charAt(0)}</Avatar>
-            </button>
-            {menu === 'profile' && <div className="pop tb-drop tb-profile" role="menu">
-              <div className="sb-me"><Avatar value={user.avatar} className="sb-avatar is-lg">{user.full_name.charAt(0)}</Avatar><span><b>{user.full_name}</b><small>{user.username} · {ROLE_LABEL[user.role] ?? user.role}</small></span></div>
-              {onThemeChange && <div className="sb-set"><span><Palette size={15} />Giao diện</span>
-                <span className="sb-seg" role="group" aria-label="Chọn giao diện">
-                  <button type="button" aria-pressed={theme === 'light'} onClick={e => onThemeChange('light', { x: e.clientX, y: e.clientY })}><Sun size={13} />Sáng</button>
-                  <button type="button" aria-pressed={theme === 'dark'} onClick={e => onThemeChange('dark', { x: e.clientX, y: e.clientY })}><Moon size={13} />Tối</button>
-                </span></div>}
-              <button role="menuitem" className="pop-item" onClick={() => go('settings')}><Settings2 size={15} />Cài đặt</button>
-              {onUserChange && <button role="menuitem" className="pop-item" onClick={() => { setMenu(null); setAvatarOpen(true); }}><ImageUp size={15} />Đổi ảnh đại diện</button>}
-              <div className="pop-sep" />
-              <Link to="/login" role="menuitem" className="pop-item" onClick={() => setMenu(null)}><UserCheck size={15} />Đổi tài khoản</Link>
-              <button role="menuitem" className="pop-item is-danger" onClick={() => { setMenu(null); onLogout(); }}><LogOut size={15} />Đăng xuất</button>
-            </div>}
-          </div> : <Link to="/login" className="btn btn-dark is-sm">Đăng nhập</Link>}
         </div>
-      </header>
+      </div>}
 
-      {historyOpen && history && <>
+      {slot === 'bottom' && historyOpen && history && <>
         <div className="tb-scrim" onClick={() => onHistoryOpen(false)} />
         <aside id="tb-history" className="tb-history" aria-label="Lịch sử trò chuyện">
           <div className="tb-history-head"><b><History size={16} />Lịch sử trò chuyện</b>
@@ -266,9 +274,9 @@ export const Topbar: React.FC<TopbarProps> = ({
         </aside>
       </>}
 
-      {avatarOpen && user && onUserChange && <AvatarDialog user={user} onClose={() => setAvatarOpen(false)} onSaved={onUserChange} />}
+      {slot === 'bottom' && avatarOpen && user && onUserChange && <AvatarDialog user={user} onClose={() => setAvatarOpen(false)} onSaved={onUserChange} />}
 
-      {wsToDelete && onDeleteWorkspace && (
+      {slot === 'top' && wsToDelete && onDeleteWorkspace && (
         <StudioModal labelId="ws-del-title" size="md" icon={<Trash2 size={18} />} title={`Xóa không gian "${wsToDelete.name}"?`}
           subtitle="Cuộc trò chuyện được chuyển sang không gian còn lại." onClose={() => setWsToDelete(null)}
           footer={<>
@@ -285,7 +293,7 @@ export const Topbar: React.FC<TopbarProps> = ({
         </StudioModal>
       )}
 
-      {createOpen && (
+      {slot === 'top' && createOpen && (
         <StudioModal labelId="workspace-dialog-title" size="md" icon={<Plus size={18} />} title="Tạo không gian làm việc"
           subtitle="Mỗi không gian có kho tài liệu và lịch sử trò chuyện riêng." onClose={() => setCreateOpen(false)}>
           {createError && <div className="note is-error"><AlertCircle size={16} /><span>{createError}</span></div>}

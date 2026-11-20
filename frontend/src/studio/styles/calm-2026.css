@@ -87,3 +87,101 @@
 .st-app .ov-lead{background:var(--accent)!important;background-image:none!important}
 .st-app .ov-lead::before,.st-app .ov-lead::after{display:none!important}
 .st-app[data-theme="dark"] .ov-lead{background:#1d5bb3!important}
+
+/* ===== Bỏ thanh trên (20/11, góp ý chủ dự án): mọi thứ dồn vào thanh bên; khung làm việc cao hết màn hình ===== */
+.st-app .st-mobilehead{display:none}
+.st-app .ws-shell{padding-top:12px}
+
+/* thanh bên: nền kính sáng, chữ đậm vừa, biểu tượng nét đơn, mục chọn viên xanh đặc */
+.st-app .sb.sb-nav-only{display:flex;flex-direction:column;gap:10px;padding:14px 12px 12px}
+.st-app .sb-nav-only .sb-brand{padding:2px 2px 0 6px}
+.st-app .sb-nav-only .sb-scroll{flex:1 1 auto}
+.st-app .sb-nav-only .sb-nav{gap:2px;margin:6px 0 0}
+.st-app .sb-nav-only .sb-link{gap:12px;min-height:40px;padding:0 12px;border-radius:12px;font-size:14px;font-weight:550;color:var(--text)}
+.st-app .sb-nav-only .sb-link:not(.is-on):hover{background:rgba(15,27,43,.05);box-shadow:none;color:var(--ink)}
+.st-app[data-theme="dark"] .sb-nav-only .sb-link:not(.is-on):hover{background:rgba(255,255,255,.06)}
+.st-app .sb-ico2{display:grid;place-items:center;width:20px;color:var(--glyph)}
+.st-app .sb-link:hover .sb-ico2{color:var(--ink)}
+.st-app .sb-link.is-on .sb-ico2{color:#fff}
+.st-app .sb-nav-only .sb-glide{border-radius:12px}
+.st-app .sb-nav-only .sb-search{min-height:38px;border-radius:12px}
+.st-app .sb-nav-only .sb-group{padding:14px 12px 4px}
+
+/* chọn không gian ở đầu thanh bên */
+.st-app .sb-wsbox{position:relative}
+.st-app .sb-wsbox .tb-pop{display:block}
+.st-app .sb-wsbox .tb-ws{width:100%;max-width:none;height:52px;padding:6px 10px 6px 6px;border-radius:14px;background:rgba(255,255,255,.7)}
+.st-app[data-theme="dark"] .sb-wsbox .tb-ws{background:rgba(255,255,255,.05)}
+.st-app .sb-wsbox .tb-ws-text{flex:1}
+.st-app .sb .pop.tb-drop{left:0;right:auto}
+.st-app .sb-wsbox .pop.tb-drop.wsp-pop{width:320px}
+
+/* Kho tri thức: một dòng */
+.st-app .sb-kb2{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.55);text-align:left;color:var(--text)}
+.st-app[data-theme="dark"] .sb-kb2{background:rgba(255,255,255,.04)}
+.st-app .sb-kb2:hover{border-color:rgba(29,102,201,.35)}
+.st-app .sb-kb2 i{grid-row:span 2;width:8px;height:8px;border-radius:50%;background:#22a565}
+.st-app .sb-kb2 i.is-warn{background:#d6922a}
+.st-app .sb-kb2 span{font-size:12.5px}
+.st-app .sb-kb2 b{color:var(--ink);font-variant-numeric:tabular-nums}
+.st-app .sb-kb2 small{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* tài khoản ở chân thanh bên: ảnh + tên, dưới là hàng công cụ */
+.st-app .sb-account{display:grid;gap:6px;padding-top:10px;border-top:1px solid var(--line)}
+.st-app .sb-account .tb-pop{position:relative}
+.st-app .sb-account .tb-user{display:flex;align-items:center;gap:10px;width:100%;height:auto;padding:6px;border-radius:12px;border-radius:12px;text-align:left}
+.st-app .sb-account .tb-user:hover{background:rgba(15,27,43,.05)}
+.st-app .sb-account .tb-user .sb-avatar{width:34px;height:34px;box-shadow:none}
+.st-app .tb-user-text{display:grid;min-width:0}
+.st-app .tb-user-text b{font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-app .tb-user-text small{font-size:11.5px;color:var(--muted)}
+.st-app .sb-account-tools{display:flex;gap:4px}
+.st-app .sb-account-tools .tb-btn{flex:1;min-width:0;height:36px;border-radius:10px;color:var(--glyph)}
+.st-app .sb-account-tools .tb-btn:hover{background:var(--accent-soft);color:var(--accent)}
+.st-app .sb-account-tools .tb-btn-t{display:none}
+.st-app .sb-account-tools .tb-pop{flex:1;display:flex}
+.st-app .sb-account-tools .tb-pop .tb-btn{width:100%}
+.st-app .sb-account .pop.tb-drop{top:auto;bottom:calc(100% + 8px);left:0;right:auto}
+.st-app .sb-account .pop.tb-drop.sb-notif{width:360px}
+.st-app .sb-account .tb-help-wrap{display:flex}
+@media (min-width:1024px){
+  .st-app .sb.is-rail .sb-wsbox .tb-ws{padding:6px;justify-content:center}
+  .st-app .sb.is-rail .sb-wsbox .tb-ws-text,.st-app .sb.is-rail .sb-wsbox .tb-ws>svg,.st-app .sb.is-rail .sb-kb2 span,.st-app .sb.is-rail .sb-kb2 small,.st-app .sb.is-rail .tb-user-text{display:none}
+  .st-app .sb.is-rail .sb-kb2{grid-template-columns:1fr;place-items:center;padding:10px 0}
+  .st-app .sb.is-rail .sb-account-tools{flex-direction:column}
+  .st-app .sb.is-rail .sb-ico2{width:auto}
+}
+/* điện thoại và máy tính bảng: dải mỏng trên cùng */
+@media (max-width:1023px){
+  .st-app .st-mobilehead{position:relative;z-index:40;flex:none;display:flex;align-items:center;gap:6px;height:52px;margin:8px 8px 0;padding:0 6px;border:1px solid var(--glass-edge);border-radius:14px;background:var(--glass-strong)}
+  .st-app[data-theme="dark"] .st-mobilehead{background:rgba(16,26,44,.8);border-color:rgba(255,255,255,.07)}
+  .st-app .st-mobilehead .mh-title{flex:1;min-width:0;font-size:15.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .st-app .st-mobilehead .tb-menu{display:inline-flex}
+  .st-app .ws-shell{padding-top:8px}
+  .st-app .sb-account .pop.tb-drop.sb-notif,.st-app .sb-wsbox .pop.tb-drop.wsp-pop{width:min(320px,calc(86vw - 24px))}
+}
+@media (max-width:639px){.st-app .st-mobilehead .mh-title{margin-right:44px}}
+/* ô chat: nhóm trái (đính kèm, kỹ năng, chế độ) sát lề trái, nhóm phải (micro, gửi) sát lề phải */
+.st-app .ws-bar{padding:6px 8px 8px}
+.st-app .ws-mic.ws-attach{margin-left:0}
+.st-app .ws-auto{margin-right:auto;background:transparent;padding:6px 4px;color:var(--muted);font-weight:600}
+.st-app .ws-composer textarea{padding-left:16px;padding-right:16px}
+.st-app .mn.ws.is-fresh .ws-composer::before,.st-app .mn.ws.is-fresh .ws-composer::after{display:none!important}
+.st-app .mn.ws .ws-composer{border:1px solid rgba(15,27,43,.12);box-shadow:0 1px 2px rgba(15,27,43,.04),0 10px 26px -18px rgba(15,27,43,.35)}
+/* cột phải thu gọn thành dải biểu tượng (20/11) */
+.st-app .ws-shell.is-folded{grid-template-columns:minmax(0,1fr) 56px}
+.st-app .wc-rail{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 0}
+.st-app .wc-rail button{position:relative;display:grid;place-items:center;width:40px;height:40px;border:0;border-radius:12px;background:transparent;color:var(--glyph)}
+.st-app .wc-rail button:hover,.st-app .wc-rail button.is-on{background:var(--accent-soft);color:var(--accent)}
+.st-app .wc-rail i{position:absolute;top:2px;right:2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent);color:#fff;font-style:normal;font-size:10px;font-weight:800;line-height:16px}
+.st-app .wc-rail i.is-live{min-width:8px;width:8px;height:8px;padding:0;background:#d6922a}
+.st-app .wc-fold{flex:none;display:grid;place-items:center;width:38px;border:0;border-radius:11px;background:transparent;color:var(--glyph)}
+.st-app .wc-fold:hover{background:var(--accent-soft);color:var(--accent)}
+.st-app .wc-srcs{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.st-app .wc-srcs li{display:grid;gap:4px}
+.st-app .wc-srcs b{font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-app .wc-srcs span{display:flex;flex-wrap:wrap;gap:4px}
+.st-app .wc-srcs button{min-height:28px;padding:2px 10px;border:1px solid var(--line);border-radius:999px;background:transparent;font-size:12px;font-weight:600;color:var(--text)}
+.st-app .wc-srcs button:hover,.st-app .wc-srcs button.is-on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+@media (max-width:1279px){.st-app .ws-shell.is-folded{grid-template-columns:minmax(0,1fr)}.st-app .wc-rail{display:none}.st-app .wc-fold{display:none}}
+.st-app .ws-hero h1 span{color:var(--muted)!important;font-weight:650}

@@ -11,7 +11,7 @@ import '../styles/studio-shell.css';
 import { PortalSwitch } from './admin/AdminPortal';
 import { BrandLogo } from './BrandLogo';
 import { NAV_ICONS } from './NavIcons';
-import { ChevronLeft, ChevronRight, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText, FolderOpen, Inbox } from 'lucide-react';
 
 export const MODES: Record<ExecutionMode, { key: string; title: string; badge: string; desc: string }> = {
   proposed_adaptive: { key: 'C', title: 'Điều phối đầy đủ', badge: 'Đề xuất', desc: 'Điều kiện C: lập kế hoạch có kiểm tra, chuẩn hóa nhiệm vụ, tối ưu ngữ cảnh.' },
@@ -85,6 +85,9 @@ interface SidebarProps {
   onOpenAdmin?: () => void;
   docCount: number;
   chunkCount: number;
+  /** chọn không gian (đầu thanh bên) và tài khoản, lịch sử, thông báo, trợ giúp (chân thanh bên) — thay thanh trên cùng */
+  top?: React.ReactNode;
+  bottom?: React.ReactNode;
 }
 
 // trang con được tô theo mục cha: Hồ sơ tài liệu, Kiểm tra mâu thuẫn thuộc Tài liệu; Đơn từ, Cài đặt không có mục riêng
@@ -93,7 +96,7 @@ const PARENT: Partial<Record<NavigationTab, NavigationTab>> = { documents: 'libr
 // Thanh bên (Đợt 1, khung mới 20/11): chỉ điều hướng; chân là khối Kho tri thức (số thật từ máy chủ).
 // Chọn không gian, Lịch sử, thông báo, tài khoản nằm ở thanh trên (Topbar).
 export const Header: React.FC<SidebarProps> = ({
-  health, activeTab, onTabChange, user, isMobileDrawerOpen = false, onToggleMobileDrawer, onOpenPalette, onOpenAdmin, docCount, chunkCount,
+  health, activeTab, onTabChange, user, isMobileDrawerOpen = false, onToggleMobileDrawer, onOpenPalette, onOpenAdmin, docCount, chunkCount, top, bottom,
 }) => {
   const uid = user?.email || user?.username;
   const [research, setResearch] = useState(researchMode(uid));
@@ -148,10 +151,10 @@ export const Header: React.FC<SidebarProps> = ({
   const showResearch = user?.role === 'admin' || research;
   const nav: { id: NavigationTab; label: string; Icon: typeof MessagesSquare; show: boolean; group?: string }[] = [
     { id: 'orchestration', label: 'Không gian làm việc', Icon: MessagesSquare, show: true },
-    { id: 'library', label: 'Tài liệu', Icon: Library, show: true },
+    { id: 'library', label: 'Tài liệu', Icon: FolderOpen, show: true },
     { id: 'compare', label: 'So sánh phiên bản', Icon: GitCompareArrows, show: true },
-    { id: 'toolkit', label: 'Kỹ năng', Icon: Wrench, show: true },
-    { id: 'results', label: 'Kết quả & công việc', Icon: Archive, show: true },
+    { id: 'toolkit', label: 'Kỹ năng', Icon: Sparkles, show: true },
+    { id: 'results', label: 'Kết quả & công việc', Icon: Inbox, show: true },
     { id: 'overview', label: 'Tổng quan', Icon: BarChart3, show: true },
     { id: 'organization', label: 'Tổ chức', Icon: Building2, show: !!user },
     { id: 'evaluation', label: 'Phòng đánh giá', Icon: ClipboardCheck, show: showResearch, group: 'Nghiên cứu' },
@@ -193,6 +196,7 @@ export const Header: React.FC<SidebarProps> = ({
         </div>
 
         {onOpenAdmin && <PortalSwitch portal="research" onChange={p => p === 'admin' && onOpenAdmin()} />}
+        {top}
 
         <div className="sb-scroll">
           {onOpenPalette && <button type="button" className="sb-search" onClick={onOpenPalette} aria-label="Tìm nhanh (Ctrl K)"><Search size={15} /><span>Tìm nhanh</span><kbd>Ctrl K</kbd></button>}
@@ -203,7 +207,7 @@ export const Header: React.FC<SidebarProps> = ({
                 {group && <p className="sb-group">{group}</p>}
                 <button onClick={() => go(id)} aria-label={label} aria-current={current === id ? 'page' : undefined} className={`sb-link${current === id ? ' is-on' : ''}`}
                   onMouseEnter={showTip} onFocus={showTip} onMouseLeave={hideTip} onBlur={hideTip}>
-                  <span className="sb-ico" data-tone={id}>{NAV_ICONS[id] ?? <Icon size={16} strokeWidth={2.2} />}</span><span>{label}</span>
+                  <span className="sb-ico2" aria-hidden="true"><Icon size={18} strokeWidth={1.9} /></span><span>{label}</span>
                 </button>
               </React.Fragment>
             ))}
@@ -211,15 +215,13 @@ export const Header: React.FC<SidebarProps> = ({
         </div>
         {rail && <span className="sb-tip" ref={tipRef} hidden aria-hidden="true" />}
 
-        {user && <button type="button" className="sb-kb" onClick={() => go('library')} aria-label={`Kho tri thức: ${docCount} tài liệu, ${chunkCount} đoạn, mô hình ${ollamaOk ? 'sẵn sàng' : 'chưa kết nối'}`}>
-          <span className="sb-kb-head"><b>Kho tri thức</b><i className={ollamaOk ? 'is-ok' : 'is-warn'} /></span>
-          <span className="sb-kb-stats">
-            <span><FileText size={14} /><b>{docCount}</b><small>tài liệu</small></span>
-            <span><Layers size={14} /><b>{chunkCount}</b><small>đoạn</small></span>
-          </span>
-          <span className={`sb-kb-model${ollamaOk ? '' : ' is-warn'}`} title={ollamaOk ? undefined : 'Chạy Ollama (Ctrl+Shift+B) để hỏi đáp và phân tích'}>
-            {ollamaOk ? <Cpu size={13} /> : <AlertCircle size={13} />}{ollamaOk ? (health?.ollama_model || 'Mô hình sẵn sàng') : 'Chưa kết nối mô hình'}</span>
+        {user && <button type="button" className="sb-kb2" onClick={() => go('library')} title={ollamaOk ? `Mô hình ${health?.ollama_model ?? ''} sẵn sàng` : 'Chưa kết nối mô hình: chạy Ollama (Ctrl+Shift+B)'}
+          aria-label={`Kho tri thức: ${docCount} tài liệu, ${chunkCount} đoạn, mô hình ${ollamaOk ? 'sẵn sàng' : 'chưa kết nối'}`}>
+          <i className={ollamaOk ? 'is-ok' : 'is-warn'} aria-hidden="true" />
+          <span><b>{docCount}</b> tài liệu · <b>{chunkCount}</b> đoạn</span>
+          <small>{ollamaOk ? (health?.ollama_model || 'mô hình sẵn sàng') : 'chưa có mô hình'}</small>
         </button>}
+        {bottom}
       </aside>
     </>
   );

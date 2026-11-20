@@ -418,6 +418,16 @@ function DashboardWorkspace({
     }
   };
 
+  // thanh trên đã bỏ (20/11): các thành phần chia vào đầu/chân thanh bên; điện thoại còn dải mỏng
+  const topbar = (slot: 'top' | 'bottom' | 'mobile') => <Topbar activeTab={activeTab} onTabChange={setActiveTab} user={user} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId}
+          onWorkspaceChange={handleWorkspaceChange} onCreateWorkspace={handleCreateWorkspace} onDeleteWorkspace={handleDeleteWorkspace}
+          onLogout={onLogout} onUserChange={onUserChange} theme={theme} onThemeChange={changeTheme}
+          onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setIsMobileDrawerOpen(true)} menuOpen={isMobileDrawerOpen}
+          onOrgChanged={() => { void refreshState(); }} historyOpen={historyOpen} onHistoryOpen={setHistoryOpen}
+          history={user && <ConversationHistory conversations={conversations} activeId={activeConversationId}
+            onOpen={id => { setActiveConversationId(id); setActiveTab('orchestration'); setHistoryOpen(false); }}
+            onNew={() => { setActiveConversationId(null); setActiveTab('orchestration'); setHistoryOpen(false); }}
+            onChanged={refreshConversations} />} slot={slot} />;
   // Admin Portal: quản trị viên chuyển sang giao diện quản trị riêng (không robot, không chat); lựa chọn được nhớ.
   if (adminMode && user) return (
     <div className="st-app is-admin" data-theme={theme} data-motion={motionAllowed() ? 'full' : 'reduced'}>
@@ -455,19 +465,13 @@ function DashboardWorkspace({
         onOpenAdmin={user?.role === 'admin' ? () => switchPortal('admin') : undefined}
         docCount={documents.length}
         chunkCount={totalChunks}
+        top={topbar('top')}
+        bottom={topbar('bottom')}
       />
 
       <div className="st-main">
         {!intro && <PageGuide page={activeTab} />}
-        <Topbar activeTab={activeTab} onTabChange={setActiveTab} user={user} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId}
-          onWorkspaceChange={handleWorkspaceChange} onCreateWorkspace={handleCreateWorkspace} onDeleteWorkspace={handleDeleteWorkspace}
-          onLogout={onLogout} onUserChange={onUserChange} theme={theme} onThemeChange={changeTheme}
-          onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setIsMobileDrawerOpen(true)} menuOpen={isMobileDrawerOpen}
-          onOrgChanged={() => { void refreshState(); }} historyOpen={historyOpen} onHistoryOpen={setHistoryOpen}
-          history={user && <ConversationHistory conversations={conversations} activeId={activeConversationId}
-            onOpen={id => { setActiveConversationId(id); setActiveTab('orchestration'); setHistoryOpen(false); }}
-            onNew={() => { setActiveConversationId(null); setActiveTab('orchestration'); setHistoryOpen(false); }}
-            onChanged={refreshConversations} />} />
+        {topbar('mobile')}
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
         {inOrg && currentWs && <div className="st-banner is-info og-banner"><span><b>{currentWs.name}</b>{currentWs.level ? ` · ${orgTerms(currentWs).level[currentWs.level]}` : ''}: AI và các công cụ chỉ dùng tài liệu bạn được phép xem trong tổ chức này.</span>
           {activeTab !== 'organization' && <button onClick={() => setActiveTab('organization')}>Quản lý tổ chức</button>}</div>}
