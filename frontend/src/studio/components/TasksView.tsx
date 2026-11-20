@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { BellRing, CheckCheck, ClipboardList, FilePlus2, Inbox, RefreshCw, Send, ShieldCheck, Undo2 } from 'lucide-react';
 import {
-  createRequest, decideRequest, getNotifications, listRequests, markNotificationsRead, OrgNotification, OrgRequest, runSkill, withdrawRequest,
+  createRequest, decideRequest, requestApprovers, getNotifications, listRequests, markNotificationsRead, OrgNotification, OrgRequest, runSkill, withdrawRequest,
 } from '../services/api';
 import { suggestLevel } from '../utils/approverLevel';
 import { ToolHeader } from './analysis/shared';
@@ -28,6 +28,12 @@ export const TasksView: React.FC<Props> = ({ spaceId, spaceName, docIds, levelNa
   const [check, setCheck] = useState<Record<string, any> | null>(null);
   const [busy, setBusy] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
+  // P1-4: cấp duyệt đã chọn có ai khác duyệt được không (người duy nhất ở cấp đó tự gửi thì đơn treo)
+  const [noApprover, setNoApprover] = useState(false);
+  useEffect(() => {
+    setNoApprover(false);
+    if (form.level) requestApprovers(spaceId, form.level).then(r => setNoApprover(r.count === 0)).catch(() => setNoApprover(false));
+  }, [form.level, spaceId]);
 
   const load = () => {
     setError('');
@@ -152,7 +158,10 @@ export const TasksView: React.FC<Props> = ({ spaceId, spaceName, docIds, levelNa
               <option value="">Chọn cấp duyệt…</option>
               <option value="MANAGER">{levelName.MANAGER} của phòng tôi</option>
               <option value="EXECUTIVE">{levelName.EXECUTIVE}</option></select></label>
-            <button type="button" className="btn btn-dark" disabled={!form.title.trim() || !form.level || busy === 'send'} onClick={submit}><Send size={15} />Gửi đơn</button>
+            {noApprover && <p className="note is-warn" role="alert">Không có ai khác duyệt được đơn ở cấp này (bạn là người duy nhất ở cấp duyệt).
+              {form.level === 'MANAGER' ? ` Hãy chọn ${levelName.EXECUTIVE}.` : ' Thêm người vào cấp này ở trang Tổ chức (chủ tổ chức làm được).'}
+              <button type="button" className="dp-link" onClick={onOpenOrg}>Mở trang Tổ chức</button></p>}
+            <button type="button" className="btn btn-dark" disabled={!form.title.trim() || !form.level || busy === 'send' || noApprover} onClick={submit}><Send size={15} />Gửi đơn</button>
           </section>
         </div>
 

@@ -242,8 +242,8 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
                                       kind=kind, payload=payload, created_at=_now()))  # đủ chính xác để sắp thứ tự
 
     def _approvers(db, space_id: str, department_id: str | None) -> list[str]:
-        """Người duyệt được yêu cầu tham gia: Ban giám đốc, và Trưởng phòng của phòng được gợi ý."""
-        conds = [OrgMemberRecord.level == "EXECUTIVE"]
+        """Người duyệt được yêu cầu tham gia: Ban giám đốc, chủ tổ chức, và Trưởng phòng của phòng được gợi ý."""
+        conds = [OrgMemberRecord.level == "EXECUTIVE", OrgMemberRecord.is_owner.is_(True)]
         if department_id is not None:
             conds.append((OrgMemberRecord.level == "MANAGER") & (OrgMemberRecord.department_id == department_id))
         return list(db.scalars(select(OrgMemberRecord.user_id).where(
@@ -779,16 +779,30 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
             department = me.department_id or _only_department(db, space_id)
             if body.approver_level == "MANAGER" and department is None:
                 raise HTTPException(400, "Bạn chưa thuộc phòng ban nào nên đơn phải gửi Ban giám đốc duyệt.")
+            approvers = [a for a in _approvers(db, space_id, department if body.approver_level == "MANAGER" else None) if a != uid]
+            if not approvers:
+                # P1-4: người duy nhất có quyền duyệt tự gửi đơn thì không ai duyệt được: báo rõ thay vì để đơn treo mãi
+                raise HTTPException(409, "Không có ai khác duyệt được đơn này (bạn là người duy nhất ở cấp duyệt). "
+                                         "Nhờ chủ tổ chức thêm người vào Ban giám đốc ở trang Tổ chức rồi gửi lại.")
             row = OrgRequestRecord(request_id=_new_id("req"), space_id=space_id, requester_id=uid, department_id=department,
                                    kind=body.kind, title=body.title.strip(), details=body.details.strip(), days=body.days,
                                    approver_level=body.approver_level, status="PENDING", check_result=body.check_result,
                                    history=[{"at": _iso(_now()), "by": _user_label(db, uid), "action": "SUBMITTED"}], created_at=_now())
             db.add(row)
-            approvers = [a for a in _approvers(db, space_id, department if body.approver_level == "MANAGER" else None) if a != uid]
             _notify(db, approvers, space_id, "request_submitted",
                     {"space_name": _space_name(db, space_id), "user": _user_label(db, uid), "title": row.title, "request_id": row.request_id})
             db.flush()
             return _request_out(db, row, uid, me)
+
+    @router.get("/spaces/{space_id}/requests/approvers")
+    def request_approvers(space_id: str, request: Request, level: Literal["MANAGER", "EXECUTIVE"] = "MANAGER") -> dict:
+        """Trước khi gửi: có bao nhiêu người khác duyệt được đơn ở cấp này (P1-4). Chỉ trả số và tên gọi, không lộ danh sách."""
+        uid = _uid(request)
+        with _db() as db:
+            me = _actor(db, uid, space_id)
+            department = me.department_id or _only_department(db, space_id)
+            count = len([a for a in _approvers(db, space_id, department if level == "MANAGER" else None) if a != uid])
+            return {"level": level, "count": count, "needs_department": level == "MANAGER" and department is None}
 
     @router.get("/spaces/{space_id}/requests")
     def list_requests(space_id: str, request: Request) -> dict:

@@ -325,9 +325,9 @@ def can_view_source_id(db: Session, user_id: str, source_id: str) -> bool:
 
 # ---------------- Đơn từ và duyệt theo cấp (đợt 10)
 def can_decide_request(actor: Member | None, approver_level: str, department_id: str | None, requester_id: str) -> bool:
-    """Ban giám đốc duyệt mọi đơn; Trưởng phòng duyệt đơn cấp phòng của chính phòng mình. Không tự duyệt đơn của mình."""
+    """Ban giám đốc và chủ tổ chức duyệt mọi đơn; Trưởng phòng duyệt đơn cấp phòng của chính phòng mình. Không tự duyệt đơn của mình."""
     if actor is None or not actor.active or actor.user_id == requester_id:
         return False
-    if actor.executive:
+    if actor.executive or actor.is_owner:  # P1-4: chủ tổ chức là người duyệt cuối cùng khi không còn ai khác
         return True
     return approver_level == "MANAGER" and actor.manages(department_id)
