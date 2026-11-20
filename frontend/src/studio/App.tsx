@@ -419,7 +419,7 @@ function DashboardWorkspace({
   };
 
   // thanh trên đã bỏ (20/11): các thành phần chia vào đầu/chân thanh bên; điện thoại còn dải mỏng
-  const topbar = (slot: 'top' | 'bottom' | 'mobile') => <Topbar activeTab={activeTab} onTabChange={setActiveTab} user={user} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId}
+  const topbar = (slot: 'top' | 'bottom' | 'mobile' | 'cluster') => <Topbar activeTab={activeTab} onTabChange={setActiveTab} user={user} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId}
           onWorkspaceChange={handleWorkspaceChange} onCreateWorkspace={handleCreateWorkspace} onDeleteWorkspace={handleDeleteWorkspace}
           onLogout={onLogout} onUserChange={onUserChange} theme={theme} onThemeChange={changeTheme}
           onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setIsMobileDrawerOpen(true)} menuOpen={isMobileDrawerOpen}
@@ -465,13 +465,12 @@ function DashboardWorkspace({
         onOpenAdmin={user?.role === 'admin' ? () => switchPortal('admin') : undefined}
         docCount={documents.length}
         chunkCount={totalChunks}
-        top={topbar('top')}
-        bottom={topbar('bottom')}
       />
 
       <div className="st-main">
         {!intro && <PageGuide page={activeTab} />}
         {topbar('mobile')}
+        {topbar('cluster')}
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
         {inOrg && currentWs && <div className="st-banner is-info og-banner"><span><b>{currentWs.name}</b>{currentWs.level ? ` · ${orgTerms(currentWs).level[currentWs.level]}` : ''}: AI và các công cụ chỉ dùng tài liệu bạn được phép xem trong tổ chức này.</span>
           {activeTab !== 'organization' && <button onClick={() => setActiveTab('organization')}>Quản lý tổ chức</button>}</div>}

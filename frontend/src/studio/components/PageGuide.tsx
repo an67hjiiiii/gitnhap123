@@ -184,7 +184,7 @@ function dockSpot(): Spot | null {
   const bar = document.querySelector('.st-mobilehead')?.getBoundingClientRect();
   if (!bar || !bar.height) return null;
   // đậu ngay bên trái cụm nút (không che ảnh đại diện); CSS chừa sẵn chỗ ở cuối tên trang
-  const acts = document.querySelector('.st-mobilehead .tb-btn:last-child')?.getBoundingClientRect();
+  const acts = document.querySelector('.st-cluster')?.getBoundingClientRect();
   return { x: (acts?.left ?? bar.right) - BOT - 4, y: bar.top + (bar.height - BOT) / 2, side: 'left', vert: 'down' };
 }
 
