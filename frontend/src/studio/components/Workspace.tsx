@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, Wrench, CornerDownRight, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
-import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions } from '../services/api';
+import { ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, Wrench, Paperclip, PanelRight, Pencil, RotateCcw, Archive, ListChecks, CornerDownRight, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
+import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions, saveReport, exportDocx } from '../services/api';
+import { WorkspaceContext, CtxTab } from './WorkspaceContext';
+import { DocumentReader } from './DocumentReader';
+import { saveBlob } from './analysis/exporters';
 import { ExportButtons } from './analysis/exporters';
 import { AnswerFeedback, GroundingButton, GroundingPanel } from './AnswerTools';
 import { adaptRun, answerText, Cap1Run, CONDITION_LABEL } from '../services/adapt';
@@ -73,7 +76,7 @@ interface WorkspaceProps {
   onChanged: () => void;
   userName?: string;
   /** Số liệu kho đang mở và lối tắt cho màn hình đầu. */
-  docs?: { id?: number | string; source_file: string; chunks_count: number }[];
+  docs?: { id?: number | string; source_file: string; chunks_count: number; doc_type?: string | null }[];
   docCount?: number;
   chunkCount?: number;
   modelOk?: boolean;
@@ -86,9 +89,11 @@ interface WorkspaceProps {
   onOpenToolkit?: () => void;  // đợt 6: bộ công cụ theo ngành mở bằng "/" (không còn trên thanh bên)
   /** Tài liệu vừa nạp: màn hình đầu đề nghị tạo câu hỏi gợi ý từ tài liệu này. */
   freshDoc?: { id: string; name: string } | null;
+  /** quản lý kho (tải lên có mức mật, xóa, soi đoạn) đặt trong cột phải */
+  manage?: React.ReactNode;
 }
 
-export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationId, onConversation, onChanged, userName, docs = [], docCount = 0, chunkCount = 0, modelOk, workspaceName, recent = [], onSeed, onUploadFile, prefill, freshDoc, onOpenToolkit }) => {
+export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationId, onConversation, onChanged, userName, docs = [], docCount = 0, chunkCount = 0, modelOk, workspaceName, recent = [], onSeed, onUploadFile, prefill, freshDoc, onOpenToolkit, manage }) => {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [runs, setRuns] = useState<Record<string, Cap1Run>>({});
   const [draft, setDraft] = useState('');
@@ -107,7 +112,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const [allDocs, setAllDocs] = useState<{ id?: number | string; source_file: string }[]>([]);
   const [trace, setTrace] = useState<{ result: ModeExecutionResult; step: PipelineStep } | null>(null);
   const [agentsOf, setAgentsOf] = useState<string | null>(null);
-  const [chunk, setChunk] = useState<{ id: string; source?: string; text?: string; error?: string } | null>(null);
+  const [chunk, setChunk] = useState<{ id: string; source?: string; sourceId?: string; text?: string; error?: string } | null>(null);
+  // cột phải (Đợt 2): tab đang mở, ngăn kéo trên điện thoại, phạm vi hỏi (rỗng = cả không gian), lượt đang xem quá trình
+  const [ctxTab, setCtxTab] = useState<CtxTab>('sources');
+  const [ctxOpen, setCtxOpen] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [focusRun, setFocusRun] = useState<string | null>(null);
+  const [fullDoc, setFullDoc] = useState<{ id: string; name?: string } | null>(null);
+  const [lastAsk, setLastAsk] = useState('');
+  const [saved, setSaved] = useState<Record<string, string>>({});
   const [ratings, setRatings] = useState<Record<string, Rating>>({});
   const [groundOf, setGroundOf] = useState<string | null>(null);
   const [groundCache, setGroundCache] = useState<Record<string, GroundingResult | string>>({});
@@ -202,9 +215,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     speak(`Chào ${firstName(userName) || 'bạn'}! Cứ hỏi về tài liệu, mình tự chọn cách làm: trả lời thẳng, gọi kỹ năng hay chia việc cho các tác tử.`);
   };
 
-  const send = async (e?: React.FormEvent, again?: { text: string; agent: string }) => {
+  const send = async (e?: React.FormEvent, again?: { text: string; agent: string }, retry?: string) => {
     e?.preventDefault();
-    const text = again?.text ?? draft.trim();
+    const text = again?.text ?? retry ?? draft.trim();
     setClarify(null);
     if (!text || pending) return;
     const spoken = spokenAsk.current; spokenAsk.current = false;
@@ -212,7 +225,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     setState(mode === 'quick' ? 'searching' : 'decomposing');
     speak(mode === 'quick' ? 'Đang tìm trong tài liệu…' : 'Đang lập kế hoạch và chia việc cho các tác tử…');
     try {
-      const scope = only ? [only.id] : undefined;
+      const scope = only ? [only.id] : picked.length ? picked : undefined;
+      setLastAsk(text); setFocusRun(null);
       if (mode === 'quick' && !again) {
         // Tự động: câu khớp rõ một kỹ năng (hoặc chọn bằng "/") thì gọi kỹ năng, không thì để pipeline tự chọn
         const ids = await chatScope(workspaceId, scope);
@@ -315,10 +329,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     catch (err: any) { setFreshQ({ busy: false, forId: doc.id, error: err.message }); }
   };
 
+  // bấm nguồn: mở đúng đoạn ở cột phải (điện thoại: ngăn kéo), tô từ khóa của câu hỏi; quyền kiểm ở máy chủ như trước
   const showChunk = async (id: string) => {
-    setChunk({ id });
-    try { const c = await getChunk(id); setChunk({ id, source: c.source_name, text: c.text }); }
-    catch (err: any) { setChunk({ id, error: err.message }); }
+    const sourceId = id.replace(/_c\d+$/, '');
+    setChunk({ id, sourceId }); setCtxTab('sources'); setCtxOpen(true);
+    try { const c = await getChunk(id); setChunk({ id, sourceId, source: c.source_name, text: c.text }); }
+    catch (err: any) { setChunk({ id, sourceId, error: err.message }); }
+  };
+  const saveAnswer = async (runId: string, question: string, markdown: string, cites: string[]) => {
+    setSaved(s => ({ ...s, [runId]: 'Đang lưu…' }));
+    try { await saveReport({ kind: 'answer', title: question.slice(0, 160) || 'Câu trả lời', workspace_id: workspaceId ? String(workspaceId) : null, payload: { run_id: runId, question, markdown, citations: cites } }); setSaved(s => ({ ...s, [runId]: 'Đã lưu vào Kết quả' })); }
+    catch (err: any) { setSaved(s => ({ ...s, [runId]: err.message })); }
+  };
+  const wordOf = async (runId: string, question: string, markdown: string) => {
+    try { saveBlob(`tra-loi_${runId.slice(-8)}.docx`, await exportDocx(`# ${question}\n\n${markdown}`)); }
+    catch (err: any) { setError(`Không xuất được Word: ${err.message}`); }
   };
 
   const myCards = cards.filter(c => c.convo === (conversationId ?? ''));
@@ -364,7 +389,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
           }} />
         <div className="ws-bar">
           {/* Tự động: hệ thống tự chọn trả lời thẳng / kỹ năng / nhiều tác tử. A/B/C chỉ còn ở trang Thực nghiệm (đợt 4, đã duyệt 19/11). */}
-          <span className="ws-auto" title={MODE_INFO.quick.hint}><Sparkles size={14} />Tự động · gõ "/" để chọn kỹ năng</span>
+          {onUploadFile && <button type="button" className="ws-mic" onClick={() => fileRef.current?.click()} aria-label="Đính kèm tài liệu" title="Tải tài liệu lên kho của không gian này"><Paperclip size={17} /></button>}
+          <button type="button" className="ws-skillbtn" onClick={() => { setForced(null); setDraft('/'); inputRef.current?.focus(); }} aria-label="Chọn kỹ năng" title="Chọn kỹ năng (hoặc gõ /)"><Sparkles size={14} />Kỹ năng</button>
+          <span className="ws-auto" title={MODE_INFO.quick.hint}>Tự động</span>
           {Recognition && <button type="button" className={`ws-mic${listening ? ' is-on' : ''}`} onClick={listen} disabled={!!pending} aria-pressed={listening}
             aria-label={listening ? 'Dừng nghe' : 'Hỏi bằng giọng nói'} title="Nói thay vì gõ (tiếng Việt). Trình duyệt nhận dạng giọng nói; Chrome và Edge có thể gửi âm thanh lên máy chủ của họ để nhận dạng."><Mic size={17} /></button>}
           <button type="submit" className="send" disabled={!!pending || !draft.trim()} aria-label="Gửi">{pending ? <span className="spin" /> : <ArrowUp size={18} />}</button>
@@ -373,13 +400,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     </form>
   );
 
+  const lastRunId = [...messages].reverse().find(m => m.run_id && runs[m.run_id!])?.run_id;
+  const ctxRun = runs[focusRun ?? lastRunId ?? ''];
   return (
+    <div className="ws-shell">
     <main className={`mn ws${fresh ? ' is-fresh' : ''}`}>
       <div className="ws-top">
         <div className={`ws-bot${busyNow ? ' is-busy' : ''}`} aria-label="Chạm vào Trợ lý C27" title="Chạm để C27 phản hồi">
           <AssistantRobot size={fresh ? 132 : 44} interactive colorConfig={{ shell: '#1d344a', trim: '#d5dde6', screen: state === 'error' ? '#ff8a8a' : busyNow ? '#ffd27a' : '#8fdcff' }} />
         </div>
         <p className="ws-say" aria-live="polite"><span className="sr">{speechText}</span><span aria-hidden="true">{typed}<i className="ws-caret" /></span></p>
+        <button type="button" className="icon-btn is-sm ws-ctx-btn" onClick={() => setCtxOpen(true)} aria-label="Mở nguồn và quá trình xử lý" title="Nguồn và quá trình xử lý"><PanelRight size={15} /></button>
         <button type="button" onClick={toggleSound} className="icon-btn is-sm ws-sound" aria-label={soundEnabled ? 'Tắt âm thanh' : 'Bật âm thanh'}>{soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}</button>
       </div>
 
@@ -427,8 +458,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
               </button>
             ))}
           </div>}
-          <input ref={fileRef} type="file" hidden accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff"
-            onChange={e => { const f = e.target.files?.[0]; if (f) { setError(null); Promise.resolve(onUploadFile?.(f)).catch((err: Error) => setError(`Không thêm được ${f.name}: ${err.message}`)); } e.target.value = ''; }} />
           {error && <p className="note is-error" role="alert">{error}</p>}
         </div>
       ) : (
@@ -440,7 +469,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                 // Câu hỏi được gửi lại tự động sau lượt Phân tích bị từ chối: thay bằng một dòng ghi chú.
                 if (prev?.run_id && isPlanRejected(runs[prev.run_id]) && asked?.role === 'USER' && asked.content === m.content)
                   return <p key={m.message_id} className="note ws-fallback">Đã tự trả lời lại bằng chế độ Tự động.</p>;
-                return <div key={m.message_id} className="ws-msg is-user"><p>{m.content}</p></div>;
+                return <div key={m.message_id} className="ws-msg is-user"><p>{m.content}</p>
+                  <button type="button" className="ws-edit" onClick={() => { setDraft(m.content); setOpen(true); inputRef.current?.focus(); }} aria-label="Sửa câu hỏi này rồi gửi lại" title="Sửa rồi gửi lại"><Pencil size={13} /></button></div>;
               }
               const stored = parseSkillMessage(m.content);
               if (stored) return (
@@ -466,6 +496,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                   {cites.length > 0 && <div className="cht-cites"><BookOpen size={13} />{cites.map(c => <button key={c} onClick={() => showChunk(c)} title={`Xem đoạn tài liệu (${c})`}>{citeLabel(c, allDocs.length ? allDocs : docs)}</button>)}</div>}
                   {run && <footer>
                     <span className="ws-meta">{((run.metrics?.input_tokens ?? 0) + (run.metrics?.output_tokens ?? 0)).toLocaleString('vi-VN')} token · {((run.metrics?.latency_ms ?? 0) / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} giây</span>
+                    <button type="button" onClick={() => { setFocusRun(run.run_id); setCtxTab('process'); setCtxOpen(true); }}><ListChecks size={13} />Quá trình</button>
                     <button type="button" onClick={() => result && setTrace({ result, step: PIPELINE_STEPS[0] })}><Footprints size={13} />8 bước</button>
                     {hasAgents && <button type="button" aria-expanded={agentsOf === run.run_id} onClick={() => setAgentsOf(agentsOf === run.run_id ? null : run.run_id)}><Users size={13} />Theo tác tử</button>}
                     {!failed && run.status !== 'NO_EVIDENCE' && <GroundingButton open={groundOf === run.run_id} onToggle={() => setGroundOf(groundOf === run.run_id ? null : run.run_id)} />}
@@ -474,6 +505,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                     {!failed && run.status !== 'NO_EVIDENCE' && <button type="button" onClick={() => openReport(run.run_id)} title="Viết thành báo cáo hoàn chỉnh, tải Word hoặc PDF"><FileDown size={13} />Báo cáo</button>}
                     {!failed && <AnswerFeedback key={run.run_id} runId={run.run_id} initial={ratings[run.run_id]} onSaved={r => setRatings(p => ({ ...p, [run.run_id]: r }))} />}
                   </footer>}
+                  {run && !failed && run.status !== 'NO_EVIDENCE' && (() => {
+                    const q = messages.slice(0, i).reverse().find(x => x.role === 'USER')?.content ?? '';
+                    const md = stripSources(answerText(m.content));
+                    return <div className="ws-next" aria-label="Bước tiếp theo"><span>Bước tiếp theo</span>
+                      <button type="button" onClick={() => saveAnswer(run.run_id, q, md, cites)} disabled={!!saved[run.run_id]}><Archive size={13} />{saved[run.run_id] ?? 'Lưu vào Kết quả'}</button>
+                      <button type="button" onClick={() => wordOf(run.run_id, q, md)}><FileDown size={13} />Xuất Word</button>
+                      {cites.length > 0 && <button type="button" onClick={() => showChunk(cites[0])}><BookOpen size={13} />Mở nguồn</button>}
+                    </div>;
+                  })()}
                   {run && !failed && run.status !== 'NO_EVIDENCE' && groundOf === run.run_id && <GroundingPanel runId={run.run_id} cache={groundCache} setCache={setGroundCache} onShowChunk={showChunk} />}
                   {hasAgents && agentsOf === run!.run_id && <div className="ws-agents">
                     {result!.agent_results.map((a, i) => <section key={i}><h4>{a.agent_role.replace('Agent', '')} · {a.subtask_title}</h4><div className="md"><Markdown text={a.content} /></div></section>)}
@@ -495,13 +535,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
               <div className="ws-msg is-bot is-wait is-live">
                 <div className="ws-live-head" aria-live="polite"><span className="ws-dots"><i /><i /><i /></span>
                   {live.answer ? 'Đang viết câu trả lời' : live.steps[live.steps.length - 1] ?? (pending.mode === 'quick' ? 'Đang tìm trong tài liệu' : 'Các tác tử đang làm việc')} · {elapsed}s</div>
-                {live.steps.length > (live.answer ? 0 : 1) && <ol className="ws-live-steps">{live.steps.slice(-5, live.answer ? undefined : -1).map((st, i) => <li key={i}><Check size={12} />{st}</li>)}</ol>}
+                {live.steps.length > 0 && <ol className="ws-stepbar" aria-label="Các bước">{live.steps.slice(-4).map((st, i, arr) => <li key={i} className={i === arr.length - 1 && !live.answer ? 'is-now' : ''}>{i === arr.length - 1 && !live.answer ? <span className="ws-dots"><i /><i /><i /></span> : <Check size={12} />}<span>{st}</span></li>)}</ol>}
                 {live.answer && <div className="md ws-live-answer"><Markdown text={inlineCites(stripSources(live.answer), allDocs.length ? allDocs : docs)} /></div>}
               </div>
             </>}
             <div ref={endRef} />
           </div>
-          {error && <p className="note is-error" role="alert">{error}</p>}
+          {error && <p className="note is-error ws-err" role="alert"><span>{error}</span>
+            {lastAsk && !pending && <button type="button" className="btn btn-ghost is-sm" onClick={() => { setDraft(''); void send(undefined, undefined, lastAsk); }}><RotateCcw size={13} />Thử lại</button>}</p>}
           {composer}
         </div>
       )}
@@ -516,10 +557,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         {report.error ? <p className="note is-error">{report.error}</p> : !report.data ? <p className="muted-line"><span className="spin is-dark" />Đang viết báo cáo, thường mất 30–60 giây…</p>
           : <div className="md ws-report"><Markdown text={report.data.markdown} /></div>}
       </StudioModal>}
-      {chunk && <StudioModal labelId="ws-chunk" size="md" icon={<BookOpen size={18} />} title="Đoạn tài liệu được trích" subtitle={chunk.source || chunk.id} onClose={() => setChunk(null)}
-        footer={<button className="btn btn-dark" onClick={() => setChunk(null)}>Đóng</button>}>
-        {chunk.error ? <p className="note is-error">{chunk.error}</p> : chunk.text == null ? <p className="muted-line"><span className="spin is-dark" />Đang tải…</p> : <pre className="chunk-pre">{chunk.text}</pre>}
-      </StudioModal>}
+          <input ref={fileRef} type="file" hidden accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff"
+            onChange={e => { const f = e.target.files?.[0]; if (f) { setError(null); Promise.resolve(onUploadFile?.(f)).catch((err: Error) => setError(`Không thêm được ${f.name}: ${err.message}`)); } e.target.value = ''; }} />
+      {fullDoc && <DocumentReader sourceId={fullDoc.id} sourceName={fullDoc.name} onClose={() => setFullDoc(null)} />}
     </main>
+    <WorkspaceContext tab={ctxTab} onTab={setCtxTab} docs={docs} picked={picked} onPick={setPicked} chunk={chunk} question={lastAsk} onCloseChunk={() => setChunk(null)}
+      onOpenFull={(id, name) => setFullDoc({ id, name })} run={ctxRun} live={pending ? { steps: live.steps, elapsed } : null} draft={draft}
+      onUseSkill={k => { setForced(k); setDraft(''); setOpen(true); setCtxOpen(false); inputRef.current?.focus(); }} manage={manage}
+      mobileOpen={ctxOpen} onMobileClose={() => setCtxOpen(false)} />
+    </div>
   );
 };

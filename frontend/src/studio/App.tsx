@@ -13,7 +13,8 @@ import gsap from 'gsap';
 import { Users, BarChart3, ClipboardCheck, Database, EyeOff, FileSearch, FlaskConical, GitCompareArrows, MessageSquarePlus, MessagesSquare, Sparkles } from 'lucide-react';
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Link } from 'react-router-dom';
-import { Menu, Wrench } from 'lucide-react';
+import { Wrench } from 'lucide-react';
+import { Topbar } from './components/Topbar';
 import { Header } from './components/Header';
 import { LeftPanel } from './components/LeftPanel';
 import { Workspace as WorkspaceView } from './components/Workspace';
@@ -41,6 +42,7 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { RobotProvider, useRobotAssistant } from './components/robot/RobotContext';
+import './styles/shell-2026.css';  // khung mới (Đợt 1–2): nạp sau CSS của các thành phần
 import { 
   analyzeQuery, 
   getDocuments, 
@@ -79,13 +81,6 @@ import {
   User,
   Workspace
 } from './types';
-// Tên trang trên thanh trên cùng (điện thoại). Đợt 6: bố cục 7 trang (mục 2b).
-const PAGE_TITLE: Record<string, string> = {
-  orchestration: 'Không gian làm việc', library: 'Thư viện tài liệu', results: 'Kết quả đã lưu', tasks: 'Việc cần làm',
-  organization: 'Tổ chức', overview: 'Tổng quan', settings: 'Cài đặt', documents: 'Hồ sơ tài liệu', consistency: 'Kiểm tra mâu thuẫn',
-  toolkit: 'Bộ công cụ theo ngành', evaluation: 'Phòng đánh giá', benchmarks: 'Thực nghiệm', rating: 'Chấm mù', users: 'Người dùng',
-};
-
 function DashboardWorkspace({
   user,
   onLogout,
@@ -105,6 +100,7 @@ function DashboardWorkspace({
   const switchPortal = (p: 'research' | 'admin') => { setPortal(p); try { localStorage.setItem('orchestriq-portal', p); } catch { /* chế độ riêng tư */ } };
   const [prefill, setPrefill] = useState<{ text: string; key: number; sourceId?: string; sourceName?: string } | null>(null);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: 'error' | 'ok' | 'warn' } | null>(null);
   const [freshDoc, setFreshDoc] = useState<{ id: string; name: string } | null>(null);
   useEffect(() => {
@@ -138,6 +134,7 @@ function DashboardWorkspace({
   const [playgroundInitialQuery, setPlaygroundInitialQuery] = useState('');
 
   setOrgScope(currentWorkspaceId);
+  const totalChunks = documents.reduce((n, d) => n + (d.chunks_count || 0), 0);
   const currentWs = workspaces.find(w => w.id === currentWorkspaceId);
   const [profileSource, setProfileSource] = useState('');  // Thư viện → Hồ sơ tài liệu của đúng tài liệu
   // Việc cần làm chỉ có trong tổ chức: đổi sang không gian cá nhân thì về Không gian làm việc
@@ -427,55 +424,28 @@ function DashboardWorkspace({
       ]} />
       <Header
         health={health}
-        onSeedDocs={handleSeedDocs}
-        isSeeding={isSeeding}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         user={user}
-        workspaces={workspaces}
-        currentWorkspaceId={currentWorkspaceId}
-        onWorkspaceChange={handleWorkspaceChange}
-        onCreateWorkspace={handleCreateWorkspace}
-        onChangeDomainPack={handleChangeDomainPack}
-        onDeleteWorkspace={handleDeleteWorkspace}
-        onLogout={onLogout}
-        onUserChange={onUserChange}
         isMobileDrawerOpen={isMobileDrawerOpen}
         onToggleMobileDrawer={() => setIsMobileDrawerOpen(prev => !prev)}
         onOpenPalette={() => { setIsMobileDrawerOpen(false); setPaletteOpen(true); }}
-        theme={theme}
-        onThemeChange={changeTheme}
         onOpenAdmin={user?.role === 'admin' ? () => switchPortal('admin') : undefined}
-        onOrgChanged={() => { void refreshState(); }}
-      >
-        <LeftPanel
-          documents={documents}
-          onUpload={handleUpload}
-          onClear={handleClearDocs}
-          onSeedDocs={handleSeedDocs}
-          onInspectDocument={handleInspectDocument}
-          onOpenPlayground={() => handleOpenPlayground()}
-          onDeleteDocument={handleDeleteSingleDoc}
-          isUploading={isUploading}
-          totalChunks={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)}
-          user={user}
-          orgLevel={inOrg ? currentWs?.level : undefined}
-          terms={inOrg ? orgTerms(currentWs) : undefined}
-          softwareFilter={isSoftware}
-          spaceId={inOrg ? String(currentWorkspaceId) : undefined}
-        />
-        {user && <ConversationHistory conversations={conversations} activeId={activeConversationId}
-          onOpen={id => { setActiveConversationId(id); setActiveTab('orchestration'); setIsMobileDrawerOpen(false); }}
-          onNew={() => { setActiveConversationId(null); setActiveTab('orchestration'); setIsMobileDrawerOpen(false); }}
-          onChanged={refreshConversations} />}
-      </Header>
+        docCount={documents.length}
+        chunkCount={totalChunks}
+      />
 
       <div className="st-main">
         {!intro && <PageGuide page={activeTab} />}
-        <div className="st-mobilebar">
-          <button className="icon-btn" onClick={() => setIsMobileDrawerOpen(true)} aria-label="Mở thanh bên" aria-expanded={isMobileDrawerOpen}><Menu size={20} /></button>
-          <b>{PAGE_TITLE[activeTab] ?? 'Cơ sở dữ liệu'}</b>
-        </div>
+        <Topbar activeTab={activeTab} onTabChange={setActiveTab} user={user} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId}
+          onWorkspaceChange={handleWorkspaceChange} onCreateWorkspace={handleCreateWorkspace} onDeleteWorkspace={handleDeleteWorkspace}
+          onLogout={onLogout} onUserChange={onUserChange} theme={theme} onThemeChange={changeTheme}
+          onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setIsMobileDrawerOpen(true)} menuOpen={isMobileDrawerOpen}
+          onOrgChanged={() => { void refreshState(); }} historyOpen={historyOpen} onHistoryOpen={setHistoryOpen}
+          history={user && <ConversationHistory conversations={conversations} activeId={activeConversationId}
+            onOpen={id => { setActiveConversationId(id); setActiveTab('orchestration'); setHistoryOpen(false); }}
+            onNew={() => { setActiveConversationId(null); setActiveTab('orchestration'); setHistoryOpen(false); }}
+            onChanged={refreshConversations} />} />
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
         {inOrg && currentWs && <div className="st-banner is-info og-banner"><span><b>{currentWs.name}</b>{currentWs.level ? ` · ${orgTerms(currentWs).level[currentWs.level]}` : ''}: AI và các công cụ chỉ dùng tài liệu bạn được phép xem trong tổ chức này.</span>
           {activeTab !== 'organization' && <button onClick={() => setActiveTab('organization')}>Quản lý tổ chức</button>}</div>}
@@ -486,9 +456,12 @@ function DashboardWorkspace({
           </div>
         )}
         {activeTab === 'orchestration' && <WorkspaceView workspaceId={currentWorkspaceId} conversationId={activeConversationId} onConversation={setActiveConversationId} onChanged={refreshConversations} userName={user?.full_name}
-          docCount={documents.length} chunkCount={documents.reduce((n, d) => n + (d.chunks_count || 0), 0)} modelOk={health?.ollama_status === 'CONNECTED'}
+          docCount={documents.length} chunkCount={totalChunks} modelOk={health?.ollama_status === 'CONNECTED'}
           workspaceName={workspaces.find(w => w.id === currentWorkspaceId)?.name} recent={conversations}
-          onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} prefill={prefill} freshDoc={freshDoc} onOpenToolkit={() => setActiveTab('toolkit')} />}
+          onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} prefill={prefill} freshDoc={freshDoc} onOpenToolkit={() => setActiveTab('toolkit')}
+          manage={<LeftPanel documents={documents} onUpload={handleUpload} onClear={handleClearDocs} onSeedDocs={handleSeedDocs} onInspectDocument={handleInspectDocument}
+            onOpenPlayground={() => handleOpenPlayground()} onDeleteDocument={handleDeleteSingleDoc} isUploading={isUploading} totalChunks={totalChunks} user={user}
+            orgLevel={inOrg ? currentWs?.level : undefined} terms={inOrg ? orgTerms(currentWs) : undefined} softwareFilter={isSoftware} spaceId={inOrg ? String(currentWorkspaceId) : undefined} />} />}
         {activeTab === 'organization' && <OrgView workspaceId={currentWorkspaceId} docs={documents} onOpenSpace={id => { void openSpace(id); }} onChanged={refreshState} onAsk={() => setActiveTab('orchestration')} />}
         {activeTab === 'overview' && <OverviewView health={health} userName={user?.full_name} />}
         {activeTab === 'documents' && <DocumentProfileView key={`doc-${currentWorkspaceId}-${profileSource}`} docs={documents} initialSourceId={profileSource || undefined}
