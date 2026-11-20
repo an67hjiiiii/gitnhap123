@@ -45,6 +45,7 @@ from app.research.progress import emit
 from app.research.synthesizer import synthesize
 from app.research.vanilla import answer_vanilla
 from app.retrieval.text import retrieve, apply_token_budget, estimate_tokens, terms
+from app.retrieval.hybrid import POOL as HYBRID_POOL, fuse as hybrid_fuse
 from app.retrieval.multilingual import build_query_variants, detect_language
 from app.storage.source_store import SourceStore
 from app.storage.run_store import RunStore
@@ -84,8 +85,12 @@ class ResearchPipeline:
         min_score: float,
         source_ids: list[str] | None,
         fallback_trace: dict | None = None,
+        hybrid: bool = False,
     ) -> list[SourceChunk]:
         variants = build_query_variants(query)
+        if hybrid:
+            # chỉ chế độ sản phẩm (Đợt 3): vector + BM25 + tiêu đề mục; A/B/C không đi nhánh này
+            return self._retrieve_hybrid(query, variants, chunks, top_k=top_k, min_score=min_score, source_ids=source_ids, trace=fallback_trace)
         if self.candidate_index is None:
             merged: dict[str, SourceChunk] = {}
             for variant in variants:
@@ -133,6 +138,21 @@ class ResearchPipeline:
                 candidate_count=len(fallback),
             )
         return fallback
+
+    def _retrieve_hybrid(self, query, variants, chunks, *, top_k, min_score, source_ids, trace):
+        vector_ranked: list[str] = []
+        if self.candidate_index is not None:
+            best: dict[str, float] = {}
+            for variant in variants:
+                for match in self.candidate_index.candidates(variant.text, limit=top_k * HYBRID_POOL, source_ids=source_ids):
+                    cid = str(match.payload.get("chunk_id") or "")
+                    if match.score >= min_score and match.score > best.get(cid, -1.0):
+                        best[cid] = match.score
+            vector_ranked = sorted(best, key=lambda cid: (-best[cid], cid))
+        fused, info = hybrid_fuse(query, chunks, vector_ranked, top_k)
+        if trace is not None:
+            trace.update(backend="hybrid", **info)
+        return fused
 
     async def run(self, query: str, condition: str = "A", provider_name: str | None = None, *,
                   domain_pack: str | None = None, **kwargs) -> dict:
@@ -364,6 +384,7 @@ class ResearchPipeline:
                     min_score=cfg.retrieval_min_score,
                     source_ids=source_ids,
                     fallback_trace=retrieval_trace,
+                    hybrid=product_mode,
                 )
                 metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                 metrics.retrieved_chunks += len(candidates)
@@ -687,6 +708,7 @@ class ResearchPipeline:
                             min_score=cfg.retrieval_min_score,
                             source_ids=source_ids,
                             fallback_trace={},
+                            hybrid=product_mode,
                         )
                         for task in ordered
                     }
@@ -704,6 +726,7 @@ class ResearchPipeline:
                         min_score=cfg.retrieval_min_score,
                         source_ids=source_ids,
                         fallback_trace=retrieval_trace,
+                        hybrid=product_mode,
                     )
                     metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                     metrics.retrieved_chunks += len(candidates)

@@ -332,6 +332,13 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Kiểm tra: backend 347 đạt; frontend tsc, build, 12 kiểm thử đạt (thêm `workspaceAssist.test.mjs`); chạy thật 2 câu (1440 px sáng, 390 px tối).
 - Giới hạn: đoạn trích ở cột phải hiện dạng chữ thô (bảng Markdown chưa dựng thành bảng); kỹ năng đề xuất chỉ dựa luật, chưa học.
 
+### Đợt 3: truy xuất chính xác (P0-1), chỉ chế độ sản phẩm
+- `backend/app/retrieval/hybrid.py`: gộp thứ hạng vector với BM25 (âm tiết bỏ dấu + cặp âm tiết) bằng Reciprocal Rank Fusion, cộng điểm cho tiêu đề mục khớp câu hỏi, từ khóa có trong tên tài liệu, và mục "Danh sách…" khi câu hỏi liệt kê. Không gọi mô hình sinh. Pipeline chỉ bật khi `product_mode=True` (`hybrid=product_mode` ở 3 chỗ gọi truy xuất); thực nghiệm A/B/C (`product_mode=False`) giữ nguyên đường cũ. `test_hybrid_retrieval.py` chứng minh: đường cũ trả đúng thứ tự vector và đúng top_k, không có chỗ nào bật cứng.
+- Bộ đo `data/research/retrieval-v1` (40 câu tự soạn trên 7 tài liệu mẫu PayNhanh; id lẻ để chỉnh, id chẵn để kiểm tra; đáp án là dòng nội dung đầu tiên dưới tiêu đề mục, script tự lấy). Script `scripts/research/retrieval_eval.py` dùng đúng hàm truy xuất của hệ thống, kho tạm trong bộ nhớ, mô hình nhúng thật nomic-embed-text; ghi từng câu ra `results-<split>-<ngày>.json`.
+- Kết quả phần kiểm tra (n = 20, top_k = 6, ngưỡng vector 0,18): truy xuất cũ hit@1 0,15 · hit@3 0,35 · hit@6 0,55; truy xuất lai 0,75 · 0,80 · 0,90. Phần kiểm tra chạy hai lần: lần 1 với bản v1, rồi bổ sung luật tên tài liệu và "Danh sách…" dựa trên câu số 1 của phần chỉnh, lần 2 với bản v2; hai lần cho cùng số (giữ cả hai tệp `-v1`). Đây là phép thử kỹ thuật do một người soạn, n nhỏ, một bộ tài liệu, không phải benchmark nghiên cứu.
+- Câu "CSDL gồm những bảng nào?" chạy thật trên giao diện: trả lời đủ 12 bảng, trích đúng đoạn "Danh sách bảng chính" (8,6 giây, 2.149 token). Trước khi sửa: chỉ liệt kê một phần. Trong bộ đo câu này ở hạng 6 (vẫn nằm trong 6 đoạn đưa cho mô hình).
+- Giới hạn: chưa đo trên tài liệu ngành khác (Đợt 7 thêm bộ mẫu); BM25 tính trên toàn bộ đoạn của người dùng mỗi lượt (đủ nhanh với vài nghìn đoạn, kho lớn hơn cần chỉ mục từ khóa riêng).
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.
