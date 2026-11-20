@@ -25,6 +25,7 @@ from app.retrieval.candidate_index import CandidateIndex, IndexingError
 from app.retrieval.embeddings import make_embedder
 from typing import Literal
 
+from app.research.learning import load_examples, record_example
 from app.research.pipeline import ResearchPipeline
 from app.research.progress import bound_emit, ndjson_run
 from app.research.run_queue import product_runs
@@ -530,6 +531,14 @@ async def _chat(body: ChatRequest, request: Request):
         if callable(validator) and selected_source_ids is not None:
             validator(selected_source_ids)
         conversations.add_message(conversation_id, "USER", body.message.strip())
+        # Đợt 8 (P1-5): học từ người dùng, chỉ ô chat sản phẩm. Người dùng bấm chọn cách hiểu → lưu làm ví dụ;
+        # các ví dụ đã lưu giúp bộ chọn tác tử lần sau (thực nghiệm A/B/C không đọc, không ghi).
+        examples: list[tuple[str, str]] = []
+        if body.product_mode and STORAGE_BACKEND == "postgres":
+            factory = app.state.session_factory
+            if body.agent:
+                record_example(factory, str(user["user_id"]), _space(user), body.message.strip(), body.agent, "clarify")
+            examples = load_examples(factory, str(user["user_id"]), _space(user))
         run_call = lambda: owner_pipeline(user, conversation_id).run(  # chỉ tạo lượt chạy khi tới lượt
             body.message.strip(),
             condition,
@@ -541,6 +550,7 @@ async def _chat(body: ChatRequest, request: Request):
             reply_in_query_language=body.reply_in_query_language,
             domain_pack=body.domain_pack or (WORK_PACK if body.product_mode else None),  # ô chat sản phẩm: tác tử theo loại việc
             forced_agent=body.agent if body.product_mode else None,
+            routing_examples=examples,
         )
         if body.product_mode:  # ô chat sản phẩm xếp hàng theo thứ tự; thực nghiệm không qua hàng đợi
             say = bound_emit()  # báo thứ tự vào luồng của chính người đang chờ, kể cả khi người trước gọi lúc nhường chỗ

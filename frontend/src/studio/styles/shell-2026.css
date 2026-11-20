@@ -231,3 +231,8 @@
 .st-app .ws-packs .is-upload{grid-template-columns:auto 1fr;column-gap:8px;align-items:center;border-style:dashed}
 .st-app .ws-packs .is-upload svg{grid-row:span 2;color:var(--accent)}
 .st-app[data-theme="dark"] .ws-packs button{background:rgba(255,255,255,.05)}
+.st-app .ws-reask{position:relative;display:inline-flex}
+.st-app .ws-reask-menu{position:absolute;left:0;bottom:calc(100% + 6px);z-index:20;display:grid;gap:2px;min-width:280px;padding:6px;border:1px solid var(--line);border-radius:14px;background:var(--glass-strong);box-shadow:var(--sh-3)}
+.st-app[data-theme="dark"] .ws-reask-menu{background:rgba(16,26,44,.97)}
+.st-app .ws-next .ws-reask-menu button{justify-content:flex-start;border:0;border-radius:10px;background:transparent;min-height:36px;text-align:left}
+.st-app .ws-next .ws-reask-menu button:hover{background:var(--accent-soft)}

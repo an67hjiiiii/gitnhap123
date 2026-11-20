@@ -23,6 +23,7 @@ from app.analysis.watch import replacement_pairs
 from app.core.secret_audit import log_secret_access
 from app.research.agent_selection import CLARIFY_LABELS, clarify_options, select_agents
 from app.analysis import versions
+from app.research.learning import load_examples, record_example
 from app.retrieval.hybrid import bm25_scores, fold
 from app.analysis import blind_rating, casework, consistency, domain_tools, design, evaluation, grounding, insights, reading, req_quality, security_review
 from app.analysis.traceability import (Requirement, assign_agent, check_requirement, extract_checklist, extract_requirements, missing_term_groups,
@@ -113,6 +114,11 @@ class GenerateBody(BaseModel):
     count: int = Field(default=8, ge=1, le=15)
     domain_pack: PackName | None = None
     topic: str | None = Field(default=None, max_length=500)  # ô chat: chỉ dùng các đoạn nói về chủ đề này
+
+
+class RoutingFeedbackBody(BaseModel):
+    query: str = Field(min_length=1, max_length=1000)
+    agent: Literal["conditions", "procedure", "terms", "figures"]
 
 
 class CompareBody(BaseModel):
@@ -383,7 +389,9 @@ def build_router(
         if embedder is None:
             return {"route": "pipeline"}
         try:
-            options = clarify_options(message, select_agents(message, embedder.embed))
+            # Đợt 8: câu giống câu người dùng đã chọn cách hiểu thì không hỏi lại nữa
+            examples = load_examples(session_factory(), str(user["user_id"]), user.get("space_id"))
+            options = clarify_options(message, select_agents(message, embedder.embed, examples))
         except Exception:  # mô hình nhúng lỗi: không hỏi lại, pipeline tự chọn như cũ
             return {"route": "pipeline"}
         if not options:
@@ -534,6 +542,13 @@ def build_router(
         # nhận dạng cố định: không có chữ "hợp đồng" hay cặp "bên a"/"bên b" thì có thể chọn nhầm tài liệu
         merged["looks_like_contract"] = "hợp đồng" in text or ("bên a" in text and "bên b" in text)
         return merged
+
+    @router.post("/routing-feedback")
+    def routing_feedback(body: RoutingFeedbackBody, request: Request) -> dict:
+        """Người dùng chọn lại tác tử cho một câu hỏi (Đợt 8): lưu làm ví dụ cho bộ chọn của ô chat sản phẩm."""
+        user = current_user(request)
+        saved = record_example(session_factory(), str(user["user_id"]), user.get("space_id"), body.query, body.agent, "reselect")
+        return {"saved": saved}
 
     @router.post("/tools/compare")
     def tool_compare(body: CompareBody, request: Request) -> dict:

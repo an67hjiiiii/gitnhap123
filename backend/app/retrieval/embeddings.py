@@ -56,6 +56,20 @@ class LocalHashEmbedder:
         return tuple(round(value / norm, 8) for value in values)
 
 
+_CLIENTS: dict[tuple[str, float], object] = {}
+
+
+def _client(base_url: str, timeout: float):
+    """Một kết nối HTTP dùng lại cho mỗi địa chỉ Ollama: httpx.post() mỗi lần tạo client và nạp chứng chỉ (~0,3 giây
+    trên Windows), làm câu có nhiều câu ví dụ chậm hẳn (20/11)."""
+    import httpx
+
+    key = (base_url, timeout)
+    if key not in _CLIENTS:
+        _CLIENTS[key] = httpx.Client(timeout=timeout)
+    return _CLIENTS[key]
+
+
 @dataclass(frozen=True)
 class OllamaEmbedder:
     """Embedding ngữ nghĩa qua Ollama (mặc định nomic-embed-text, 768 chiều), chạy cục bộ.
@@ -76,9 +90,7 @@ class OllamaEmbedder:
     def embed(self, text: str) -> tuple[float, ...]:
         if not isinstance(text, str):
             raise TypeError("text must be a string")
-        import httpx
-
-        response = httpx.post(
+        response = _client(self.base_url, self.timeout).post(
             f"{self.base_url.rstrip('/')}/api/embed",
             json={"model": self.model, "input": text or " "},
             timeout=self.timeout,

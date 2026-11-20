@@ -373,6 +373,15 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Kiểm tra: backend 368 đạt; frontend 16 kiểm thử (`samplePacks.test.mjs` kiểm mọi tệp mẫu tồn tại và ghi rõ là mẫu), build đạt.
 - Giới hạn: Hồ sơ tài liệu chưa có mục lục dạng cây; bộ mẫu ngắn (vài trang), chưa thay được tài liệu thật của khách.
 
+### Đợt 8: Học từ người dùng (P1-5), chỉ chế độ sản phẩm
+- Bảng mới `routing_examples` (migration `20261120_17`, chỉ thêm bảng): câu hỏi và tác tử người dùng đã chọn, theo người và không gian tổ chức. Ghi khi người dùng bấm một cách hiểu ở câu hỏi lại, hoặc bấm "Hiểu sai? Chọn lại" dưới câu trả lời (gửi lại với tác tử đó; API `/api/studio/routing-feedback` cũng ghi được). Lựa chọn mới nhất cho mỗi câu được dùng.
+- Bộ chọn tác tử của bộ "work" nhận ví dụ: câu mới giống một ví dụ (cosine ≥ 0,90) được cộng 0,08 cho tác tử của ví dụ, và không bị hỏi lại. Bộ Phần mềm và thực nghiệm A/B/C bỏ ví dụ trước khi chạy (`test_learning.py`), không có ví dụ thì kết quả y như cũ.
+- Nhãn loại tài liệu người dùng sửa vẫn được giữ khi nạp lại và khi đổi luật phân loại (Đợt 7); chưa dùng nhãn đã sửa để đoán tài liệu mới.
+- Đo trên agent-routing-v1 (32 câu, mô phỏng bằng nhãn đúng của các câu khác, bỏ-một-ra; không phải lựa chọn của người dùng thật): chưa học 28/32 (0,875; CI95 Wilson 0,719–0,95). Ngưỡng 0,80 (thiết kế ban đầu): học từ mọi câu khác 26/32 (0,812, kém hơn), chỉ sửa câu sai 28/32. Lý do: các câu khác nhau trong bộ vẫn giống nhau 0,80–0,83 với nomic-embed-text, ví dụ của câu khác kéo sai. Nâng ngưỡng 0,90 (chỉ câu gần như hỏi lại mới tính; quyết định sau khi xem kết quả, ghi rõ ở đây): cả hai cách 28/32, không tốt hơn không kém. Kết luận: trên câu hỏi khác nhau, học không làm tăng độ đúng; lợi ích là không hỏi lại câu người dùng đã trả lời. Dữ liệu thô: `results-2026-11-20-learning.json` (0,90) và `...-learning-sim080.json` (0,80).
+- Chạy thật: câu mơ hồ "Việc mua máy chiếu cho phòng họp cần xem những gì trước khi trình?" → hỏi lại; người dùng chọn "các bước làm" → câu gần giống "...trước khi trình lên?" không bị hỏi lại.
+- Lỗi tìm ra khi đo và đã sửa: bộ nhớ vector của bộ chọn tác tử khóa theo `id()` của phương thức nên gần như luôn trượt, và mỗi lần gọi Ollama tạo kết nối mới (~0,3 giây trên Windows) → phép đo quá 10 phút, câu có nhiều ví dụ chậm. Nay nhớ theo (mô hình, chữ) và dùng lại một kết nối: phép đo còn 6 giây.
+- Kiểm tra: backend 372 đạt; frontend 16 kiểm thử, build đạt.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.
