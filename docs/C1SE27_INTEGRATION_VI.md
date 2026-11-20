@@ -402,6 +402,17 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Sao lưu `pg_dump` và khôi phục vào CSDL tạm chạy thật: 63 KB, đủ 24 bảng. Hướng dẫn vận hành `docs/HUONG_DAN_VAN_HANH_MAY_CHU.md` (cài, bật/tắt, sao lưu CSDL và chỉ mục vector, khôi phục, nâng cấp, OCR, OIDC, HTTPS, giám sát). Compose máy chủ cho backend đọc `docker/.env` để cấu hình OIDC.
 - Giao diện (góp ý chủ dự án 20/11): bỏ nền thanh trên và tên trang; cụm "không gian · Lịch sử · thông báo · trợ giúp · tài khoản" nổi ở góc trên phải; khung chat cao hết màn hình, cột phải bắt đầu dưới cụm này và thu gọn được thành dải biểu tượng (nhớ lựa chọn), có mục "Câu trả lời này dùng" nhóm nguồn theo tài liệu; thanh bên dùng biểu tượng nét đơn, khối Kho tri thức một dòng; ô chat: nút đính kèm không còn đẩy cả hàng sang phải, bỏ quầng sáng chuyển sắc; lời chào một màu; nút chính và ô biểu tượng các trang theo một màu nhấn.
 
+### Đợt 11: bộ held-out đa ngành, chạy A/C/Tự động, đợt chấm mù mới
+- `data/research/heldout-v1/`: 24 câu (18 một ý, 6 nhiều ý; giáo dục, nhân sự, hợp đồng, hành chính, phần mềm), soạn trước khi chạy, mỗi câu một lần mỗi cách. Kết quả `results-2026-11-20.json`: độ phủ ý chính (so khớp tự động, không phải điểm chất lượng) A 0,934, C 0,802, Tự động 0,955; câu nhiều ý A 0,819, C 0,875, Tự động 0,819; token trung bình A 1.302, C 4.433, Tự động 1.910; thời gian 3,9 / 16,1 / 5,5 giây. Wilcoxon theo cặp Tự động so với C: token và thời gian p < 0,001; độ phủ p = 0,0625 (chưa có ý nghĩa, n = 24). C thất bại 3 câu do bước kiểm tra kế hoạch của CAP1 (hành vi sẵn có).
+- Đợt chấm mù 8LTSNT (69 câu trả lời, ẩn cách chạy) đã tạo, hướng dẫn `HUONG_DAN_NGUOI_CHAM.md`; chưa có điểm người chấm.
+- Lỗi tìm ra khi thử theo vai và đã sửa có kiểm thử: quy định viết "Nghỉ từ 3 ngày trở lên: Giám đốc duyệt" không được nhận (thêm dấu hai chấm, "phải được" vào luật tách ngưỡng); kỹ năng điều kiện để mô hình kết luận "chưa rõ" dù tình huống có đủ con số (thêm so số bằng luật cố định, bỏ qua câu phủ định như "không có học phần dưới 5").
+- Thử theo 5 vai (cá nhân mới, giảng viên, nhân viên, trưởng phòng/ban giám đốc, quản trị) với tài liệu Word, PDF, Excel, Markdown, ảnh: 24/24 việc đạt sau khi sửa (lần đầu 20/24, 2 lỗi do kịch bản thử). Giao diện 5 vai ở 1440 px sáng và 390 px tối: không tràn ngang, không lỗi console; lỗi dải thông báo tổ chức đè cụm góc phải đã sửa (ẩn trên máy tính, câu nhắc chuyển vào menu không gian).
+- Kiểm tra: backend 380 đạt; frontend tsc, build, 16 kiểm thử đạt.
+
+### Đợt 12: hướng dẫn theo vai, báo cáo hoàn thiện, đề xuất giai đoạn tiếp
+- `docs/HUONG_DAN_NGUOI_DUNG_THEO_VAI.md` (commit). Báo cáo hoàn thiện, kịch bản demo chỉ dùng số thật và đề xuất giai đoạn tiếp (Đợt A–F kèm prompt cho phiên mới) nằm trong bộ tài liệu riêng của chủ dự án, không commit.
+- Đánh giá: chưa đủ để bán đại trà; đủ cho thí điểm có hướng dẫn. Thiếu chính: số chất lượng do người chấm ngoài nhóm, kết nối nguồn (Drive/SharePoint/email), câu nhiều ý ổn định, cài trên máy sạch, rà soát bảo mật, kiểm giấy phép.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.
