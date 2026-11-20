@@ -177,3 +177,20 @@ def test_retry_once_when_model_returns_no_conditions():
         p = SeqProvider({"note": "", "conditions": []}, real)
         out = asyncio.run(check_conditions(p, "Có đủ điều kiện học bổng không?", CASE, [RULE]))
     assert len(p.users) == 2 and "listed no conditions" in p.users[1] and out["overall"] == "NOT_ELIGIBLE"
+
+
+def test_no_retry_and_no_rule_when_documents_do_not_mention_question():
+    """P1-1: tài liệu không nhắc tới nội dung câu hỏi thì báo không có quy định, không hỏi lại mô hình."""
+    from app.analysis.casework import mentions_question
+    off = SourceChunk("s1", "bao_mat", "bao_mat.md", "Mật khẩu tối thiểu 12 ký tự, đổi định kỳ 90 ngày, khóa sau 5 lần sai.", 0)
+    assert not mentions_question("Có được nghỉ phép 6 ngày không?", [off])
+    assert mentions_question("Có đủ điều kiện học bổng không?", [RULE])
+    p = SeqProvider({"note": "", "conditions": []})
+    out = asyncio.run(check_conditions(p, "Có được nghỉ phép 6 ngày không?", "Đã làm 3 năm.", [off]))
+    assert len(p.users) == 0 and out["overall"] == "NO_RULE" and "không nói tới" in out["note"]  # không gọi mô hình
+
+
+def test_generic_pairs_do_not_count_as_mentioning():
+    from app.analysis.casework import mentions_question
+    sec = SourceChunk("s2", "su_co", "su_co.md", "Nhân viên trực ca xác nhận cảnh báo trong 5 phút; 3 lần liên tiếp thất bại thì báo động.", 0)
+    assert not mentions_question("Nhân viên làm 2 năm có được nghỉ phép 6 ngày liên tiếp không?", [sec])

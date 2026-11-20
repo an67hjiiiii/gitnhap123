@@ -1,12 +1,12 @@
 // Thẻ kết quả kỹ năng trong ô chat (đợt 4, bản làm thử): kỹ năng do bộ định tuyến chọn hoặc người dùng gọi bằng "/".
 // Kết luận tổng do luật cố định ở backend suy ra; thẻ chỉ hiển thị, mọi căn cứ bấm được vào đoạn gốc.
 import React from 'react';
-import { AlertTriangle, ArrowUpRight, CheckCircle2, CircleHelp, ClipboardCheck, FileClock, Gavel, GitCompareArrows, ListOrdered, UserCheck, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, CheckCircle2, CircleHelp, ClipboardCheck, FileClock, Gavel, GitCompareArrows, GraduationCap, ListOrdered, UserCheck, XCircle } from 'lucide-react';
 import { CHANGE_LABEL, changeTone } from '../utils/compareText';
 import type { SkillKey, SkillOutput } from '../services/api';
 
 const ICON: Record<SkillKey, React.ElementType> = {
-  conditions: ClipboardCheck, procedure: ListOrdered, approver: UserCheck, contract_review: Gavel, validity: FileClock, compare: GitCompareArrows,
+  conditions: ClipboardCheck, procedure: ListOrdered, approver: UserCheck, contract_review: Gavel, validity: FileClock, compare: GitCompareArrows, quiz: GraduationCap,
 };
 const OVERALL: Record<string, { text: string; tone: string }> = {
   ELIGIBLE: { text: 'Đủ điều kiện', tone: 'ok' },
@@ -68,6 +68,11 @@ export const SkillCard: React.FC<Props> = ({ label, reason, out, citeLabel, onCi
       return <li key={x.source_id}><span className={`skc-badge is-${t.tone}`}>{t.text}</span>
         <div><b>{x.number || x.source_name}</b><small>{[x.effective && `Hiệu lực từ ${x.effective}`, x.replaces.length > 0 && `Thay thế ${x.replaces.join(', ')}`, x.status_note].filter(Boolean).join(' · ')}</small></div></li>;
     })}</ul>;
+  } else if (out.skill === 'quiz') {
+    body = out.data.items.length === 0 ? <p className="skc-verdict is-warn">Chưa tạo được câu hỏi có căn cứ trong tài liệu đã chọn.</p>
+      : <ol className="skc-quiz">{out.data.items.map((q, i) => <li key={i}><b>{q.question}</b>
+        <ul>{q.options.map((o, j) => <li key={j} className={j === q.answer ? 'is-answer' : ''}><span>{String.fromCharCode(65 + j)}</span>{o}{j === q.answer && <em>Đáp án</em>}</li>)}</ul>
+        {q.explanation && <small>{q.explanation}</small>} {cite(q.citation)}</li>)}</ol>;
   } else if (out.skill === 'compare') {
     // tóm tắt chỉ từ các mục đã đối chiếu bằng mã; bảng đầy đủ ở trang So sánh phiên bản
     const changed = out.data.items.filter(it => it.change !== 'UNCHANGED');
@@ -91,7 +96,7 @@ export const SkillCard: React.FC<Props> = ({ label, reason, out, citeLabel, onCi
       <header><span className="skc-ico"><I size={16} /></span><div><b>{label}</b>{reason && <small>{reason}</small>}</div></header>
       {d.note && /[àáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]/i.test(d.note) && <p className="skc-note">{d.note}</p>}  {/* ghi chú mô hình viết tiếng Anh thì ẩn */}
       {body}
-      <footer>{out.skill === 'compare' || out.skill === 'validity' ? 'Kết quả do mã đối chiếu, không gọi mô hình; người có thẩm quyền xác nhận trước khi dùng.' : 'Kết luận tổng do luật cố định suy ra, mô hình chỉ đọc và trích; người có thẩm quyền quyết định cuối cùng.'}{measured && <span>{measured}</span>}</footer>
+      <footer>{out.skill === 'quiz' ? 'Câu hỏi do mô hình soạn từ đoạn tài liệu; câu không có trích dẫn hợp lệ đã bị loại. Người dạy duyệt trước khi dùng.' : out.skill === 'compare' || out.skill === 'validity' ? 'Kết quả do mã đối chiếu, không gọi mô hình; người có thẩm quyền xác nhận trước khi dùng.' : 'Kết luận tổng do luật cố định suy ra, mô hình chỉ đọc và trích; người có thẩm quyền quyết định cuối cùng.'}{measured && <span>{measured}</span>}</footer>
     </article>
   );
 };

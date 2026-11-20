@@ -23,6 +23,12 @@ SKILLS: dict[str, tuple[str, str, frozenset[str] | None]] = {
         r"\b(so sanh|doi chieu)\b.{0,60}\b(ban|phien ban|quy che|quy dinh|van ban|cu|moi|nam)\b|\b(ban moi|phien ban moi)\b.{0,40}\b(khac|thay doi|diem moi)\b|\bthay doi gi\b.{0,40}\b(so voi|ban cu)\b",
         None,
     ),
+    # Đợt 5 (P1-3): câu hỏi trắc nghiệm có phương án, đáp án, nguồn (dùng công cụ tạo câu hỏi sẵn có)
+    "quiz": (
+        "Tạo câu hỏi trắc nghiệm",
+        r"\b(trac nghiem|cau hoi on tap|de on tap|bo cau hoi|cau hoi kiem tra|ngan hang cau hoi)\b",
+        None,
+    ),
     "validity": (
         "Hiệu lực văn bản",
         r"\b(con hieu luc|het hieu luc|hieu luc tu|bi thay the|hieu luc)\b",
@@ -54,6 +60,8 @@ COMPOSE = r"\b(tao|soan|viet|lap)\b.{0,30}\b(cau hoi|de thi|bai kiem tra|trac ng
 def route_skill(query: str, doc_types: list[str | None]) -> dict | None:
     """Trả {"skill", "label", "reason"} hoặc None (để pipeline xử lý)."""
     text = _fold(query)
+    if re.search(SKILLS["quiz"][1], text):  # tạo câu hỏi trắc nghiệm là kỹ năng riêng, đi trước luật "soạn nội dung"
+        return {"skill": "quiz", "label": SKILLS["quiz"][0], "reason": 'Yêu cầu tạo câu hỏi trắc nghiệm', "doc_types": None}
     if re.search(COMPOSE, text):
         return None
     types = {t for t in doc_types if t}

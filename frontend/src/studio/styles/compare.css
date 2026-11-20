@@ -61,3 +61,15 @@
   .st-app .cv-cell.is-new::before{content:'Bản mới';display:block;font-size:11px;font-weight:700;color:var(--faint);margin-bottom:2px}
   .st-app .cv-acts{margin-left:0;width:100%}
 }
+/* thẻ câu hỏi trắc nghiệm trong chat (Đợt 5) */
+.st-app .skc-quiz{margin:0;padding-left:20px;display:grid;gap:12px}
+.st-app .skc-quiz>li>b{display:block;margin-bottom:6px;color:var(--ink)}
+.st-app .skc-quiz ul{list-style:none;margin:0 0 6px;padding:0;display:grid;gap:4px}
+.st-app .skc-quiz ul li{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;font-size:13.5px}
+.st-app .skc-quiz ul li>span{flex:none;display:grid;place-items:center;width:22px;height:22px;border-radius:7px;background:rgba(15,27,43,.06);font-size:11.5px;font-weight:800}
+.st-app .skc-quiz ul li.is-answer{border-color:color-mix(in srgb,var(--ok,#2fae74) 50%,transparent);background:var(--ok-soft,#e8f6ef)}
+.st-app[data-theme="dark"] .skc-quiz ul li.is-answer{background:rgba(47,174,116,.14)}
+.st-app .skc-quiz ul li.is-answer>span{background:var(--ok,#2fae74);color:#fff}
+.st-app .skc-quiz em{margin-left:auto;font-style:normal;font-size:11.5px;font-weight:700;color:var(--ok-ink,#167a50)}
+.st-app[data-theme="dark"] .skc-quiz em{color:#6ee7b7}
+.st-app .skc-quiz small{display:block;font-size:12.5px;color:var(--muted)}

@@ -70,7 +70,9 @@ def test_route_endpoint_filters_sources_by_needed_type():
 
 def test_compose_requests_are_not_forced_into_lookup_skills():
     # "quy trình", "hợp đồng" chỉ là chủ đề của yêu cầu soạn nội dung: để pipeline trả lời
-    assert route_skill("Tạo 5 câu hỏi trắc nghiệm ôn tập về quy trình xử lý sự cố", []) is None
+    # Đợt 5 (P1-3): câu hỏi trắc nghiệm giờ là kỹ năng riêng (có phương án, đáp án), không ép vào kỹ năng Quy trình
+    assert route_skill("Tạo 5 câu hỏi trắc nghiệm ôn tập về quy trình xử lý sự cố", [])["skill"] == "quiz"
+    assert route_skill("Soạn bộ câu hỏi ôn tập chương 2", [])["skill"] == "quiz"
     assert route_skill("Soạn email nhắc các bước thủ tục nghỉ phép", []) is None
     assert route_skill("Tóm tắt hợp đồng và rà soát hợp đồng", ["contract"]) is None
     assert route_skill("Quy trình xử lý sự cố gồm các bước nào?", [])["skill"] == "procedure"
@@ -80,3 +82,39 @@ def test_compare_versions_intent():
     for q in ("So sánh quy chế 2024 với bản 2026", "Bản mới khác gì so với bản cũ?", "Đối chiếu hai phiên bản quy định nghỉ phép"):
         assert route_skill(q, [])["skill"] == "compare", q
     assert route_skill("Quy chế có hiệu lực từ ngày nào?", ["regulation"])["skill"] == "validity"
+
+
+def test_generate_endpoint_topic_keeps_relevant_chunks(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import app.api.analysis as api
+    from app.core.types import SourceChunk
+
+    chunks = [SourceChunk(f"s_c{i}", "s", "s.md", t, i) for i, t in enumerate(
+        ["Quy trình xử lý sự cố gồm phát hiện, khoanh vùng, khắc phục.", "Mật khẩu tối thiểu 12 ký tự.", "Sự cố mức 1 báo trong 15 phút."])]
+    seen = {}
+
+    async def fake(provider, kind, cs, count):
+        seen["ids"] = [c.chunk_id for c in cs]
+        return {"kind": kind, "items": []}
+
+    monkeypatch.setattr(api.domain_tools, "generate_items", fake)
+    pipe = SimpleNamespace(source_store=SimpleNamespace(chunks=lambda ids: chunks))
+    app = FastAPI()
+    app.include_router(api.build_router(current_user=lambda r: {"user_id": "u"}, owner_pipeline=lambda user, *a: pipe,
+                                        session_factory=lambda: None, provider_factory=lambda: None))
+    c = TestClient(app)
+    assert c.post("/api/studio/tools/generate", json={"kind": "quiz", "source_ids": ["s"], "count": 3, "topic": "xử lý sự cố"}).status_code == 200
+    assert "s_c1" not in seen["ids"] and "s_c0" in seen["ids"]
+    c.post("/api/studio/tools/generate", json={"kind": "quiz", "source_ids": ["s"], "count": 3})
+    assert len(seen["ids"]) == 3  # không có chủ đề: dùng mọi đoạn như cũ
+
+
+def test_quiz_topic_strips_instruction():
+    from app.api.analysis import quiz_topic
+    assert quiz_topic("Tạo 5 câu hỏi trắc nghiệm ôn tập về quy trình xử lý sự cố") == "quy trinh xu ly su co"
+    assert quiz_topic("Hãy soạn câu hỏi trắc nghiệm cho chương bảo mật") == "chuong bao mat"
+    assert quiz_topic("trắc nghiệm") == "trac nghiem"  # không còn gì: giữ nguyên

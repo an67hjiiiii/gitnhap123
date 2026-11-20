@@ -349,6 +349,14 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Kiểm tra: backend 360 đạt (`test_versions.py`, ý định so sánh trong `test_skill_router.py`); frontend 15 kiểm thử (`compareText.test.mjs`), build đạt; ảnh 1440 sáng, 390 tối, không tràn ngang.
 - Giới hạn: chưa so bảng biểu bên trong Điều; văn bản scan cần OCR trước; độ giống dùng ngưỡng cố định (0,6 tiêu đề, 0,55 nội dung), chưa đo trên văn bản thật của khách.
 
+### Đợt 5: Kỹ năng
+- Trang Kỹ năng thành một danh mục chung 14 kỹ năng (+ thẻ So sánh phiên bản), lọc Giáo dục / Công ty / Văn phòng / Kỹ thuật / Chung, tìm kiếm không dấu. Mỗi thẻ có nhãn ngành, "Trong ô chat" (gọi được khi hỏi hoặc gõ "/"), và "Đã chạy thật" (chạy trên giao diện 20/11: tạo câu hỏi, quy trình, kiểm tra điều kiện, hiệu lực văn bản, so sánh) hoặc "Có kiểm thử" (có kiểm thử tự động, chưa chạy lại thật trong đợt này). Không dán nhãn "chạy được" chung chung.
+- P1-3: kỹ năng "Tạo câu hỏi trắc nghiệm" trong ô chat (bộ định tuyến chọn khi câu có "trắc nghiệm / câu hỏi ôn tập / bộ câu hỏi"; dùng công cụ tạo câu hỏi sẵn có). Số câu lấy từ yêu cầu (mặc định 5, tối đa 10); chủ đề bỏ phần lệnh ("Tạo 5 câu hỏi trắc nghiệm về") rồi chọn tối đa 8 đoạn khớp từ khóa (`quiz_topic`, tham số `topic` của `/tools/generate`, không có chủ đề thì như cũ). Thẻ hiện 4 phương án, đáp án tô xanh, giải thích, nguồn. Chạy thật: "Tạo 5 câu hỏi trắc nghiệm ôn tập về quy trình xử lý sự cố" → 5 câu về ca trực, SEV-1, webhook… có nguồn (lần đầu, trước khi bỏ phần lệnh, câu hỏi lệch sang sao lưu CSDL).
+- P1-1: kỹ năng Kiểm tra điều kiện tách chủ đề câu hỏi (phần sau "được / đủ điều kiện / hưởng / xin", ví dụ "nghỉ phép", "học bổng"); các đoạn tìm được không nói tới chủ đề thì trả "Không thấy quy định phù hợp" ngay, không gọi mô hình. Chạy thật: hỏi nghỉ phép trong kho tài liệu kỹ thuật → báo không có quy định tức thì (trước: gọi mô hình hai lần, 5.856 token, kết luận "Chưa xác định").
+- "/" ở ô chat thêm "Rà soát theo tiêu chí" và "Bảng dữ liệu theo quy định" (mở thẳng kỹ năng trong danh mục), "Danh mục kỹ năng".
+- Kiểm tra: backend 364 đạt (ý định quiz/so sánh, chủ đề quiz, lọc đoạn theo chủ đề, P1-1); frontend 15 kiểm thử, build đạt.
+- Giới hạn: chất lượng câu hỏi do qwen3:4b soạn chưa được người dạy chấm; luật tách chủ đề P1-1 chỉ hiểu mẫu câu "có được / đủ điều kiện / hưởng / xin …", câu khác giữ hành vi cũ (hỏi lại một lần).
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

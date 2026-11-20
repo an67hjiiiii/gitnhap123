@@ -3,9 +3,8 @@
 import React, { useState } from 'react';
 import {
   ArrowLeft, ArrowRight, BookOpenText, Calculator, FileSignature, FileText, FolderCheck, GraduationCap, ListChecks, ListOrdered,
-  MessageCircleQuestion, PencilRuler, Scale, SpellCheck, Users,
+  MessageCircleQuestion, PencilRuler, Scale, SpellCheck, Users, Search, CheckCircle2, GitCompareArrows,
 } from 'lucide-react';
-import { packLabel } from '../services/api';
 import { ChecklistView, ChecklistMode } from './ChecklistView';
 import { ConditionCheckView, ProcedureView } from './CaseworkViews';
 import { ReqQualityView } from './ReqQualityView';
@@ -67,37 +66,65 @@ const TOOLS: Record<string, { tagline: string; tools: Tool[] }> = {
   ] },
 };
 
-export const ToolkitView: React.FC<{ pack?: string | null } & Props> = ({ pack, docs, workspaceId }) => {
-  // Đợt 6: không còn chọn lĩnh vực cho cả không gian; chọn ngành ngay trong bộ công cụ (mở bằng lệnh "/" ở ô chat)
-  const [picked, setPicked] = useState<string>(pack && TOOLS[pack] ? pack : 'education');
-  const key = TOOLS[picked] ? picked : 'software';
-  const kit = TOOLS[key];
-  const [openId, setOpenId] = useState<string | null>(null);
-  const tool = kit.tools.find(t => t.id === openId);
+// Danh mục kỹ năng (Đợt 5): một danh mục chung lọc theo ngành, thay cho trang "Bộ công cụ <ngành>".
+const CATEGORY: Record<string, string> = { education: 'Giáo dục', business_hr: 'Công ty', legal_admin: 'Văn phòng', software: 'Kỹ thuật', general: 'Chung' };
+// kỹ năng gọi được ngay trong ô chat Tự động (bộ định tuyến chọn hoặc gõ "/")
+const IN_CHAT: Record<string, string> = { procedure: 'procedure', conditions: 'conditions', quiz: 'quiz', validity: 'validity', contract: 'contract_review' };
+// kỹ năng đã chạy thử thật trên giao diện ngày 20/11 (mô hình qwen3:4b); kỹ năng khác có kiểm thử nhưng chưa chạy lại trong đợt này
+const RAN = new Set(['quiz', 'procedure', 'conditions', 'validity']);
+const fold = (v: string) => v.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi, 'd').toLowerCase();
 
-  if (tool) return (
-    <div className={`tk is-${key}`}>
+export const ToolkitView: React.FC<{ pack?: string | null; initialTool?: { pack: string; id: string } | null } & Props> = ({ pack, docs, workspaceId, initialTool }) => {
+  const [cat, setCat] = useState<string>('all');
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState<{ pack: string; id: string } | null>(initialTool ?? null);
+  React.useEffect(() => { if (initialTool) setOpen(initialTool); }, [initialTool?.pack, initialTool?.id]);
+  const all = Object.entries(TOOLS).flatMap(([k, kit]) => kit.tools.map(t => ({ ...t, pack: k })))
+    .filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i);  // "Rà soát theo tiêu chí" có ở hai ngành: hiện một lần
+  const kit = open ? TOOLS[open.pack] : null;
+  const tool = kit?.tools.find(t => t.id === open!.id);
+
+  if (tool && open) return (
+    <div className={`tk is-${open.pack}`}>
       <div className="tk-crumb">
-        <button className="btn btn-ghost is-sm" onClick={() => setOpenId(null)}><ArrowLeft size={15} />Bộ công cụ {packLabel(key)}</button>
-        <nav className="tk-switch" aria-label="Chuyển công cụ">{kit.tools.map(t => <button key={t.id} className={t.id === tool.id ? 'is-on' : ''} aria-current={t.id === tool.id ? 'page' : undefined} onClick={() => setOpenId(t.id)}><t.Icon size={15} />{t.title}</button>)}</nav>
+        <button className="btn btn-ghost is-sm" onClick={() => setOpen(null)}><ArrowLeft size={15} />Danh mục kỹ năng</button>
+        <nav className="tk-switch" aria-label="Chuyển kỹ năng cùng ngành">{kit!.tools.map(t => <button key={t.id} className={t.id === tool.id ? 'is-on' : ''} aria-current={t.id === tool.id ? 'page' : undefined} onClick={() => setOpen({ pack: open.pack, id: t.id })}><t.Icon size={15} />{t.title}</button>)}</nav>
       </div>
       {tool.render({ docs, workspaceId })}
     </div>
   );
 
+  const k = fold(q.trim());
+  const shown = all.filter(t => (cat === 'all' || t.pack === cat) && (!k || fold(`${t.title} ${t.what} ${t.when}`).includes(k)));
+  const count = (c: string) => all.filter(t => c === 'all' || t.pack === c).length;
   return (
-    <main className={`pg tk tk-home is-${key}`}>
+    <main className="pg tk tk-home tk-catalog">
       <div className="pg-col">
-        <header className="tk-hero"><p className="tk-kicker">Bộ công cụ</p><h1>{packLabel(key)}</h1><p>{kit.tagline}. Các kỹ năng chính đã gọi được ngay trong ô chat; đây là bộ công cụ đầy đủ theo ngành.</p>
-          <nav className="tk-packs" aria-label="Chọn ngành">{Object.keys(TOOLS).map(k => <button key={k} type="button" className={k === key ? 'is-on' : ''} aria-pressed={k === key} onClick={() => { setPicked(k); setOpenId(null); }}>{packLabel(k)}</button>)}</nav></header>
-        <div className="tk-grid">{kit.tools.map((t, i) => (
-          <button key={t.id} className="tk-card" onClick={() => setOpenId(t.id)} style={{ animationDelay: `${i * 60}ms` }}>
+        <header className="tk-hero"><p className="tk-kicker">Danh mục kỹ năng</p><h1>Kỹ năng theo ngành</h1>
+          <p>{all.length} kỹ năng dùng chung một kho tài liệu. Kỹ năng có nhãn "Trong ô chat" gọi được ngay khi hỏi, hoặc gõ "/" ở Không gian làm việc.</p>
+          <div className="tk-filter">
+            <nav className="tk-packs" aria-label="Lọc theo ngành">{['all', ...Object.keys(CATEGORY)].map(c => <button key={c} type="button" className={c === cat ? 'is-on' : ''} aria-pressed={c === cat} onClick={() => setCat(c)}>
+              {c === 'all' ? 'Tất cả' : CATEGORY[c]} <em>{count(c)}</em></button>)}</nav>
+            <label className="lib-find tk-find"><Search size={15} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm kỹ năng…" aria-label="Tìm kỹ năng" /></label>
+          </div></header>
+        {shown.length === 0 ? <p className="tk-note">Không có kỹ năng nào khớp “{q}”.</p> : <div className="tk-grid">{shown.map((t, i) => (
+          <button key={t.id} className={`tk-card is-${t.pack}`} onClick={() => setOpen({ pack: t.pack, id: t.id })} style={{ animationDelay: `${i * 40}ms` }}>
             <span className="tk-ico"><t.Icon size={22} /></span>
+            <span className="tk-tags"><i className="tk-cat">{CATEGORY[t.pack]}</i>{IN_CHAT[t.id] && <i className="tk-chat"><MessageCircleQuestion size={12} />Trong ô chat</i>}
+              <i className={RAN.has(t.id) ? 'tk-ran' : 'tk-tested'} title={RAN.has(t.id) ? 'Có kiểm thử tự động và đã chạy thử thật trên giao diện 20/11' : 'Có kiểm thử tự động; chưa chạy lại thật trong đợt 20/11'}>
+                <CheckCircle2 size={12} />{RAN.has(t.id) ? 'Đã chạy thật' : 'Có kiểm thử'}</i></span>
             <b>{t.title}</b><span className="tk-what">{t.what}</span>
             <span className="tk-when"><em>Dùng khi</em>{t.when}</span>
-            <span className="tk-go">Mở công cụ <ArrowRight size={15} /></span>
-          </button>))}</div>
-        <p className="tk-note">Kết quả của các công cụ đều kèm trích dẫn đoạn tài liệu gốc; phép so sánh, tính toán và kết luận cuối do luật cố định thực hiện, mô hình chỉ đọc và trích thông tin.</p>
+            <span className="tk-go">Mở kỹ năng <ArrowRight size={15} /></span>
+          </button>))}
+          <button className="tk-card is-legal_admin" onClick={() => window.dispatchEvent(new CustomEvent('oq-go', { detail: 'compare' }))}>
+            <span className="tk-ico"><GitCompareArrows size={22} /></span>
+            <span className="tk-tags"><i className="tk-cat">Văn phòng</i><i className="tk-chat"><MessageCircleQuestion size={12} />Trong ô chat</i><i className="tk-ran"><CheckCircle2 size={12} />Đã chạy thật</i></span>
+            <b>So sánh phiên bản</b><span className="tk-what">Bản mới khác bản cũ ở Chương, Điều, Khoản nào: thêm, sửa, bỏ, giữ, di chuyển.</span>
+            <span className="tk-when"><em>Dùng khi</em>Có quy chế, quy định, hợp đồng bản mới thay bản cũ.</span>
+            <span className="tk-go">Mở trang So sánh <ArrowRight size={15} /></span>
+          </button></div>}
+        <p className="tk-note">Kết quả của các kỹ năng kèm trích dẫn đoạn tài liệu gốc; phép so sánh, tính toán và kết luận cuối do luật cố định thực hiện, mô hình chỉ đọc và trích thông tin.</p>
       </div>
     </main>
   );
