@@ -7,6 +7,8 @@ chỉ giao Chuyên viên tổng hợp, không đoán. Không gọi mô hình sin
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
 from functools import lru_cache
 from typing import Callable
 
@@ -84,6 +86,13 @@ CLARIFY_LABELS = {
     "figures": "tính số liệu (bao nhiêu, tỷ lệ)",
 }
 CLARIFY_MIN_WORDS = 5  # câu quá ngắn ("Xin chào") không hỏi lại, giao Chuyên viên tổng hợp
+# Câu tra cứu, liệt kê ("CSDL gồm những bảng nào?", "X là gì?") có một cách hiểu: tìm và trả lời thẳng, không hỏi lại
+# (lỗi tìm ra 20/11: câu này bị hỏi "số liệu hay điều khoản").
+_LOOKUP = re.compile(r"\b(bao gom|gom|liet ke|danh sach|la gi|nghia la)\b|\bco (nhung|cac)\b.*\bnao\b")
+
+
+def _fold(text: str) -> str:
+    return unicodedata.normalize("NFD", text.replace("đ", "d").replace("Đ", "D")).encode("ascii", "ignore").decode().lower()
 
 
 def clarify_options(query: str, selection: dict) -> list[str] | None:
@@ -91,6 +100,8 @@ def clarify_options(query: str, selection: dict) -> list[str] | None:
     if not selection.get("ambiguous") or selection.get("method") != "semantic+keyword":
         return None
     if len(query.split()) < CLARIFY_MIN_WORDS:
+        return None
+    if _LOOKUP.search(_fold(query)) and not any((selection.get("keyword_hits") or {}).values()):
         return None
     scores = selection["scores"]
     return sorted(scores, key=lambda a: (-scores[a], a))[:2]
