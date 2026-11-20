@@ -145,3 +145,8 @@ html[data-auth-slime]::view-transition-old(auth-form){animation:.3s ease-in both
 html[data-auth-slime]::view-transition-new(auth-form){animation:.45s cubic-bezier(.2,.8,.2,1) .5s both auth-slime-rise}
 @keyframes auth-slime-fade{to{opacity:0}}
 @keyframes auth-slime-rise{from{opacity:0;transform:translateY(10px)}}
+/* Đăng nhập tổ chức (OIDC, Đợt 10): chỉ hiện khi máy chủ bật */
+.auth-sso{display:grid;gap:8px;margin-top:16px}
+.auth-sso>span{font-size:12px;color:#64748b;text-align:center}
+.auth-sso-btn{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#0f1b2b;font-weight:600;font-size:14px;text-decoration:none}
+.auth-sso-btn:hover{border-color:#1d66c9;color:#1d66c9}

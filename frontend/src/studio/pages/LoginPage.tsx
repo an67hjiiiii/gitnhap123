@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRobotAssistant } from '../components/robot/RobotContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthPageFrame, AuthTabs } from '../components/auth/AuthPageFrame';
@@ -31,6 +31,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const {setState:setRobotState}=useRobotAssistant();
+  // Đăng nhập bằng tài khoản tổ chức (Đợt 10): chỉ hiện khi máy chủ đã cấu hình OIDC (mặc định tắt)
+  const [sso, setSso] = useState<{ id: string; label: string }[]>([]);
+  useEffect(() => {
+    fetch('/api/auth/oidc/providers', { credentials: 'same-origin' }).then(r => (r.ok ? r.json() : { providers: [] })).then(j => setSso(j.providers || [])).catch(() => setSso([]));
+    const e = new URLSearchParams(window.location.search).get('sso_error');
+    if (e) setError(`Nhà cung cấp tài khoản tổ chức không cho đăng nhập (${e}). Thử lại hoặc dùng mật khẩu.`);
+  }, []);
 
 
 
@@ -183,6 +190,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               )}
             </button>
           </form>
+          {sso.length > 0 && <div className="auth-sso" aria-label="Đăng nhập bằng tài khoản tổ chức">
+            <span>hoặc dùng tài khoản tổ chức</span>
+            {sso.map(p => <a key={p.id} className="auth-sso-btn" href={`/api/auth/oidc/${encodeURIComponent(p.id)}/start`}>Đăng nhập bằng {p.label}</a>)}
+          </div>}
 
         </div>
 

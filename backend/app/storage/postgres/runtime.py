@@ -211,6 +211,18 @@ class PostgresAuthStore:
             db.flush()
             return _public_user(user), token, _public_session(record)
 
+    def find_or_create_sso_user(self, *, email: str, display_name: str | None = None) -> dict[str, Any]:
+        """Đăng nhập tổ chức (OIDC, Đợt 10): email đã được nhà cung cấp xác minh. Có tài khoản cùng email thì dùng,
+        chưa có thì tạo tài khoản USER với mật khẩu ngẫu nhiên không ai biết (chỉ đăng nhập qua tổ chức)."""
+        normalized = _normalized_email(email)
+        with self.session_factory() as db:
+            user = db.scalar(select(UserRecord).where(UserRecord.email == normalized))
+            if user is not None:
+                if user.status.upper() != "ACTIVE":
+                    raise InvalidCredentialsError("user disabled")
+                return _public_user(user)
+        return self.register(email=normalized, display_name=display_name, password=secrets.token_urlsafe(32))
+
     def create_session(self, user_id: str) -> tuple[str, dict[str, Any]]:
         now = _now()
         token = secrets.token_urlsafe(32)
