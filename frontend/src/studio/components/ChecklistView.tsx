@@ -6,7 +6,7 @@ import { ProfilePreview, useProfileMotion } from './profile/ProfileParts';
 import './profile/profile.css';
 import './profile/tools.css';
 import {
-  checkRequirement, deleteReport, extractRequirements, getReport, getSecurityControls, saveReport, TraceRequirement, TraceResult, TraceStatus,
+  checkRequirement, deleteReport, extractRequirements, getReport, getSecurityControls, canSaveReports, saveReport, TraceRequirement, TraceResult, TraceStatus,
 } from '../services/api';
 import { baseName, chunkLabel, csvCell, Doc, DocPicker, docId, download, fmtSeconds, SavedReportsSelect, ToolHeader, useAnalysisData, useChunkViewer } from './analysis/shared';
 
@@ -148,7 +148,7 @@ export const ChecklistView: React.FC<{ mode: ChecklistMode; workspaceId: number 
   const save = async () => {
     setBusy(true); setError(null);
     try {
-      await saveReport({ kind: M.kind, title: `${M.title} ${subject} · ${new Date().toLocaleString('vi-VN')}`, workspace_id: typeof workspaceId === 'string' && workspaceId ? workspaceId : null,
+      if (canSaveReports()) await saveReport({ kind: M.kind, title: `${M.title} ${subject} · ${new Date().toLocaleString('vi-VN')}`, workspace_id: typeof workspaceId === 'string' && workspaceId ? workspaceId : null,
         payload: { source_id: sourceId, source_name: sourceName, standard, design_ids: designIds, requirements: reqs, results, review, summary: summary() } });
       await refreshSaved(); setNote('Đã lưu báo cáo.');
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }

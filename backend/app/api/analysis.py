@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.analysis.skill_router import SKILLS, route_skill
+from app.research.registry import WORK_PACK
+from app.analysis.watch import replacement_pairs
 from app.core.secret_audit import log_secret_access
 from app.research.agent_selection import CLARIFY_LABELS, clarify_options, select_agents
 from app.analysis import blind_rating, casework, consistency, domain_tools, design, evaluation, grounding, insights, reading, req_quality, security_review
@@ -163,7 +165,8 @@ class CoverageBody(DesignRequest):
 
 class EvalRunBody(BaseModel):
     question: str = Field(min_length=5, max_length=2000)
-    condition: Literal["A", "B", "C", "C-P", "C-N", "C-O"]
+    # AUTO (đợt 7): "tự quyết" như ô chat sản phẩm — câu đơn giản trả lời thẳng, yêu cầu lớn chia nhiều tác tử theo loại việc
+    condition: Literal["A", "B", "C", "C-P", "C-N", "C-O", "AUTO"]
     source_ids: list[str] | None = Field(default=None, max_length=50)
     key_points: list[str] = Field(default_factory=list, max_length=12)
 
@@ -182,6 +185,7 @@ class CandidatesBody(BaseModel):
 class StatementIn(BaseModel):
     source_name: str = Field(min_length=1, max_length=200)
     text: str = Field(min_length=1, max_length=400)
+    source_id: str | None = Field(default=None, max_length=160)  # để nhận ra hai văn bản có quan hệ thay thế
 
 
 class JudgeBody(BaseModel):
@@ -220,8 +224,18 @@ class ExplainBody(BaseModel):
     context: str = Field(default="", max_length=4000)
 
 
+class DocxTemplate(BaseModel):
+    """Văn bản hành chính theo mẫu (đợt 10): phần đầu cơ quan, quốc hiệu; tên loại; khối chữ ký."""
+    org: str = Field(default="", max_length=160)
+    place: str = Field(default="", max_length=80)
+    kind: Literal["to_trinh", "bien_ban", "thong_bao", "bao_cao"] = "bao_cao"
+    title: str = Field(default="", max_length=200)
+    signer: str = Field(default="", max_length=120)
+
+
 class DocxBody(BaseModel):
     markdown: str = Field(min_length=1, max_length=400_000)
+    template: DocxTemplate | None = None
 
 
 class RatingItemRef(BaseModel):
@@ -554,8 +568,17 @@ def build_router(
 
     @router.post("/consistency/judge")
     async def consistency_judge(body: JudgeBody, request: Request) -> dict:
-        current_user(request)
-        return await _llm(consistency.judge_pair(provider_factory(), body.a.model_dump(), body.b.model_dump()))
+        user = current_user(request)
+        result = await _llm(consistency.judge_pair(provider_factory(), body.a.model_dump(), body.b.model_dump()))
+        if result.get("verdict") == "CONTRADICTION" and body.a.source_id and body.b.source_id and body.a.source_id != body.b.source_id:
+            # chạy thật 19/11: mô hình coi "QĐ mới thay thế QĐ cũ, ngày hiệu lực khác nhau" là mâu thuẫn mức Cao
+            by: dict[str, list[SourceChunk]] = {}
+            for c in owner_pipeline(user).source_store.chunks([body.a.source_id, body.b.source_id]):
+                by.setdefault(c.source_id, []).append(c)
+            docs = [(sid, cs[0].source_name, "\n".join(c.text for c in sorted(cs, key=lambda c: c.index))) for sid, cs in by.items()]
+            if frozenset((body.a.source_id, body.b.source_id)) in replacement_pairs(docs):
+                result = {**result, "verdict": "UNRELATED", "flags": [*result.get("flags", []), "superseded"]}
+        return result
 
     # ---------------- Phòng đánh giá thực nghiệm
     @router.post("/eval/run")
@@ -566,13 +589,16 @@ def build_router(
         sự kiện run_started (answer_language) của từng lượt.
         """
         user = current_user(request)
+        auto = body.condition == "AUTO"
+        condition = "C" if auto else body.condition  # AUTO: pipeline sản phẩm tự chọn đường đi trên nền điều kiện C
         try:
-            RuntimeConfig.from_env().assert_condition(body.condition)
+            RuntimeConfig.from_env().assert_condition(condition)
         except ValueError as exc:
             raise HTTPException(400, f"Điều kiện {body.condition} chưa bật trong cấu hình hiện tại.") from exc
         try:
-            run = await owner_pipeline(user).run(body.question.strip(), body.condition, source_ids=body.source_ids,
-                                                 reply_in_query_language=True)
+            run = await owner_pipeline(user).run(body.question.strip(), condition, source_ids=body.source_ids,
+                                                 reply_in_query_language=True,
+                                                 **({"product_mode": True, "domain_pack": WORK_PACK} if auto else {}))
         except LookupError as exc:
             raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.") from exc
         answer = evaluation.readable_answer(run.get("answer"))
@@ -583,6 +609,7 @@ def build_router(
             "key_point_hits": hits, "key_point_coverage": (sum(hits) / len(hits)) if hits else None,
             "metrics": {k: metrics.get(k) for k in evaluation.METRIC_KEYS},
             "tasks": len(run.get("tasks") or []), "model": run.get("model"), "config_hash": run.get("config_hash"),
+            "route": (run.get("effective_config") or {}).get("request_route"),
         }
 
     @router.post("/eval/stats")
@@ -723,7 +750,7 @@ def build_router(
     @router.post("/export/docx")
     def export_docx(body: DocxBody, request: Request) -> Response:
         current_user(request)
-        return Response(reading.markdown_to_docx(body.markdown),
+        return Response(reading.markdown_to_docx(body.markdown, body.template.model_dump() if body.template else None),
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         headers={"Content-Disposition": 'attachment; filename="bao-cao.docx"'})
 
@@ -774,7 +801,9 @@ def build_router(
             if not run:
                 raise HTTPException(404, f"Không tìm thấy lượt chạy {ref.run_id}.")
             answer = evaluation.readable_answer(run.get("answer"))
-            rows.append({"run_id": ref.run_id, "condition": run.get("condition") or "?", "question": str(run.get("query") or ""),
+            # lượt "tự quyết" chạy trên nền C nhưng có bước định tuyến của ô chat: gắn nhãn AUTO để mở mã sau khi chấm cho đúng
+            condition = "AUTO" if (run.get("effective_config") or {}).get("request_route") else (run.get("condition") or "?")
+            rows.append({"run_id": ref.run_id, "condition": condition, "question": str(run.get("query") or ""),
                          "answer": answer, "status": run.get("status"), "key_points": ref.key_points,
                          "auto_hits": evaluation.keypoint_hits(answer, ref.key_points) if ref.key_points else None})
         items, failed = blind_rating.build_items(rows)
@@ -968,7 +997,9 @@ def build_router(
     @router.post("/reports")
     def save_report(body: ReportBody, request: Request) -> dict:
         user = current_user(request)
-        _personal_only(user)  # báo cáo lưu là của cá nhân, không được giữ nội dung tổ chức sau khi rời đi
+        if user.get("space_id"):  # báo cáo lưu là của cá nhân, không được giữ nội dung tổ chức sau khi rời đi
+            raise HTTPException(400, "Kết quả trong không gian tổ chức không được lưu vào Kết quả đã lưu (để không giữ nội dung tổ chức sau khi rời đi). "
+                                     "Chuyển sang không gian cá nhân để lưu, hoặc xuất Word/PDF.")
         owner = str(user["user_id"])
         payload = json.dumps(body.payload, ensure_ascii=False)
         if len(payload.encode("utf-8")) > MAX_PAYLOAD_BYTES:

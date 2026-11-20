@@ -31,7 +31,7 @@ let domainPack: string | null = null;
 export function setDomainPack(p?: string | null) { domainPack = p ?? null; }
 // Không gắn phạm vi: đăng nhập, API tổ chức (tự mang mã không gian), thư mục cá nhân, và bước tải tệp
 // (tệp vào kho cá nhân trước rồi mới được nộp vào tổ chức kèm mức mật).
-const UNSCOPED = /^\/(auth|org)\/|^\/studio\/workspaces|^\/sources\/(file|text)$/;
+const UNSCOPED = /^\/(auth|org)\/|^\/studio\/workspaces|^\/sources\/(file|text)$|^\/shared-folder/;  // thư mục chung luôn nạp vào kho cá nhân
 function scoped(path: string): string {
   if (!orgScope || UNSCOPED.test(path)) return path;
   return `${path}${path.includes('?') ? '&' : '?'}space_id=${encodeURIComponent(orgScope)}`;
@@ -78,7 +78,12 @@ const VI_ERRORS: Record<string, string> = {
 };
 function viError(detail: string): string {
   const min = detail.match(/^password must be at least (\d+) characters$/);
-  return min ? `Mật khẩu cần ít nhất ${min[1]} ký tự.` : VI_ERRORS[detail] ?? detail;
+  if (min) return `Mật khẩu cần ít nhất ${min[1]} ký tự.`;
+  // OCR (đợt 10): ảnh chụp, PDF scan cần Tesseract có gói tiếng Việt trên máy chủ
+  if (detail.startsWith('OCR_UNAVAILABLE')) return `Chưa nhận dạng được chữ trong ảnh/bản scan: ${detail.split(': ').slice(1).join(': ')} Quản trị cần cài Tesseract OCR kèm gói tiếng Việt.`;
+  if (detail.startsWith('OCR_FAILED')) return 'Nhận dạng chữ không thành công. Thử ảnh rõ nét hơn hoặc bản scan có độ phân giải cao hơn.';
+  if (detail === 'OCR_NO_TEXT') return 'Không nhận dạng được chữ nào trong ảnh/bản scan.';
+  return VI_ERRORS[detail] ?? detail;
 }
 const post = <T>(path: string, body: unknown) => call<T>(path, { method: 'POST', body: JSON.stringify(body) });
 
@@ -468,6 +473,8 @@ export const getSecurityControls = () => call<{ standard: string; controls: Trac
 export const listReports = (kind: string) => call<SavedReport[]>(`/studio/reports?kind=${encodeURIComponent(kind)}`);
 export const listAllReports = () => call<SavedReport[]>('/studio/reports');
 export const getReport = (id: string) => call<SavedReport>(`/studio/reports/${encodeURIComponent(id)}`);
+// Báo cáo đã lưu là của cá nhân: trong không gian tổ chức backend không lưu (tránh giữ nội dung tổ chức sau khi rời đi).
+export const canSaveReports = () => !orgScope;
 export const saveReport = (body: { kind: string; title: string; workspace_id?: string | null; payload: unknown }) => post<{ report_id: string }>('/studio/reports', body);
 export const deleteReport = (id: string) => call<{ deleted: string }>(`/studio/reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
@@ -509,7 +516,7 @@ export interface ConsistencyVerdict extends Measured { verdict: 'CONTRADICTION' 
 export const consistencyCandidates = (sourceIds: string[], maxPairs = 15) =>
   post<{ statements: number; pairs: ConsistencyPair[] }>('/studio/consistency/candidates', { source_ids: sourceIds, max_pairs: maxPairs });
 export const consistencyJudge = (a: ConsistencyStatement, b: ConsistencyStatement) =>
-  post<ConsistencyVerdict>('/studio/consistency/judge', { a: { source_name: a.source_name, text: a.text }, b: { source_name: b.source_name, text: b.text } });
+  post<ConsistencyVerdict>('/studio/consistency/judge', { a: { source_name: a.source_name, text: a.text, source_id: a.source_id }, b: { source_name: b.source_name, text: b.text, source_id: b.source_id } });
 
 // ---------------- Đèn báo độ tin cậy, phản hồi
 export type GroundLevel = 'supported' | 'weak' | 'unsupported';
@@ -579,8 +586,8 @@ export const buildMindmap = (sourceId: string, mode: 'outline' | 'ai') => post<M
 export const explainSelection = (sourceName: string, selection: string, context: string) =>
   post<{ explanation: string; example: string } & Measured>('/studio/explain', { source_name: sourceName, selection, context });
 export const answerReport = (runId: string) => post<{ title: string; markdown: string } & Measured>('/studio/answer-report', { run_id: runId });
-export async function exportDocx(markdown: string): Promise<Blob> {
-  const res = await fetch(`${API}${scoped('/studio/export/docx')}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown }) });
+export async function exportDocx(markdown: string, template?: { org: string; place: string; kind: string; title: string; signer: string }): Promise<Blob> {
+  const res = await fetch(`${API}${scoped('/studio/export/docx')}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown, template }) });
   if (!res.ok) throw new Error(`Không tạo được tệp Word (HTTP ${res.status})`);
   return res.blob();
 }
@@ -892,3 +899,7 @@ export const createRequest = (spaceId: string, body: { kind: string; title: stri
 export const decideRequest = (spaceId: string, id: string, decision: 'APPROVED' | 'REJECTED', note: string) =>
   post<OrgRequest>(`/org/spaces/${encodeURIComponent(spaceId)}/requests/${encodeURIComponent(id)}/decide`, { decision, note });
 export const withdrawRequest = (spaceId: string, id: string) => post<OrgRequest>(`/org/spaces/${encodeURIComponent(spaceId)}/requests/${encodeURIComponent(id)}/withdraw`, {});
+
+// Thư mục chung trên máy chủ (đợt 10): quản trị đặt SHARED_FOLDER_PATH, người dùng đồng bộ vào kho cá nhân
+export const sharedFolderStatus = () => call<{ configured: boolean; folder?: string; files?: number; skipped?: number }>('/shared-folder');
+export const syncSharedFolder = () => post<{ imported: string[]; skipped: { name: string; reason: string }[] }>('/shared-folder/sync', {});

@@ -427,7 +427,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
               </button>
             ))}
           </div>}
-          <input ref={fileRef} type="file" hidden accept=".pdf,.md,.markdown,.sql,.txt"
+          <input ref={fileRef} type="file" hidden accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff"
             onChange={e => { const f = e.target.files?.[0]; if (f) { setError(null); Promise.resolve(onUploadFile?.(f)).catch((err: Error) => setError(`Không thêm được ${f.name}: ${err.message}`)); } e.target.value = ''; }} />
           {error && <p className="note is-error" role="alert">{error}</p>}
         </div>

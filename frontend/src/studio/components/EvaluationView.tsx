@@ -12,8 +12,8 @@ type Score = { correct: number; complete: number; grounded: number };
 type Grades = Record<string, Record<string, Score>>;
 type RunState = { set: EvalSet; conditions: string[]; repeats: number; sourceIds: string[]; items: Record<string, Item>; grades: Grades; started: string; finished?: string };
 
-const CONDITIONS = ['A', 'B', 'C', 'C-P', 'C-N', 'C-O'];
-const COND_VI: Record<string, string> = { A: 'A · Vanilla RAG', B: 'B · Multi-Agent cơ bản', C: 'C · Điều phối đầy đủ', 'C-P': 'C-P · bỏ lập kế hoạch', 'C-N': 'C-N · bỏ chuẩn hóa', 'C-O': 'C-O · bỏ tối ưu ngữ cảnh' };
+const CONDITIONS = ['A', 'B', 'C', 'C-P', 'C-N', 'C-O', 'AUTO'];
+const COND_VI: Record<string, string> = { A: 'A · Vanilla RAG', B: 'B · Multi-Agent cơ bản', C: 'C · Điều phối đầy đủ', 'C-P': 'C-P · bỏ lập kế hoạch', 'C-N': 'C-N · bỏ chuẩn hóa', 'C-O': 'C-O · bỏ tối ưu ngữ cảnh', AUTO: 'AUTO · Tự quyết (như ô chat)' };
 const CRITERIA: [keyof Score, string][] = [['correct', 'Đúng'], ['complete', 'Đủ ý'], ['grounded', 'Có căn cứ']];
 const key = (qid: string, cond: string, rep: number) => `${qid}|${cond}|${rep}`;
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);

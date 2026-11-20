@@ -115,7 +115,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
 
   return (
     <div className={`kb${dragActive ? ' is-drag' : ''}`} onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}>
-      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt" hidden onChange={async e => { if (e.target.files?.[0]) await processFile(e.target.files[0]); e.target.value = ''; }} />
+      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff" hidden onChange={async e => { if (e.target.files?.[0]) await processFile(e.target.files[0]); e.target.value = ''; }} />
       <div className="kb-head">
         <span className="kb-title">Kho tri thức</span>
         <span className="kb-count" title={`${totalChunks} phân đoạn`}>{documents.length}</span>

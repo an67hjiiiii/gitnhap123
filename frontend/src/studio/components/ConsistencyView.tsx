@@ -4,7 +4,7 @@ import { AlertCircle, Bot, ChevronDown, Files, Grid3x3, CheckCircle2, Cpu, Downl
 import { ProfilePreview, useProfileMotion } from './profile/ProfileParts';
 import './profile/profile.css';
 import './profile/tools.css';
-import { ConsistencyPair, ConsistencyVerdict, consistencyCandidates, consistencyJudge, getReport, saveReport } from '../services/api';
+import { ConsistencyPair, ConsistencyVerdict, consistencyCandidates, consistencyJudge, getReport, canSaveReports, saveReport } from '../services/api';
 import { chunkLabel, csvCell, Doc, DocPicker, docId, download, fmtSeconds, SavedReportsSelect, ToolHeader, useAnalysisData, useChunkViewer } from './analysis/shared';
 
 type Verdict = ConsistencyVerdict['verdict'];
@@ -19,6 +19,7 @@ const FLAG: Record<string, string> = {
   non_numeric_unverified: 'Mô hình báo mâu thuẫn không dựa trên con số; hệ thống chưa tự xác nhận được, người duyệt cần xem.',
   different_scope: 'Hai con số áp cho phạm vi khác nhau (ví dụ cho mỗi merchant so với toàn hệ thống) nên chưa xác nhận là mâu thuẫn.',
   different_subject: 'Mô hình nhận định hai câu nói về chủ đề khác nhau.',
+  superseded: 'Văn bản mới ghi rõ thay thế văn bản cũ: khác nhau là do thay thế hợp lệ, không phải mâu thuẫn (luật cố định).',
   invalid_model_output: 'Mô hình trả kết quả không hợp lệ.',
 };
 type Result = Omit<Partial<ConsistencyVerdict>, 'verdict'> & { verdict: Verdict | 'ERROR'; error?: string };
@@ -80,7 +81,7 @@ export const ConsistencyView: React.FC<{ workspaceId: number | string; docs: Doc
   };
   const save = async () => {
     try {
-      await saveReport({ kind: 'consistency', title: `Mâu thuẫn tài liệu · ${ids.length} tài liệu · ${new Date().toLocaleString('vi-VN')}`, workspace_id: typeof workspaceId === 'string' && workspaceId ? workspaceId : null,
+      if (canSaveReports()) await saveReport({ kind: 'consistency', title: `Mâu thuẫn tài liệu · ${ids.length} tài liệu · ${new Date().toLocaleString('vi-VN')}`, workspace_id: typeof workspaceId === 'string' && workspaceId ? workspaceId : null,
         payload: { source_ids: ids, statements, pairs, results, review } });
       await refreshSaved(); setNote('Đã lưu báo cáo.');
     } catch (e: any) { setError(e.message); }

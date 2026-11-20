@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Circle, Copy, Download, KeyRound, ListTree, Loader2, PencilRuler, Save, Square, StickyNote, X, XCircle, Workflow } from 'lucide-react';
 import './profile/tools.css';
 import {
-  DesignCoverage, DesignDomain, DesignPoint, DesignSectionResult, designCoverage, designPoints, designSection, getReport, saveReport,
+  DesignCoverage, DesignDomain, DesignPoint, DesignSectionResult, designCoverage, designPoints, designSection, getReport, canSaveReports, saveReport,
 } from '../services/api';
 import { baseName, chunkLabel, DistributionBar, Doc, DocPicker, docId, download, EmptyState, fmtSeconds, ProcessRail, SavedReportsSelect, ToolHeader, useAnalysisData, useChunkViewer } from './analysis/shared';
 
@@ -112,7 +112,7 @@ export const DesignView: React.FC<{ workspaceId: number | string; docs: Doc[] }>
   const save = async () => {
     setError(null);
     try {
-      await saveReport({ kind: 'design', title: `Thiết kế · ${request.trim().slice(0, 60)}${request.trim().length > 60 ? '…' : ''}`, workspace_id: typeof workspaceId === 'string' && workspaceId ? workspaceId : null,
+      if (canSaveReports()) await saveReport({ kind: 'design', title: `Thiết kế · ${request.trim().slice(0, 60)}${request.trim().length > 60 ? '…' : ''}`, workspace_id: typeof workspaceId === 'string' && workspaceId ? workspaceId : null,
         payload: { request, refs: refIds, points, sections, coverage, steps } });
       await refreshSaved(); setNote('Đã lưu gói thiết kế.');
     } catch (e: any) { setError(e.message); }

@@ -7,7 +7,7 @@ import { ProfilePreview, useProfileMotion } from './profile/ProfileParts';
 import './profile/profile.css';
 import './profile/tools.css';
 import {
-  getReport, ReqIssue, ReqQualityResult, ReqQualityRow, ReqRewrite, reviewRequirements, rewriteRequirement, saveReport,
+  getReport, ReqIssue, ReqQualityResult, ReqQualityRow, ReqRewrite, reviewRequirements, rewriteRequirement, canSaveReports, saveReport,
 } from '../services/api';
 import { baseName, csvCell, Doc, docId, download, EmptyState, SavedReportsSelect, ToolHeader, useAnalysisData } from './analysis/shared';
 
@@ -56,7 +56,7 @@ export function ReqQualityView({ workspaceId, docs }: { workspaceId: number | st
     if (!result) return;
     const done = Object.fromEntries(Object.entries(rewrites).filter(([, v]) => typeof v === 'object'));
     try {
-      await saveReport({ kind: 'req_quality', title: `Chất lượng yêu cầu · ${baseName(result.source_name)}`, workspace_id: String(workspaceId),
+      if (canSaveReports()) await saveReport({ kind: 'req_quality', title: `Chất lượng yêu cầu · ${baseName(result.source_name)}`, workspace_id: String(workspaceId),
         payload: { result, rewrites: done } });
       setNotice('Đã lưu báo cáo.'); void refreshSaved();
     } catch (e: any) { setError(e.message); }

@@ -35,3 +35,40 @@ def test_first_document_or_nothing_found_means_no_notification():
     assert watch_findings("a", [RULE_A])["conflicts"] == 0
     quiet = {"replaces": [], "replaced_by": None, "conflicts": 0, "examples": []}
     assert notify_findings(object(), "u", "x.md", quiet) is False
+
+
+def test_replacement_is_not_reported_as_conflict():
+    """Chạy thật 19/11: QĐ 99/2026 thay thế QĐ 12/2020, ngày hiệu lực khác nhau bị đếm là "có thể mâu thuẫn"."""
+    from app.analysis.watch import replacement_pairs
+
+    f = watch_findings("new", [OLD, NEW], date(2026, 11, 19))
+    assert f["replaces"] == ["qd12.md"] and f["conflicts"] == 0
+    docs = [("old", "qd12.md", OLD.text), ("new", "qd99.md", NEW.text)]
+    assert replacement_pairs(docs) == {frozenset({"old", "new"})}
+
+
+def test_judge_endpoint_turns_contradiction_between_replacing_docs_into_superseded():
+    import asyncio  # noqa: F401
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.analysis import build_router
+    from app.core.types import ProviderResult, Usage
+
+    class P:
+        async def generate_structured(self, **kw):
+            body = '{"verdict":"CONTRADICTION","severity":"HIGH","same_subject":true,"value_a":"01/03/2020","value_b":"01/01/2026","explanation":"x"}'
+            return ProviderResult(text=body, usage=Usage(1, 1), request_id="r", model="m")
+
+        async def generate(self, **kw):
+            return await self.generate_structured()
+
+    store = SimpleNamespace(chunks=lambda ids: [OLD, NEW])
+    app = FastAPI()
+    app.include_router(build_router(current_user=lambda r: {"user_id": "u"}, owner_pipeline=lambda user, *a: SimpleNamespace(source_store=store),
+                                    session_factory=lambda: None, provider_factory=lambda: P()))
+    st = lambda c, sid: {"sid": sid, "source_id": c.source_id, "source_name": c.source_name, "chunk_id": c.chunk_id, "text": c.text}
+    r = TestClient(app).post("/api/studio/consistency/judge", json={"a": st(OLD, "S1"), "b": st(NEW, "S2")}).json()
+    assert r["verdict"] == "UNRELATED" and "superseded" in r["flags"]

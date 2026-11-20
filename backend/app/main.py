@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
@@ -28,6 +29,8 @@ from app.research.progress import bound_emit, ndjson_run
 from app.research.run_queue import product_runs
 from app.core.secret_audit import log_secret_access, run_read_source_ids, source_ids_of_chunks
 from app.analysis.watch import notify_findings, watch_findings
+from app.ingestion.shared_folder import list_shared_files, shared_root
+from app.ingestion.ocr import IMAGE_EXTENSIONS, ocr_image, ocr_pdf, ocr_status
 from app.research.registry import PACKS, WORK_PACK
 from app.research.conversation_context import build_conversation_context
 from app.storage.run_store import RunStore
@@ -347,6 +350,9 @@ async def import_file(request: Request, file: UploadFile = File(...)):
 
     source_name = file.filename or "upload.txt"
     request.state.audit_target = source_name
+    suffix = os.path.splitext(source_name)[1].lower()
+    if suffix in IMAGE_EXTENSIONS:  # ảnh chụp văn bản: nhận dạng chữ (OCR) rồi mới đọc
+        return _import_ocr(user, source_name, lambda: ocr_image(data, suffix))
     try:
         document = extract_document(
             data,
@@ -360,6 +366,8 @@ async def import_file(request: Request, file: UploadFile = File(...)):
             if "no extractable text" in str(exc)
             else "PDF_EXTRACTION_UNAVAILABLE"
         )
+        if detail == "PDF_NO_TEXT" and ocr_status()["available"]:  # PDF scan không có lớp chữ: thử OCR
+            return _import_ocr(user, source_name, lambda: ocr_pdf(data))
         if source_name.lower().endswith((".docx", ".xlsx")):
             detail = "OFFICE_EXTRACTION_FAILED"
         elif not source_name.lower().endswith(".pdf"):
@@ -381,6 +389,68 @@ async def import_file(request: Request, file: UploadFile = File(...)):
         return _watch_new_source(user, store, _index_imported_source(user, store, imported))
     except IndexingError as exc:
         raise HTTPException(503, "DERIVED_INDEX_FAILED") from exc
+
+def _import_ocr(user: dict, source_name: str, run_ocr) -> dict:
+    """Nạp văn bản nhận dạng từ ảnh/PDF scan (đợt 10). Thiếu Tesseract thì báo rõ cần cài gì."""
+    status = ocr_status()
+    if not status["available"]:
+        raise HTTPException(422, f"OCR_UNAVAILABLE: {status['reason']}")
+    try:
+        text = run_ocr()
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        raise HTTPException(422, f"OCR_FAILED: {type(exc).__name__}") from exc
+    if not text.strip():
+        raise HTTPException(422, "OCR_NO_TEXT")
+    store = owner_source_store(user)
+    imported = store.import_text(source_name, text, provenance={"origin": "upload", "ocr": "tesseract", "ocr_langs": "vie+eng"})
+    return _watch_new_source(user, store, _index_imported_source(user, store, imported))
+
+
+@app.get("/api/ocr-status")  # không đặt dưới /api/sources/ để khỏi trùng /api/sources/{source_id}
+def ocr_status_endpoint(request: Request):
+    current_user(request)
+    return ocr_status()
+
+
+@app.get("/api/shared-folder")  # không đặt dưới /api/sources/ để khỏi trùng /api/sources/{source_id}
+def shared_folder_status(request: Request):
+    """Thư mục chung (đợt 10): đã cấu hình chưa, có bao nhiêu tệp nạp được. Không lộ đường dẫn đầy đủ trên máy chủ."""
+    current_user(request)
+    root = shared_root()
+    if root is None:
+        return {"configured": False}
+    files, skipped = list_shared_files(root)
+    return {"configured": True, "folder": root.name, "files": len(files), "skipped": len(skipped)}
+
+
+@app.post("/api/shared-folder/sync")
+def shared_folder_sync(request: Request):
+    """Nạp tệp mới trong thư mục chung vào kho cá nhân; tệp đã có (cùng tên) bỏ qua."""
+    user = current_user(request)
+    if request.query_params.get("space_id"):
+        raise HTTPException(400, "Đồng bộ thư mục chung vào kho cá nhân; nộp vào tổ chức làm ở trang Tổ chức.")
+    root = shared_root()
+    if root is None:
+        raise HTTPException(400, "Quản trị chưa cấu hình thư mục chung (SHARED_FOLDER_PATH).")
+    store = owner_source_store(user)
+    have = {s["source_name"] for s in store.list_sources()}
+    files, skipped = list_shared_files(root)
+    imported = []
+    for path in files:
+        name = path.relative_to(root).as_posix()
+        if name in have:
+            # shortcut: so theo tên, tệp đổi nội dung mà giữ tên thì chưa nạp lại; nâng lên so mã băm khi cần
+            skipped.append({"name": name, "reason": "đã có trong kho"})
+            continue
+        try:
+            document = extract_document(path.read_bytes(), name, origin="shared_folder")
+            item = store.import_text(document.source_name, document.text, provenance=document.provenance)
+            _watch_new_source(user, store, _index_imported_source(user, store, item))
+            imported.append(name)
+        except (DocumentTypeError, UnicodeError, ValueError, IndexingError) as exc:
+            skipped.append({"name": name, "reason": f"không đọc được ({type(exc).__name__})"})
+    return {"imported": imported, "skipped": skipped}
+
 
 @app.post("/api/chat")
 async def chat(body: ChatRequest, request: Request):

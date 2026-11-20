@@ -268,6 +268,49 @@ Theo mục 12 tài liệu `MO_TA_HE_THONG_DICH_VA_QUY_TRINH_NGUOI_DUNG_2026-11-1
 - Backend toàn bộ 335 đạt; frontend `tsc`, `build`, `npm test` 9 đạt.
 - Đợt 10 còn lại, cần hỏi trước: OCR (thư viện mới), đăng nhập tổ chức (Google/Microsoft/LDAP), kết nối nguồn ngoài (Drive/SharePoint), bộ cài cho khách, xuất Word theo mẫu cơ quan (cần mẫu thật của trường/khoa).
 
+### Rà soát từng trang và sửa lỗi (19–20/11)
+
+Kiểm tra mọi trang (10 trang thanh bên + Hồ sơ tài liệu, Kiểm tra mâu thuẫn, 15 công cụ của Bộ công cụ) ở khổ 1280 px và 375 px, giao diện sáng và tối, bằng đo DOM: lỗi console, tràn ngang, chữ "undefined/NaN", chữ bị cắt, robot che nút, nút dưới 44 px, độ tương phản. Lỗi tìm thấy và đã sửa:
+- Robot che nút trong thẻ có nền (bản đồ chỗ trống không đi vào thẻ nên bỏ sót nút bên trong): tô thêm nút/ô nhập bên trong thẻ với trọng số cao. Đo lại với hiệu ứng tắt: không trang nào bị che.
+- Bảng tìm nhanh Ctrl K mất chữ khi gõ ngay sau khi mở (đặt tiêu điểm bằng hẹn giờ 10 ms): đặt tiêu điểm ngay khi mở.
+- Đổi giao diện sáng/tối có thể kẹt khi trang không hiển thị (View Transition chờ khung hình): đổi ngay khi trang ẩn.
+- Tương phản: chữ phụ `--faint` chỉ 2,4:1 trên nền trắng (thời gian, "1 đoạn", "—" chưa đo…) → 4,5:1 (sáng) và 4,75:1 (tối); ô lọc Thư viện ở chế độ tối 2,3:1; nút trang Tổng quan chế độ tối 1,2:1; ô chủ đề nổi bật 2,8:1. Đo lại: không còn chữ dưới 3:1 trên các trang đã đo.
+- Điện thoại: ô nhập (tìm tài liệu, lọc nhật ký, Phòng đánh giá, Chấm mù, form đơn từ) dưới 44 px → quy tắc chung 44 px cho ô nhập.
+- Lập hồ sơ tài liệu (và mâu thuẫn, gói thiết kế, chất lượng yêu cầu, rà soát tiêu chí) trong không gian tổ chức báo lỗi đỏ vì báo cáo cá nhân không lưu nội dung tổ chức: bỏ qua bước lưu, hiện nhãn "Không lưu trong tổ chức"; Phòng đánh giá báo lý do rõ ràng.
+- Kết quả đã lưu → Mở: mở đúng tài liệu của hồ sơ (trước mở tài liệu đầu danh sách).
+- Kiểm tra mâu thuẫn và theo dõi tài liệu mới coi "QĐ mới thay thế QĐ cũ, ngày hiệu lực khác nhau" là mâu thuẫn mức Cao: luật cố định nhận quan hệ thay thế (`replacement_pairs`) → ghi "văn bản cũ đã bị thay thế", không phải mâu thuẫn. API `consistency/judge` nhận thêm `source_id`.
+- Nút tải tệp trong ô chat không cho chọn .docx/.xlsx dù backend đọc được: đã thêm (kèm ảnh cho OCR).
+- Đợt chấm mù ghi lượt "tự quyết" thành điều kiện C (không phân biệt được khi mở mã): gắn nhãn AUTO theo bước định tuyến.
+- Thực nghiệm A/B/C kiểm lại sau mọi thay đổi: vẫn bộ Phần mềm, 700 token, không chọn tác tử theo loại việc.
+
+### Đợt 7: đo "tự quyết" (AUTO) so với "lúc nào cũng đa tác tử" (C)
+
+- Phòng đánh giá có điều kiện AUTO (pipeline sản phẩm: câu đơn giản trả lời thẳng, yêu cầu lớn chia tác tử theo loại việc; kỹ năng không đưa vào vì đầu ra là thẻ). Kiểm thử `test_eval_auto.py`.
+- Bộ `data/research/auto-vs-c-v1` (12 câu: 6 đơn giản, 6 nhiều ý, kèm ý chính), script `scripts/research/auto_vs_c_eval.py`, kết quả thô `results-2026-11-19.json` (mọi lượt, run_id, mã băm cấu hình). Chạy thật qwen3:4b, 24 lượt:
+  - Token: AUTO trung bình 2.635 (CI 95% 1.417–3.854), C 4.207 (3.250–5.164); Wilcoxon p = 0,021, effect size dz = −0,76.
+  - Thời gian: AUTO 11,6 giây (6,4–16,8), C 21,3 giây (15,1–27,5); p = 0,0024, dz = −0,99.
+  - Độ phủ ý chính tự động: AUTO 100%, C 86,8% (73,0–100,6%); p = 0,125 (chỉ 4 cặp khác nhau), chưa có ý nghĩa thống kê.
+  - Định tuyến: 3/6 câu đơn giản bị đưa sang nhiều tác tử và 2/6 câu nhiều ý được trả lời thẳng (điểm cần cải thiện của bộ định tuyến CAP1, chưa sửa vì là phương pháp).
+- Hạn chế: bộ câu do nhóm soạn trên tài liệu mẫu tự viết, n = 12, chưa có held-out; độ phủ ý chính là so khớp chuỗi, không phải chất lượng. Không dùng làm kết luận chất lượng.
+- Đợt chấm mù đã tạo: "Chấm mù AUTO và C · auto-vs-c-v1 (19/11)", mã **CR7YM8**, 24 câu trả lời. Chưa có điểm người chấm: cần ít nhất 2 người ngoài nhóm chấm trước khi báo cáo chất lượng. Đợt cũ 9423ZU vẫn đang chờ người chấm.
+
+### Đợt 10: phần còn lại
+
+- Xuất Word theo mẫu văn bản hành chính: nút "Word theo mẫu" ở mọi chỗ có xuất Word; chọn Tờ trình/Biên bản/Thông báo/Báo cáo, cơ quan, địa danh, trích yếu, người ký (điền sẵn lần sau, lưu trên trình duyệt). Tệp có phần đầu cơ quan, quốc hiệu, tiêu ngữ, ngày tháng, tên loại căn giữa, khối chữ ký, Times New Roman 13. Kiểm thử XML hợp lệ kể cả ký tự đặc biệt (`test_insights.py`). Chưa có mẫu riêng của trường/khoa (cần mẫu thật).
+- Kết nối nguồn: thư mục chung trên máy chủ (`SHARED_FOLDER_PATH`); Cài đặt → "Đồng bộ ngay" nạp tệp mới vào kho cá nhân (chỉ trong thư mục cấu hình, định dạng hỗ trợ, ≤ 2 MB; tệp cùng tên bỏ qua). Chạy thật: 2 tệp hợp lệ được nạp, tệp .exe bị bỏ qua, đồng bộ lần hai bỏ qua đúng. Google Drive, SharePoint, email: chưa làm (cần tài khoản dịch vụ của tổ chức).
+- OCR: ảnh (.png/.jpg/.tif) và PDF scan được nhận dạng bằng Tesseract cục bộ (`ingestion/ocr.py`, không thêm thư viện Python; PDF lấy ảnh nhúng bằng pypdf). Máy chưa có Tesseract thì báo rõ cần cài gì (`GET /api/ocr-status`). Máy này chưa cài Tesseract nên chưa chạy thật OCR; kiểm thử bằng Tesseract giả lập (`test_ocr.py`). Cài trên Windows: `winget install UB-Mannheim.TesseractOCR` rồi thêm gói tiếng Việt `vie.traineddata`.
+- Bộ cài cho khách: `docker/install.ps1` (Windows) và `docker/install.sh` (Linux): kiểm tra Docker, đo RAM/CPU/GPU, gợi ý mô hình (mặc định qwen3:4b; qwen3:8b chỉ khi GPU ≥ 12 GB và người cài đồng ý), tạo `docker/.env` với mật khẩu CSDL ngẫu nhiên, bật hệ thống, tải mô hình, chờ sẵn sàng; có chế độ thử (`-DryRun`, `--dry-run`). Đã chạy chế độ thử trên máy này (15 GB RAM, GPU 6 GB → qwen3:4b); chưa chạy cài thật vào Docker.
+- Chưa làm: đăng nhập bằng tài khoản tổ chức (Google, Microsoft, LDAP/AD). Cần tổ chức đăng ký ứng dụng và cấp mã client hoặc máy chủ LDAP để thử; viết mã xác thực mà không thử được với nhà cung cấp thật là rủi ro bảo mật.
+- Kiểm tra cuối đợt (20/11): backend 345 kiểm thử đạt; frontend `tsc`, `build`, `npm test` 9 đạt.
+
+### Rà soát giao diện và thử theo vai người dùng (20/11)
+
+- Làm lại 4 trang: Kết quả đã lưu (danh sách theo ngày, tiêu đề tự xuống dòng tối đa 2 dòng thay vì tràn khỏi thẻ, tìm kiếm, lọc theo loại, cột "Tạo kết quả mới" và "Theo loại"), Thư viện (huy hiệu theo loại tệp, ô kéo thả khi kho trống, kéo thả vào bảng, ẩn hàng số khi chưa có tài liệu), Cài đặt (thẻ hồ sơ, gộp "Hiển thị", thẻ "Hệ thống" lấy mô hình/CSDL/số tài liệu thật, lưới 2 cột cân), Việc cần làm (một trạng thái trống giải thích luồng đơn, lời nhắc khi nút kiểm tra bị khóa, mục "Đơn đã xử lý"). Dòng nhỏ trên tiêu đề các trang mới không còn là chữ chung "OrchestrIQ Studio".
+- Lỗi tìm ra khi đóng vai và đã sửa: chế độ nhà nghiên cứu lưu chung cho cả trình duyệt (người dùng mới cùng máy thấy nhóm Nghiên cứu) → lưu theo tài khoản; mọi người dùng thường hiện nhãn "Phát triển" → "Người dùng"; người duyệt không xem lại được đơn đã duyệt → thêm "Đơn đã xử lý"; kiểm tra điều kiện liệt kê đoạn lạc đề khi tổ chức không có quy định nghỉ phép → khi mọi điều kiện "chưa rõ" thì báo chưa thấy quy định; yêu cầu "Tạo 5 câu hỏi trắc nghiệm về quy trình…" bị ép vào kỹ năng Quy trình → yêu cầu soạn nội dung (tạo câu hỏi, tóm tắt, soạn văn bản) để bộ điều phối trả lời (`test_skill_router.py`); danh sách đánh số trong câu trả lời mất số do lớp reset CSS → thêm lại.
+- Đã thử đúng: nhân viên không thấy và không hỏi ra được nội dung tài liệu Mật; người gửi đơn không tự duyệt đơn của mình; thẻ Quy trình từng bước có trích nguồn từng bước.
+- Còn tồn (ghi vào tài liệu đề xuất phát triển 20/11): truy xuất bỏ sót đoạn chứa câu trả lời (hỏi "CSDL gồm những bảng nào" chỉ lấy đoạn đầu các tài liệu, trả lời "không có thông tin" dù tài liệu có mục danh sách bảng; sửa phải đụng phần truy xuất dùng chung với điều kiện C nên cần nhóm đồng ý); lượt hỏi lại của kỹ năng điều kiện ép mô hình tìm điều kiện cả khi tài liệu không liên quan; tạo câu hỏi trắc nghiệm trong ô chat chưa có phương án và đáp án; người duy nhất ở một cấp gửi đơn lên chính cấp đó thì không ai duyệt được; bộ tài liệu mẫu chỉ có ngành phần mềm; "Chính sách bảo mật" bị nhận là văn bản pháp quy.
+- Kiểm tra: backend 346 đạt; frontend `tsc`, `build`, 9 kiểm thử đạt; 4 trang không tràn ngang ở 375 px, đã xem sáng/tối.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

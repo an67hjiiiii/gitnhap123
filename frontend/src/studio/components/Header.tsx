@@ -111,7 +111,7 @@ function ago(iso: string) {
   return `${Math.floor(s / 86400)} ngày`;
 }
 
-const ROLE_LABEL: Record<string, string> = { tech_lead: 'Trưởng nhóm', researcher: 'Nghiên cứu', developer: 'Phát triển', admin: 'Quản trị' };
+const ROLE_LABEL: Record<string, string> = { tech_lead: 'Trưởng nhóm', researcher: 'Nghiên cứu', developer: 'Người dùng', admin: 'Quản trị' };
 
 // Đóng menu khi bấm ra ngoài hoặc nhấn Esc.
 export function useDismiss(open: boolean, close: () => void) {
@@ -132,7 +132,9 @@ export const Header: React.FC<HeaderProps> = ({
   onCreateWorkspace, onChangeDomainPack, onDeleteWorkspace, onLogout, onUserChange, isMobileDrawerOpen = false, onToggleMobileDrawer, onOpenPalette, theme = 'light', onThemeChange, children, onOpenAdmin, onOrgChanged,
 }) => {
   const [menu, setMenu] = useState<'ws' | 'profile' | 'notif' | null>(null);
-  const [research, setResearch] = useState(researchMode());
+  const uid = user?.email || user?.username;
+  const [research, setResearch] = useState(researchMode(uid));
+  useEffect(() => setResearch(researchMode(uid)), [uid]);
   useEffect(() => {
     const open = () => setAvatarOpen(true);  // trang Cài đặt mở hộp đổi ảnh đại diện
     window.addEventListener('oq-open-avatar', open);

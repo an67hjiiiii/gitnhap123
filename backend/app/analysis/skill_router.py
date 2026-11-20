@@ -40,9 +40,16 @@ SKILLS: dict[str, tuple[str, str, frozenset[str] | None]] = {
 }
 
 
+# yêu cầu soạn nội dung mới (câu hỏi ôn tập, tóm tắt, văn bản) không phải tra quy định: nhắc tới "quy trình" hay
+# "hợp đồng" trong đó chỉ là chủ đề, nên để pipeline trả lời thay vì ép vào kỹ năng tra cứu
+COMPOSE = r"\b(tao|soan|viet|lap)\b.{0,30}\b(cau hoi|de thi|bai kiem tra|trac nghiem|van ban|email|thu|bao cao|tom tat)\b|\b(trac nghiem|on tap|tom tat|tom luoc)\b"
+
+
 def route_skill(query: str, doc_types: list[str | None]) -> dict | None:
     """Trả {"skill", "label", "reason"} hoặc None (để pipeline xử lý)."""
     text = _fold(query)
+    if re.search(COMPOSE, text):
+        return None
     types = {t for t in doc_types if t}
     hits = [key for key, (_, pattern, _) in SKILLS.items() if re.search(pattern, text)]
     usable = [k for k in hits if SKILLS[k][2] is None or SKILLS[k][2] & types]

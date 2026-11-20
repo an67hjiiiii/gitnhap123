@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Hash, LayoutGrid,
 import {
   buildMindmap, compareDocs, DocCompare, getReport, GlossaryTerm, libraryQuality, LibraryQuality, listReports, Measured, MindMap, profileGlossary, profileLocal,
   ProfileLocal, profileMasked, profileQuestions, profileSummary, ProfileSummary, SavedReport, saveReport, SuggestedQuestion, updateReport,
-  DOC_TYPES, setDocType,
+  DOC_TYPES, setDocType, canSaveReports,
 } from '../services/api';
 import { DocumentReader } from './DocumentReader';
 import { DocCover, Marked, ProfilePreview, QualityRing, Stat, useProfileMotion } from './profile/ProfileParts';
@@ -86,7 +86,8 @@ export const DocumentProfileView: React.FC<{ docs: Doc[]; onAsk: (question: stri
       await run(1, () => profileSummary(sourceId), r => ({ summary: r }));
       await run(2, () => profileQuestions(sourceId), r => ({ questions: r.questions }));
       await run(3, () => profileGlossary(sourceId), r => ({ glossary: r.terms }));
-      if (savedFor) await updateReport(savedFor.report_id, p, p.source_name);
+      if (!canSaveReports()) { /* tổ chức: không lưu báo cáo cá nhân */ }
+      else if (savedFor) await updateReport(savedFor.report_id, p, p.source_name);
       else await saveReport({ kind: 'doc_profile', title: p.source_name, payload: p });
       await refreshSaved();
     } catch (e: any) { setError(e.message); }
@@ -153,6 +154,7 @@ export const DocumentProfileView: React.FC<{ docs: Doc[]; onAsk: (question: stri
                   : profile?.summary?.doc_type && !/loại tài liệu/i.test(profile.summary.doc_type) && <span className="pf-tag is-type">{profile.summary.doc_type}</span>}
                 {local && <span className="pf-tag">{local.quality.chunks} đoạn</span>}
                 {profile && savedFor && !running && <span className="pf-tag is-ok"><CheckCircle2 size={13} />Đã lưu</span>}
+                {profile && !running && !canSaveReports() && <span className="pf-tag" title="Kết quả trong tổ chức không lưu vào Kết quả đã lưu (để không giữ nội dung tổ chức sau khi rời đi). Vẫn xuất được Word, PDF.">Không lưu trong tổ chức</span>}
                 {running && <span className="pf-tag is-run"><span className="spin is-dark" />{STEPS[step]}…</span>}
               </div>
               <label className="pf-switch" title="Đổi tài liệu">
@@ -344,7 +346,7 @@ function MindMapPanel({ sourceId, sourceName, onShowChunk }: { sourceId: string;
     try {
       const m: MindMap = { ...await buildMindmap(sourceId, 'ai'), created_at: new Date().toISOString() };
       setMaps(x => ({ ...x, ai: m }));
-      if (savedAi) await updateReport(savedAi.report_id, m, sourceName); else await saveReport({ kind: 'mindmap', title: sourceName, payload: m });
+      if (!canSaveReports()) { /* tổ chức: không lưu báo cáo cá nhân */ } else if (savedAi) await updateReport(savedAi.report_id, m, sourceName); else await saveReport({ kind: 'mindmap', title: sourceName, payload: m });
       setSaved(await listReports('mindmap'));
     } catch (e: any) { setError(e.message); } finally { setBusy(null); }
   };

@@ -202,7 +202,8 @@ function DashboardWorkspace({
   const changeTheme = (t: 'light' | 'dark', at?: { x: number; y: number }) => {
     const apply = () => { flushSync(() => setTheme(t)); try { localStorage.setItem('studio-theme', t); } catch { /* bỏ qua */ } };
     const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } };
-    if (t === theme || !doc.startViewTransition || !motionAllowed()) { apply(); return; }
+    // trang đang ẩn (tab nền): không có khung hình để chạy hiệu ứng, đổi ngay để giao diện không kẹt
+    if (t === theme || !doc.startViewTransition || !motionAllowed() || document.visibilityState !== 'visible') { apply(); return; }
     const x = at?.x ?? window.innerWidth - 40, y = at?.y ?? window.innerHeight - 40;
     const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
     const vt = doc.startViewTransition(apply);
@@ -495,12 +496,17 @@ function DashboardWorkspace({
         {activeTab === 'library' && <LibraryView docs={documents} onUploadFile={async f => { await handleUpload(f); }}
           onOpenProfile={id => { setProfileSource(id); setActiveTab('documents'); }} onOpenConsistency={() => setActiveTab('consistency')}
           onAsk={(sourceId, name) => { setActiveConversationId(null); setPrefill({ text: `Nội dung chính của tài liệu ${name} là gì?`, key: Date.now(), sourceId, sourceName: name }); setActiveTab('orchestration'); }} />}
-        {activeTab === 'results' && <SavedResultsView onOpen={tab => setActiveTab(tab)} />}
+        {activeTab === 'results' && <SavedResultsView onOpen={(tab, r) => {
+          // hồ sơ, sơ đồ tư duy: tên báo cáo là tên tệp → mở đúng tài liệu đó; công cụ khác tự nạp bản đã lưu
+          const doc = (r.kind === 'doc_profile' || r.kind === 'mindmap') ? documents.find(d => d.source_file === r.title) : undefined;
+          if (doc) setProfileSource(String(doc.id));
+          setActiveTab(tab);
+        }} onGo={setActiveTab} />}
         {activeTab === 'tasks' && currentWs?.kind === 'org' && <TasksView spaceId={String(currentWorkspaceId)} spaceName={currentWs.name}
           noteText={n => orgNoteText(n, orgTerms(currentWs))} onOpenOrg={() => setActiveTab('organization')}
           docIds={documents.map(d => String(d.id))} levelName={{ MANAGER: orgTerms(currentWs).level.MANAGER, EXECUTIVE: orgTerms(currentWs).level.EXECUTIVE }} />}
         {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
-          onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} />}
+          onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} onChanged={refreshState} health={health} docCount={documents.length} />}
         {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}-${currentWs?.domain_pack ?? 'software'}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'consistency' && <ConsistencyView key={`cons-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'rating' && <BlindRatingView />}

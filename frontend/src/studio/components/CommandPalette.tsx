@@ -1,5 +1,5 @@
 // Bảng lệnh nhanh (Ctrl/⌘ + K): gõ để đến một trang, mở cuộc trò chuyện gần đây hoặc chạy thao tác; điều khiển bằng bàn phím.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, Search } from 'lucide-react';
 
 export interface Command { id: string; label: string; group: string; hint?: string; Icon?: React.ComponentType<{ size?: number }>; run: () => void }
@@ -11,7 +11,8 @@ export function CommandPalette({ open, onClose, commands }: { open: boolean; onC
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  useEffect(() => { if (open) { setQ(''); setIdx(0); setTimeout(() => inputRef.current?.focus(), 10); } }, [open]);
+  // đặt tiêu điểm ngay khi mở (không chờ hẹn giờ) để gõ liền sau Ctrl K không mất chữ
+  useLayoutEffect(() => { if (open) { setQ(''); setIdx(0); inputRef.current?.focus(); } }, [open]);
   const shown = useMemo(() => {
     const words = fold(q).split(/\s+/).filter(Boolean);
     return commands.filter(c => { const t = fold(`${c.label} ${c.group} ${c.hint ?? ''}`); return words.every(w => t.includes(w)); }).slice(0, 40);

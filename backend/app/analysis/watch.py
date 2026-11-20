@@ -14,6 +14,13 @@ from app.analysis.domain_tools import document_validity
 from app.core.types import SourceChunk
 
 
+def replacement_pairs(docs: list[tuple[str, str, str]], today: date | None = None) -> set[frozenset[str]]:
+    """Cặp tài liệu có quan hệ thay thế (văn bản này nêu "thay thế ... <số hiệu văn bản kia>"). Luật cố định, không gọi mô hình."""
+    items = document_validity(docs, today)["documents"]
+    return {frozenset((a["source_id"], b["source_id"])) for a in items for b in items
+            if a is not b and b.get("number") and b["number"] in (a.get("replaces") or [])}
+
+
 def watch_findings(new_source_id: str, chunks: list[SourceChunk], today: date | None = None) -> dict:
     """Phát hiện liên quan tới tài liệu mới trong kho (chunks gồm cả tài liệu mới và tài liệu cũ được phép xem)."""
     by: dict[str, list[SourceChunk]] = {}
@@ -27,8 +34,11 @@ def watch_findings(new_source_id: str, chunks: list[SourceChunk], today: date | 
     replaces = sorted(d["source_name"] for sid, d in items.items()
                       if sid != new_source_id and d.get("number") and d["number"] in (new.get("replaces") or []))
     replaced_by = new["status_note"] if new.get("status") == "REPLACED" else None
+    replaced = replacement_pairs(docs, today)
+    # văn bản mới thay thế văn bản cũ: khác ngày hiệu lực/con số giữa hai văn bản là thay thế hợp lệ, không phải mâu thuẫn
     pairs = [p for p in candidate_pairs(extract_statements(chunks), max_pairs=50)
-             if new_source_id in (p["a"]["source_id"], p["b"]["source_id"])]
+             if new_source_id in (p["a"]["source_id"], p["b"]["source_id"])
+             and frozenset((p["a"]["source_id"], p["b"]["source_id"])) not in replaced]
     examples = [{"other": (p["b"] if p["a"]["source_id"] == new_source_id else p["a"])["source_name"], "reason": p["reason"]} for p in pairs[:3]]
     return {"replaces": replaces, "replaced_by": replaced_by, "conflicts": len(pairs), "examples": examples}
 
