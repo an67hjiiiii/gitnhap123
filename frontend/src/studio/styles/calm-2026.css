@@ -185,3 +185,33 @@
 .st-app .wc-srcs button:hover,.st-app .wc-srcs button.is-on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 @media (max-width:1279px){.st-app .ws-shell.is-folded{grid-template-columns:minmax(0,1fr)}.st-app .wc-rail{display:none}.st-app .wc-fold{display:none}}
 .st-app .ws-hero h1 span{color:var(--muted)!important;font-weight:650}
+
+/* ===== Cụm góc trên bên phải (20/11, theo chủ dự án): bỏ nền thanh trên và tên trang, giữ không gian · lịch sử ·
+   thông báo · trợ giúp · tài khoản nổi ở góc phải. Khung chat cao hết màn hình; cột phải bắt đầu dưới cụm này. ===== */
+.st-app .st-main{position:relative}
+.st-app .st-cluster{position:absolute;z-index:45;top:12px;right:12px;display:flex;align-items:center;gap:4px;padding:4px;border-radius:16px;background:var(--glass-strong);border:1px solid var(--glass-edge);box-shadow:0 1px 2px rgba(15,27,43,.05),0 10px 24px -18px rgba(15,27,43,.4);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur)}
+.st-app[data-theme="dark"] .st-cluster{background:rgba(16,26,44,.85);border-color:rgba(255,255,255,.08)}
+.st-app .st-cluster .tb-ws{height:40px;border:0;background:transparent;box-shadow:none;padding:4px 8px 4px 4px}
+.st-app .st-cluster .tb-ws:hover{background:var(--accent-soft);box-shadow:none}
+.st-app .st-cluster .tb-ws-mark{width:32px;height:32px;border-radius:9px}
+.st-app .st-cluster .tb-btn{height:40px;min-width:40px;color:var(--glyph)}
+.st-app .st-cluster .tb-user{width:40px;height:40px}
+.st-app .st-cluster .tb-user .sb-avatar{width:34px;height:34px}
+.st-app .st-cluster .tb-user-text{display:none}
+/* Không gian làm việc: cột phải nhường chỗ cho cụm; trang khác: nội dung bắt đầu dưới cụm */
+@media (min-width:1280px){.st-app .ws-shell>.wc{margin-top:58px}}
+@media (min-width:1024px) and (max-width:1279px){.st-app .mn.ws .ws-top{padding-top:62px}}
+.st-app .st-main>main.pg,.st-app .st-main>.rh,.st-app .st-main>.st-legacy,.st-app .st-main>.tk{padding-top:56px}
+@media (max-width:1023px){
+  .st-app .st-cluster{top:12px;right:12px;padding:2px;gap:0;background:transparent;border:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+  .st-app .st-cluster .tb-ws-text,.st-app .st-cluster .tb-ws>svg,.st-app .st-cluster .tb-btn-t,.st-app .st-cluster .tb-help-wrap{display:none}
+  .st-app .st-mobilehead .tb-btn:not(.tb-menu){display:none}
+  .st-app .st-mobilehead .mh-title{margin-right:190px!important}
+  .st-app .st-main>main.pg,.st-app .st-main>.rh,.st-app .st-main>.st-legacy,.st-app .st-main>.tk{padding-top:0}
+}
+@media (max-width:420px){.st-app .st-cluster .tb-btn{min-width:36px;padding:0 6px}.st-app .st-mobilehead .mh-title{margin-right:176px!important}}
+.st-app .st-cluster{background:transparent!important;border-color:transparent!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+.st-app .st-cluster .tb-ws{background:var(--glass-strong)!important;border:1px solid var(--line)!important}
+.st-app[data-theme="dark"] .st-cluster .tb-ws{background:rgba(255,255,255,.05)!important}
+.st-app .tl-right .btn-dark,.st-app .tl-head .btn-dark{background:var(--accent)!important;background-image:none!important;color:#fff!important;box-shadow:0 6px 14px -8px rgba(29,102,201,.55)!important}
+.st-app .lib-tool-ico,.st-app .sav-maker svg,.st-app .tl-mark{background:var(--tile)!important;background-image:none!important;color:var(--glyph)!important;box-shadow:none!important}
