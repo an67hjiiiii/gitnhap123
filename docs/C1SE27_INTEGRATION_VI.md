@@ -397,6 +397,11 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Còn lại của Đợt 10: hướng dẫn vận hành (cài, sao lưu, khôi phục, nâng cấp), thử cài trên máy sạch, OCR (máy này chưa có Tesseract).
 - Kiểm tra: backend 376 đạt; frontend tsc đạt.
 
+### Đợt 10 (phần 2): OCR thật trong Docker, sao lưu/khôi phục, hướng dẫn vận hành; giao diện theo góp ý 20/11
+- Ảnh Docker backend cài Tesseract kèm gói tiếng Việt. Chạy thật trên bản cài thử (cổng 18080): ảnh chụp văn bản tiếng Việt tải lên được nhận dạng, thân văn bản đúng 5/5 cụm từ kiểm tra, tiêu đề viết hoa sai vài dấu (NGHỈ → NGHĨ). Máy phát triển vẫn chưa có Tesseract (báo rõ như cũ).
+- Sao lưu `pg_dump` và khôi phục vào CSDL tạm chạy thật: 63 KB, đủ 24 bảng. Hướng dẫn vận hành `docs/HUONG_DAN_VAN_HANH_MAY_CHU.md` (cài, bật/tắt, sao lưu CSDL và chỉ mục vector, khôi phục, nâng cấp, OCR, OIDC, HTTPS, giám sát). Compose máy chủ cho backend đọc `docker/.env` để cấu hình OIDC.
+- Giao diện (góp ý chủ dự án 20/11): bỏ nền thanh trên và tên trang; cụm "không gian · Lịch sử · thông báo · trợ giúp · tài khoản" nổi ở góc trên phải; khung chat cao hết màn hình, cột phải bắt đầu dưới cụm này và thu gọn được thành dải biểu tượng (nhớ lựa chọn), có mục "Câu trả lời này dùng" nhóm nguồn theo tài liệu; thanh bên dùng biểu tượng nét đơn, khối Kho tri thức một dòng; ô chat: nút đính kèm không còn đẩy cả hàng sang phải, bỏ quầng sáng chuyển sắc; lời chào một màu; nút chính và ô biểu tượng các trang theo một màu nhấn.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

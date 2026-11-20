@@ -24,6 +24,7 @@ services:
   backend:
     build: ../backend
     restart: unless-stopped
+    env_file: .env  # tùy chọn của tổ chức (OIDC_*, ...) đặt trong docker/.env; bộ cài tạo tệp này
     depends_on:
       postgres:
         condition: service_healthy
