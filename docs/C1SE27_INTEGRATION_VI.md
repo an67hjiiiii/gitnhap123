@@ -325,6 +325,13 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Màu: chủ dự án bác bản thanh bên xanh đậm (20/11) → giữ nền kính sáng của bản gốc; mục đang chọn là viên xanh thương hiệu đặc, chữ trắng; khối Kho tri thức tông xanh nhạt.
 - Kiểm tra: ảnh 1440 px và 390 px, sáng và tối bằng Playwright, không tràn ngang, không lỗi console.
 
+### Đợt 2: Không gian làm việc 3 cột
+- Cột phải `WorkspaceContext.tsx`, hai tab. "Nguồn & Tài liệu": trích dẫn đang xem (bấm nguồn trong câu trả lời mở đúng đoạn, tô từ khóa của câu hỏi, nút "Xem toàn văn"; quyền kiểm ở máy chủ như cũ), phạm vi hỏi (chọn tài liệu dùng để trả lời; nhãn "Bản cũ/Bản mới" lấy từ luật hiệu lực văn bản, không gọi mô hình), kỹ năng đề xuất (luật theo loại tài liệu và câu đang gõ, `utils/workspaceAssist.ts`), "Thêm và quản lý tài liệu" (tải lên có mức mật trong tổ chức, xóa, soi đoạn). "Quá trình xử lý": các bước theo sự kiện thật của lượt chạy, tác tử, số nhiệm vụ, token, thời gian; chưa đo thì "Chưa đo".
+- Trong câu trả lời: thanh bước ngang khi chờ; hàng "Bước tiếp theo" (Lưu vào Kết quả, Xuất Word, Mở nguồn) chỉ hiện hành động có API; nút "Quá trình". Ô nhập: đính kèm, nút Kỹ năng, "/", micro; lỗi thì giữ câu hỏi và có "Thử lại"; sửa câu hỏi cũ rồi gửi lại. Màn 1280 px trở xuống: cột phải thành ngăn kéo bên phải; điện thoại: ngăn kéo từ dưới lên.
+- Lỗi tìm ra khi chạy thật và đã sửa: (1) câu tra cứu "CSDL gồm những bảng nào?" bị hỏi lại "số liệu hay điều khoản" → câu tra cứu/liệt kê không có từ khóa nghiệp vụ thì không hỏi lại (`agent_selection.clarify_options`, chỉ chế độ sản phẩm; kiểm thử thêm); sau khi sửa, câu này trả lời đúng danh sách bảng kèm 4 nguồn trong "02 Thiết kế CSDL" (12,8 giây, 2.276 token, qwen3:4b). (2) Hai yêu cầu đầu tiên chạy song song tạo hai client Qdrant nhúng → lỗi 500 "already accessed" → khóa khi khởi tạo kho vector (`main._configured_vector_store`, `test_vector_store_lock.py`).
+- Kiểm tra: backend 347 đạt; frontend tsc, build, 12 kiểm thử đạt (thêm `workspaceAssist.test.mjs`); chạy thật 2 câu (1440 px sáng, 390 px tối).
+- Giới hạn: đoạn trích ở cột phải hiện dạng chữ thô (bảng Markdown chưa dựng thành bảng); kỹ năng đề xuất chỉ dựa luật, chưa học.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

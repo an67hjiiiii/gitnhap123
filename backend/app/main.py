@@ -1,4 +1,5 @@
 from __future__ import annotations
+import threading
 import json
 import logging
 import os
@@ -147,6 +148,9 @@ def owner_pipeline(user: dict, conversation_id: str | None = None) -> ResearchPi
     )
 
 
+_VECTOR_STORE_LOCK = threading.Lock()
+
+
 def _configured_vector_store():
     """Create the explicitly selected derived-index backend lazily."""
 
@@ -158,6 +162,16 @@ def _configured_vector_store():
         raise IndexingError(f"Unsupported VECTOR_BACKEND={backend}")
     if _derived_vector_store is not None and _derived_vector_store_backend == backend:
         return _derived_vector_store
+    # Qdrant nhúng chỉ cho một client mỗi thư mục: hai yêu cầu đầu tiên chạy song song (luồng của FastAPI) từng tạo hai
+    # client và yêu cầu sau lỗi 500 "already accessed" (20/11). Khóa để chỉ một luồng tạo.
+    with _VECTOR_STORE_LOCK:
+        if _derived_vector_store is not None and _derived_vector_store_backend == backend:
+            return _derived_vector_store
+        return _create_vector_store(backend)
+
+
+def _create_vector_store(backend: str):
+    global _derived_vector_store, _derived_vector_store_backend
     try:
         vector_size = int(VECTOR_SIZE)
     except (TypeError, ValueError) as exc:

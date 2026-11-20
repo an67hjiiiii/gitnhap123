@@ -60,6 +60,9 @@ def test_clarify_only_when_ambiguous_semantic_and_long_enough():
     assert clarify_options("Xin chào bạn", tie) is None                       # câu quá ngắn: giao Tổng hợp
     assert clarify_options("Việc mua máy chiếu này cần xem những gì?", {**tie, "ambiguous": False}) is None
     assert clarify_options("Việc mua máy chiếu này cần xem những gì?", {**tie, "method": "keyword"}) is None
+    assert clarify_options("CSDL gồm những bảng nào?", tie) is None           # câu tra cứu: trả lời thẳng
+    assert clarify_options("Thời gian thử việc là gì theo quy định?", tie) is None
+    assert clarify_options("Công ty có những loại nghỉ phép nào được hưởng lương?", tie) is None
     sel = forced_selection("procedure")
     assert sel["agents"] == ["procedure", "general"] and sel["method"] == "user_choice"
 
