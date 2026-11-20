@@ -1,7 +1,7 @@
 // Cột ngữ cảnh bên phải của Không gian làm việc (Đợt 2, mục 7): tab "Nguồn & Tài liệu" (trích dẫn đang xem, phạm vi hỏi,
 // kỹ năng đề xuất, quản lý kho) và tab "Quá trình xử lý" (bước thật, tác tử, token, thời gian). Điện thoại: ngăn kéo từ dưới lên.
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Check, Clock, Cpu, FileText, FolderCog, Layers, ListChecks, Maximize2, Sparkles, Users, X } from 'lucide-react';
+import { BookOpen, Check, Clock, Cpu, FileText, FolderCog, Layers, ListChecks, Maximize2, PanelRightClose, PanelRightOpen, Sparkles, Users, X } from 'lucide-react';
 import { DOC_TYPES, DocValidity, documentValidity, SKILL_LIST, SkillKey } from '../services/api';
 import { highlightParts, keyTerms, suggestSkills, traceOf } from '../utils/workspaceAssist';
 
@@ -27,9 +27,14 @@ interface Props {
   manage?: React.ReactNode;
   mobileOpen: boolean;
   onMobileClose: () => void;
+  /** nguồn của lượt trả lời đang xem (mã đoạn + nhãn), nhóm theo tài liệu */
+  cites?: { id: string; label: string }[];
+  onCite?: (id: string) => void;
+  collapsed: boolean;
+  onCollapse: (v: boolean) => void;
 }
 
-export const WorkspaceContext: React.FC<Props> = ({ tab, onTab, docs, picked, onPick, chunk, question = '', onCloseChunk, onOpenFull, run, live, draft, onUseSkill, manage, mobileOpen, onMobileClose }) => {
+export const WorkspaceContext: React.FC<Props> = ({ tab, onTab, docs, picked, onPick, chunk, question = '', onCloseChunk, onOpenFull, run, live, draft, onUseSkill, manage, mobileOpen, onMobileClose, cites = [], onCite, collapsed, onCollapse }) => {
   const ids = useMemo(() => docs.map(d => String(d.id ?? '')).filter(Boolean), [docs]);
   // nhãn bản cũ/mới: luật đọc số hiệu và "thay thế" trong văn bản (không gọi mô hình)
   const [validity, setValidity] = useState<Record<string, DocValidity>>({});
@@ -46,6 +51,23 @@ export const WorkspaceContext: React.FC<Props> = ({ tab, onTab, docs, picked, on
   const trace = traceOf(run);
   const terms = useMemo(() => keyTerms(question), [question]);
 
+  const groups = useMemo(() => {
+    const m = new Map<string, { name: string; items: { id: string; label: string }[] }>();
+    for (const c of cites) {
+      const sid = c.id.replace(/_c\d+$/, '');
+      const name = c.label.replace(/\s*·\s*đoạn.*$/, '');
+      if (!m.has(sid)) m.set(sid, { name, items: [] });
+      m.get(sid)!.items.push(c);
+    }
+    return [...m.values()];
+  }, [cites]);
+  if (collapsed && !mobileOpen) return (
+    <aside className="wc wc-rail" aria-label="Ngữ cảnh câu trả lời (đã thu gọn)">
+      <button type="button" onClick={() => onCollapse(false)} aria-label="Mở rộng cột ngữ cảnh" title="Mở rộng"><PanelRightOpen size={18} /></button>
+      <button type="button" className={tab === 'sources' ? 'is-on' : ''} onClick={() => { onTab('sources'); onCollapse(false); }} aria-label="Nguồn và tài liệu" title="Nguồn & Tài liệu"><BookOpen size={18} />{cites.length > 0 && <i>{cites.length}</i>}</button>
+      <button type="button" className={tab === 'process' ? 'is-on' : ''} onClick={() => { onTab('process'); onCollapse(false); }} aria-label="Quá trình xử lý" title="Quá trình xử lý"><ListChecks size={18} />{live && <i className="is-live" />}</button>
+    </aside>
+  );
   return (
     <>
       {mobileOpen && <div className="wc-scrim" onClick={onMobileClose} />}
@@ -55,6 +77,7 @@ export const WorkspaceContext: React.FC<Props> = ({ tab, onTab, docs, picked, on
           <button role="tab" aria-selected={tab === 'sources'} className={tab === 'sources' ? 'is-on' : ''} onClick={() => onTab('sources')}><BookOpen size={15} />Nguồn & Tài liệu</button>
           <button role="tab" aria-selected={tab === 'process'} className={tab === 'process' ? 'is-on' : ''} onClick={() => onTab('process')}><ListChecks size={15} />Quá trình xử lý{live && <i className="wc-live" aria-label="đang chạy" />}</button>
           <button className="wc-x" onClick={onMobileClose} aria-label="Đóng ngữ cảnh"><X size={18} /></button>
+          <button className="wc-fold" onClick={() => onCollapse(true)} aria-label="Thu gọn cột ngữ cảnh" title="Thu gọn"><PanelRightClose size={17} /></button>
         </div>
 
         <div className="wc-body" role="tabpanel">
@@ -65,6 +88,12 @@ export const WorkspaceContext: React.FC<Props> = ({ tab, onTab, docs, picked, on
               {chunk.error ? <p className="note is-error">{chunk.error}</p> : chunk.text == null ? <p className="muted-line"><span className="spin is-dark" />Đang tải đoạn…</p>
                 : <p className="wc-quote">{highlightParts(chunk.text, terms).map((p, i) => p.hit ? <mark key={i}>{p.t}</mark> : <React.Fragment key={i}>{p.t}</React.Fragment>)}</p>}
               {chunk.sourceId && onOpenFull && <button className="btn btn-ghost is-sm" onClick={() => onOpenFull(chunk.sourceId!, chunk.source)}><Maximize2 size={14} />Xem toàn văn</button>}
+            </section>}
+
+            {groups.length > 0 && <section className="wc-card" aria-label="Nguồn của câu trả lời">
+              <header><span className="wc-ico"><BookOpen size={15} /></span><span className="wc-h"><small>Câu trả lời này dùng</small><b>{cites.length} đoạn từ {groups.length} tài liệu</b></span></header>
+              <ul className="wc-srcs">{groups.map(g => <li key={g.name}><b title={g.name}>{g.name}</b>
+                <span>{g.items.map(c => <button key={c.id} type="button" className={chunk?.id === c.id ? 'is-on' : ''} onClick={() => onCite?.(c.id)}>{c.label.replace(/^.*·\s*/, '')}</button>)}</span></li>)}</ul>
             </section>}
 
             <section className="wc-card" aria-label="Phạm vi hỏi">

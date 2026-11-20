@@ -56,7 +56,7 @@ function bubbleRect(x: number, y: number, side: Side, vert: Vert): Box {
 /** Khối có tự vẽ ra thứ gì không (nền, viền, bóng, chữ trực tiếp) hay chỉ là khung trong suốt bao các khối khác. */
 function paints(n: Element): boolean {
   if (n.matches(SOLID)) return true;
-  if (n.classList.contains('st-topbar')) return false; // nền thanh trên cùng (điện thoại): chỗ trống bên phải được dùng
+  if (n.classList.contains('st-mobilehead')) return false; // nền thanh trên cùng (điện thoại): chỗ trống bên phải được dùng
   const cs = getComputedStyle(n);
   if (cs.visibility === 'hidden' || cs.display === 'none') return false;
   if (!/(transparent|,\s*0\))$/.test(cs.backgroundColor) || cs.backgroundImage !== 'none' || cs.boxShadow !== 'none'
@@ -73,7 +73,7 @@ function scan() {
   if (!host) return null;
   // vùng trang không gồm thanh trên cùng (khung mới 20/11): robot không đậu đè lên tên trang và các nút
   const r0 = host.getBoundingClientRect();
-  const tb = host.querySelector('.st-topbar')?.getBoundingClientRect();
+  const tb = host.querySelector('.st-mobilehead')?.getBoundingClientRect();
   const top = tb && window.innerWidth >= 640 ? Math.max(r0.top, tb.bottom + 6) : r0.top;
   const main = { left: r0.left, right: r0.right, width: r0.width, top, bottom: r0.bottom };
   const bottom = Math.min(main.bottom, window.innerHeight);
@@ -181,10 +181,10 @@ function dockSpot(): Spot | null {
     if (!host) return null;
     return { x: host.right - BOT - 18, y: Math.min(host.bottom, window.innerHeight) - BOT - 18, side: 'left', vert: 'mid' };
   }
-  const bar = document.querySelector('.st-topbar')?.getBoundingClientRect();
+  const bar = document.querySelector('.st-mobilehead')?.getBoundingClientRect();
   if (!bar || !bar.height) return null;
   // đậu ngay bên trái cụm nút (không che ảnh đại diện); CSS chừa sẵn chỗ ở cuối tên trang
-  const acts = document.querySelector('.st-topbar .tb-actions')?.getBoundingClientRect();
+  const acts = document.querySelector('.st-mobilehead .tb-btn:last-child')?.getBoundingClientRect();
   return { x: (acts?.left ?? bar.right) - BOT - 4, y: bar.top + (bar.height - BOT) / 2, side: 'left', vert: 'down' };
 }
 

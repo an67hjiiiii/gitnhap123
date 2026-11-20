@@ -120,6 +120,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   // cột phải (Đợt 2): tab đang mở, ngăn kéo trên điện thoại, phạm vi hỏi (rỗng = cả không gian), lượt đang xem quá trình
   const [ctxTab, setCtxTab] = useState<CtxTab>('sources');
   const [ctxOpen, setCtxOpen] = useState(false);
+  // thu gọn cột phải (20/11): nhớ trên trình duyệt; tiện ích riêng của người xem
+  const [ctxFold, setCtxFold] = useState(() => { try { return localStorage.getItem('orchestriq-ctx-fold') === '1'; } catch { return false; } });
+  const foldCtx = (v: boolean) => { setCtxFold(v); try { localStorage.setItem('orchestriq-ctx-fold', v ? '1' : '0'); } catch { /* bỏ qua */ } };
   const [picked, setPicked] = useState<string[]>([]);
   const [focusRun, setFocusRun] = useState<string | null>(null);
   const [fullDoc, setFullDoc] = useState<{ id: string; name?: string } | null>(null);
@@ -338,7 +341,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   // bấm nguồn: mở đúng đoạn ở cột phải (điện thoại: ngăn kéo), tô từ khóa của câu hỏi; quyền kiểm ở máy chủ như trước
   const showChunk = async (id: string) => {
     const sourceId = id.replace(/_c\d+$/, '');
-    setChunk({ id, sourceId }); setCtxTab('sources'); setCtxOpen(true);
+    setChunk({ id, sourceId }); setCtxTab('sources'); setCtxOpen(true); foldCtx(false);
     try { const c = await getChunk(id); setChunk({ id, sourceId, source: c.source_name, text: c.text }); }
     catch (err: any) { setChunk({ id, sourceId, error: err.message }); }
   };
@@ -403,7 +406,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
           }} />
         <div className="ws-bar">
           {/* Tự động: hệ thống tự chọn trả lời thẳng / kỹ năng / nhiều tác tử. A/B/C chỉ còn ở trang Thực nghiệm (đợt 4, đã duyệt 19/11). */}
-          {onUploadFile && <button type="button" className="ws-mic" onClick={() => fileRef.current?.click()} aria-label="Đính kèm tài liệu" title="Tải tài liệu lên kho của không gian này"><Paperclip size={17} /></button>}
+          {onUploadFile && <button type="button" className="ws-mic ws-attach" onClick={() => fileRef.current?.click()} aria-label="Đính kèm tài liệu" title="Tải tài liệu lên kho của không gian này"><Paperclip size={17} /></button>}
           <button type="button" className="ws-skillbtn" onClick={() => { setForced(null); setDraft('/'); inputRef.current?.focus(); }} aria-label="Chọn kỹ năng" title="Chọn kỹ năng (hoặc gõ /)"><Sparkles size={14} />Kỹ năng</button>
           <span className="ws-auto" title={MODE_INFO.quick.hint}>Tự động</span>
           {Recognition && <button type="button" className={`ws-mic${listening ? ' is-on' : ''}`} onClick={listen} disabled={!!pending} aria-pressed={listening}
@@ -417,7 +420,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const lastRunId = [...messages].reverse().find(m => m.run_id && runs[m.run_id!])?.run_id;
   const ctxRun = runs[focusRun ?? lastRunId ?? ''];
   return (
-    <div className="ws-shell">
+    <div className={`ws-shell${ctxFold ? ' is-folded' : ''}`}>
     <main className={`mn ws${fresh ? ' is-fresh' : ''}`}>
       <div className="ws-top">
         <div className={`ws-bot${busyNow ? ' is-busy' : ''}`} aria-label="Chạm vào Trợ lý C27" title="Chạm để C27 phản hồi">
@@ -583,7 +586,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     <WorkspaceContext tab={ctxTab} onTab={setCtxTab} docs={docs} picked={picked} onPick={setPicked} chunk={chunk} question={lastAsk} onCloseChunk={() => setChunk(null)}
       onOpenFull={(id, name) => setFullDoc({ id, name })} run={ctxRun} live={pending ? { steps: live.steps, elapsed } : null} draft={draft}
       onUseSkill={k => { setForced(k); setDraft(''); setOpen(true); setCtxOpen(false); inputRef.current?.focus(); }} manage={manage}
-      mobileOpen={ctxOpen} onMobileClose={() => setCtxOpen(false)} />
+      mobileOpen={ctxOpen} onMobileClose={() => setCtxOpen(false)} collapsed={ctxFold} onCollapse={foldCtx}
+      cites={citationsOf(ctxRun).map(id => ({ id, label: citeLabel(id, docsForCite) }))} onCite={showChunk} />
     </div>
   );
 };
