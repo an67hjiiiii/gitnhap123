@@ -343,3 +343,13 @@ def test_approver_by_days_rule_parser():
     assert dt.approver_by_days("nghỉ 4,5 ngày", text) == "Trưởng phòng"
     assert dt.approver_by_days("nghỉ phép", text) is None  # đơn không nêu số ngày: không đoán
     assert dt.approver_by_days("nghỉ 6 ngày", "Trưởng phòng duyệt mọi đơn.") is None
+
+
+def test_approver_by_days_colon_and_must_be_approved_forms():
+    """Thử theo vai 20/11: "Nghỉ từ 3 ngày trở lên: Giám đốc duyệt" phải nhận được (đơn 4 ngày → Giám đốc)."""
+    rule = "2. Nghỉ dưới 3 ngày: Trưởng phòng duyệt. Nghỉ từ 3 ngày trở lên: Giám đốc duyệt."
+    assert dt.approver_by_days("Xin nghỉ phép 4 ngày", rule) == "Giám đốc"
+    assert dt.approver_by_days("Xin nghỉ phép 2 ngày", rule) == "Trưởng phòng"
+    assert dt.approver_by_days("Nghỉ 3 ngày", "3. Nghỉ từ 3 ngày liên tiếp trở lên phải được Giám đốc phê duyệt.") == "Giám đốc"
+    assert dt.approver_by_days("Nghỉ 6 ngày", "Nghỉ phép từ 5 ngày trở lên do Giám đốc duyệt; dưới 5 ngày do Trưởng phòng duyệt.") == "Giám đốc"
+    assert dt.approver_by_days("Xin nghỉ phép", rule) is None
