@@ -136,3 +136,23 @@ def test_feedback_validates_rating_and_needs_postgres():
     assert api().post("/api/studio/feedback", json={"run_id": "run_1", "rating": 5}).status_code == 422
     assert api(session=None).post("/api/studio/feedback", json={"run_id": "run_1", "rating": 1}).status_code == 503
     assert api().post("/api/studio/feedback", json={"run_id": "nope", "rating": 1}).status_code == 404
+
+
+def test_admin_template_docx_has_header_signature_and_valid_xml():
+    """Đợt 10: xuất Word theo mẫu văn bản hành chính (Times New Roman 13, quốc hiệu, tên loại, chữ ký); XML hợp lệ kể cả ký tự đặc biệt."""
+    import io
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    from app.analysis import reading
+
+    data = reading.markdown_to_docx("# Nội dung\nĐoạn **một**.\n| a | b |\n|---|---|\n| 1 | 2 |",
+                                    {"org": "Trường <X> & Y", "place": "Đà Nẵng", "kind": "to_trinh", "title": "Về việc xét học bổng", "signer": "Nguyễn Văn A"})
+    z = zipfile.ZipFile(io.BytesIO(data))
+    for name in z.namelist():
+        ET.fromstring(z.read(name))
+    doc = z.read("word/document.xml").decode()
+    assert "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM" in doc and "TỜ TRÌNH" in doc and "Nguyễn Văn A" in doc and "TRƯỜNG &lt;X&gt; &amp; Y" in doc
+    assert "Times New Roman" in z.read("word/styles.xml").decode()
+    plain = zipfile.ZipFile(io.BytesIO(reading.markdown_to_docx("# A\nb")))
+    assert "CỘNG HÒA" not in plain.read("word/document.xml").decode()

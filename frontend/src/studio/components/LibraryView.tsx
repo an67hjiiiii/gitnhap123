@@ -8,6 +8,7 @@ import { ToolHeader } from './analysis/shared';
 import '../styles/pages-2b.css';
 
 const CLS: Record<string, string> = { PRIVATE: 'Riêng tư', COMPANY: 'Toàn tổ chức', DEPARTMENT: 'Nội bộ phòng', RESTRICTED: 'Hạn chế', SECRET: 'Mật' };
+const extOf = (name: string) => (name.split('.').pop() || '').toLowerCase().slice(0, 4);
 type Sort = 'name' | 'type' | 'chunks' | 'new';
 
 type Props = {
@@ -26,6 +27,16 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
   const [sort, setSort] = useState<Sort>('name');
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  const [drag, setDrag] = useState(false);
+  const upload = async (f?: File) => {
+    if (!f) return; setUploading(true); setError('');
+    try { await onUploadFile(f); } catch (err: any) { setError(err.message || 'Không tải được tệp.'); } finally { setUploading(false); }
+  };
+  const dropProps = {
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDrag(true); },
+    onDragLeave: () => setDrag(false),
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDrag(false); void upload(e.dataTransfer.files?.[0]); },
+  };
   const typeOf = (d: DocumentInfo) => edits[String(d.id)] ?? d.doc_type ?? '';
   const counts = useMemo(() => docs.reduce<Record<string, number>>((m, d) => {
     const t = edits[String(d.id)] ?? d.doc_type ?? 'none';
@@ -58,17 +69,17 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
         <ToolHeader Icon={Library} title="Thư viện tài liệu"
           desc="Mọi tài liệu của không gian đang mở: loại tài liệu hệ thống tự nhận (bấm để sửa nếu sai), mức mật, số đoạn. Mở hồ sơ, kiểm tra cả kho hoặc tìm mâu thuẫn từ đây."
           right={<>
-            <input ref={fileRef} type="file" hidden accept=".pdf,.docx,.xlsx,.md,.txt,.sql"
-              onChange={async e => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; setUploading(true); setError('');
-                try { await onUploadFile(f); } catch (err: any) { setError(err.message || 'Không tải được tệp.'); } finally { setUploading(false); } }} />
+            <input ref={fileRef} type="file" hidden accept=".pdf,.docx,.xlsx,.md,.txt,.sql,.png,.jpg,.jpeg,.tif,.tiff"
+              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void upload(f); }} />
             <button className="btn btn-dark" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? <span className="spin" /> : <Upload size={15} />}Thêm tài liệu</button></>} />
 
-        <section className="lib-kpis" aria-label="Lọc theo loại tài liệu">
+        {docs.length > 0 && <section className="lib-kpis" aria-label="Lọc theo loại tài liệu">
           <button type="button" className={`lib-kpi${type === '' ? ' is-on' : ''}`} aria-pressed={type === ''} onClick={() => setType('')}><b>{docs.length}</b><span>Tất cả</span></button>
           {Object.entries(DOC_TYPES).filter(([k]) => counts[k]).map(([k, v]) => (
             <button key={k} type="button" className={`lib-kpi${type === k ? ' is-on' : ''}`} aria-pressed={type === k} onClick={() => setType(type === k ? '' : k)}>
               <b>{counts[k]}</b><span>{v}</span></button>))}
-        </section>
+          {counts.none > 0 && <span className="lib-kpi is-static"><b>{counts.none}</b><span>Chưa phân loại</span></span>}
+        </section>}
 
         <section className="lib-tools">
           <button type="button" className="lib-tool" onClick={() => onOpenProfile(shown[0] ? String(shown[0].id) : '')}>
@@ -77,7 +88,7 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
             <span className="lib-tool-ico"><GitCompareArrows size={18} /></span><span><b>Kiểm tra mâu thuẫn</b><small>Cặp câu cùng chủ đề khác con số hoặc ngược nghĩa giữa các tài liệu</small></span><ArrowUpRight size={16} /></button>
         </section>
 
-        <section className="dz-card lib-table-card">
+        <section className={`dz-card lib-table-card${drag ? ' is-drag' : ''}`} {...dropProps}>
           <div className="lib-bar">
             <label className="lib-find"><Search size={15} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm theo tên tài liệu" aria-label="Tìm theo tên tài liệu" /></label>
             <label className="lib-sort"><Filter size={14} />
@@ -86,13 +97,17 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
               </select></label>
           </div>
           {error && <p className="note is-error" role="alert">{error}</p>}
-          {docs.length === 0 ? <p className="lib-empty">Chưa có tài liệu. Bấm “Thêm tài liệu” hoặc kéo thả vào ô chat.</p>
+          {docs.length === 0 ? <button type="button" className="lib-drop" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              <span className="lib-drop-files" aria-hidden="true"><i>PDF</i><i>DOCX</i><i>XLSX</i></span>
+              <b>{uploading ? 'Đang nạp tài liệu…' : 'Kéo thả tài liệu vào đây hoặc bấm để chọn tệp'}</b>
+              <small>PDF, Word, Excel, Markdown, TXT, ảnh chụp văn bản. Hệ thống tự nhận loại tài liệu, chia đoạn và lập chỉ mục trên máy chủ của bạn.</small>
+            </button>
             : shown.length === 0 ? <p className="lib-empty">Không có tài liệu khớp bộ lọc.</p>
             : <ul className="lib-list">{shown.map(d => {
               const t = typeOf(d);
               return <li key={String(d.id)}>
-                <span className="lib-ico"><FileText size={16} /></span>
-                <div className="lib-name"><b>{d.source_file}</b><small>{d.chunks_count} đoạn{d.status === 'failed' ? ' · nạp lỗi' : ''}</small></div>
+                <span className={`lib-ext is-${extOf(d.source_file)}`} aria-hidden="true">{extOf(d.source_file).toUpperCase() || <FileText size={16} />}</span>
+                <div className="lib-name"><b title={d.source_file}>{d.source_file}</b><small>{[`${d.chunks_count} đoạn`, d.file_size_kb ? `${d.file_size_kb < 1024 ? `${Math.round(d.file_size_kb)} KB` : `${(d.file_size_kb / 1024).toFixed(1)} MB`}` : '', d.created_at ? new Date(d.created_at).toLocaleDateString('vi-VN') : '', d.owner && !d.mine ? `của ${d.owner}` : ''].filter(Boolean).join(' · ')}{d.status === 'failed' && <em className="lib-fail"> · nạp lỗi</em>}</small></div>
                 {canEdit(d)
                   ? <label className="lib-type"><span className="sr">Loại tài liệu của {d.source_file}</span>
                       <select value={t} onChange={e => change(d, e.target.value)}>

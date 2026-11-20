@@ -30,6 +30,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://orchestriq:${POSTGRES_PASSWORD}@postgres:5432/orchestriq
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-qwen3:4b}  # bộ cài gợi ý theo phần cứng; mặc định giữ qwen3:4b
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"

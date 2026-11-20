@@ -66,3 +66,11 @@ def test_route_endpoint_filters_sources_by_needed_type():
     forced = c.post("/api/studio/route", json={"message": "xem giúp", "source_ids": ["s1", "s2"], "skill": "contract_review"}).json()
     assert forced["skill"] == "contract_review" and forced["source_ids"] == ["s1"]
     assert c.post("/api/studio/route", json={"message": "x", "skill": "bogus"}).status_code == 400
+
+
+def test_compose_requests_are_not_forced_into_lookup_skills():
+    # "quy trình", "hợp đồng" chỉ là chủ đề của yêu cầu soạn nội dung: để pipeline trả lời
+    assert route_skill("Tạo 5 câu hỏi trắc nghiệm ôn tập về quy trình xử lý sự cố", []) is None
+    assert route_skill("Soạn email nhắc các bước thủ tục nghỉ phép", []) is None
+    assert route_skill("Tóm tắt hợp đồng và rà soát hợp đồng", ["contract"]) is None
+    assert route_skill("Quy trình xử lý sự cố gồm các bước nào?", [])["skill"] == "procedure"

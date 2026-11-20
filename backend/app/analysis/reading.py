@@ -12,7 +12,7 @@ import math
 import re
 import zipfile
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from xml.sax.saxutils import escape
 
 from app.analysis.design import _call, _obj, _text
@@ -253,7 +253,36 @@ def _table(rows: list[list[str]]) -> str:
             f"<w:tblGrid>{grid}</w:tblGrid>{''.join(body)}</w:tbl><w:p/>")
 
 
-def markdown_to_docx(markdown: str) -> bytes:
+DOC_KINDS = {"to_trinh": "TỜ TRÌNH", "bien_ban": "BIÊN BẢN", "thong_bao": "THÔNG BÁO", "bao_cao": "BÁO CÁO"}
+
+
+def _center(text: str, bold: bool = False, italic: bool = False, size: int | None = None) -> str:
+    props = ("<w:b/>" if bold else "") + ("<w:i/>" if italic else "") + (f'<w:sz w:val="{size}"/>' if size else "")
+    return (f'<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="0"/></w:pPr>'
+            f'<w:r><w:rPr>{props}</w:rPr><w:t xml:space="preserve">{escape(_CTRL.sub("", text))}</w:t></w:r></w:p>')
+
+
+def _admin_header(org: str, place: str, kind: str, title: str, today: date) -> str:
+    """Thể thức văn bản hành chính (Nghị định 30/2020): cơ quan | quốc hiệu, tiêu ngữ; địa danh, ngày; tên loại và trích yếu."""
+    cell = lambda inner, w: f'<w:tc><w:tcPr><w:tcW w:w="{w}" w:type="dxa"/></w:tcPr>{inner}</w:tc>'
+    left = _center(org.upper(), bold=True, size=24) + _center("———", size=20)
+    right = (_center("CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM", bold=True, size=24)
+             + _center("Độc lập - Tự do - Hạnh phúc", bold=True, size=26) + _center("———", size=20))
+    none = "".join(f'<w:{s} w:val="nil"/>' for s in ("top", "left", "bottom", "right", "insideH", "insideV"))
+    table = (f'<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>{none}</w:tblBorders></w:tblPr>'
+             f'<w:tblGrid><w:gridCol w:w="3800"/><w:gridCol w:w="5800"/></w:tblGrid><w:tr>{cell(left, 3800)}{cell(right, 5800)}</w:tr></w:tbl>')
+    dated = (f'<w:p><w:pPr><w:jc w:val="right"/><w:spacing w:before="120" w:after="240"/></w:pPr><w:r><w:rPr><w:i/></w:rPr>'
+             f'<w:t xml:space="preserve">{escape(place or "……")}, ngày {today.day:02d} tháng {today.month:02d} năm {today.year}</w:t></w:r></w:p>')
+    return table + dated + _center(DOC_KINDS.get(kind, kind.upper()), bold=True, size=28) + (_center(title, bold=True) if title else "") + "<w:p/>"
+
+
+def _signature(signer: str) -> str:
+    line = lambda t, b=False, i=False: (f'<w:p><w:pPr><w:ind w:left="5200"/><w:jc w:val="center"/><w:spacing w:after="0"/></w:pPr>'
+                                        f'<w:r><w:rPr>{"<w:b/>" if b else ""}{"<w:i/>" if i else ""}</w:rPr><w:t xml:space="preserve">{escape(t)}</w:t></w:r></w:p>')
+    return "<w:p/>" + line("NGƯỜI LẬP", b=True) + line("(Ký, ghi rõ họ tên)", i=True) + "<w:p/><w:p/><w:p/>" + line(signer or "", b=True)
+
+
+def markdown_to_docx(markdown: str, template: dict | None = None) -> bytes:
     """Markdown đơn giản (đề mục, đoạn, gạch đầu dòng, bảng, đậm/nghiêng/mã) thành tệp .docx mở được bằng Word."""
     blocks, para, table = [], [], []
     first_heading = True
@@ -298,6 +327,9 @@ def markdown_to_docx(markdown: str) -> bytes:
             para.append(line)
     flush()
 
+    if template:  # văn bản hành chính theo mẫu: phần đầu cơ quan/quốc hiệu và khối chữ ký
+        blocks = [_admin_header(template.get("org") or "", template.get("place") or "", template.get("kind") or "bao_cao",
+                                template.get("title") or "", date.today()), *blocks, _signature(template.get("signer") or "")]
     ns = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
     document = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document {ns}><w:body>{"".join(blocks)}'
                 '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" '
@@ -308,8 +340,9 @@ def markdown_to_docx(markdown: str) -> bytes:
                 f'<w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="{before}" w:after="120"/></w:pPr>'
                 f'<w:rPr>{"<w:b/>" if bold else ""}<w:color w:val="{color}"/><w:sz w:val="{size}"/></w:rPr></w:style>')
 
+    font, size = ("Times New Roman", 26) if template else ("Calibri", 22)  # văn bản hành chính: Times New Roman 13
     styles = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles {ns}><w:docDefaults><w:rPrDefault><w:rPr>'
-              '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="22"/><w:lang w:val="vi-VN"/>'
+              + f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:eastAsia="{font}" w:cs="{font}"/><w:sz w:val="{size}"/><w:lang w:val="vi-VN"/>'
               '</w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="288" w:lineRule="auto"/></w:pPr>'
               '</w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/>'
               '<w:qFormat/></w:style>' + style("Title", "Title", 40, "0E5E6F", before=0) + style("Heading1", "heading 1", 30, "0E5E6F")

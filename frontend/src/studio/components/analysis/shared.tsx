@@ -95,7 +95,7 @@ const KICKER: Record<string, string> = {
   'Tổng quan': 'Hoạt động của hệ thống', 'Hồ sơ tài liệu': 'Công cụ phân tích', 'Đối chiếu yêu cầu': 'Bộ công cụ', 'Chất lượng yêu cầu': 'Bộ công cụ', 'Gói thiết kế kỹ thuật': 'Bộ công cụ',
   'Rà soát bảo mật': 'Bộ công cụ', 'Rà soát theo tiêu chí': 'Bộ công cụ', 'Kiểm tra điều kiện': 'Bộ công cụ', 'Quy trình từng bước': 'Bộ công cụ',
   'Xét duyệt theo danh sách': 'Bộ công cụ', 'Tạo câu hỏi ôn tập': 'Bộ công cụ', 'Tra cứu quy chế theo Điều': 'Bộ công cụ', 'Tính phép năm và tiền làm thêm giờ': 'Bộ công cụ',
-  'Duyệt đơn từ': 'Bộ công cụ', 'Hỏi đáp chính sách cho nhân viên': 'Bộ công cụ', 'Rà soát hợp đồng': 'Bộ công cụ', 'Hồ sơ thủ tục': 'Bộ công cụ', 'Hiệu lực văn bản': 'Bộ công cụ', 'Kiểm tra mâu thuẫn': 'Công cụ phân tích', 'Phòng đánh giá': 'Nghiên cứu', 'Chấm mù': 'Nghiên cứu', 'Thực nghiệm': 'Nghiên cứu', 'Cơ sở dữ liệu': 'Quản trị', 'Người dùng': 'Quản trị', 'Tổ chức': 'Cộng tác',
+  'Duyệt đơn từ': 'Bộ công cụ', 'Hỏi đáp chính sách cho nhân viên': 'Bộ công cụ', 'Rà soát hợp đồng': 'Bộ công cụ', 'Hồ sơ thủ tục': 'Bộ công cụ', 'Hiệu lực văn bản': 'Bộ công cụ', 'Kiểm tra mâu thuẫn': 'Công cụ phân tích', 'Phòng đánh giá': 'Nghiên cứu', 'Chấm mù': 'Nghiên cứu', 'Thực nghiệm': 'Nghiên cứu', 'Cơ sở dữ liệu': 'Quản trị', 'Người dùng': 'Quản trị', 'Tổ chức': 'Cộng tác', 'Kết quả đã lưu': 'Lưu trữ cá nhân', 'Thư viện tài liệu': 'Kho tri thức', 'Cài đặt': 'Tài khoản và hệ thống', 'Việc cần làm': 'Đơn từ và thông báo',
 };
 export function ToolHeader({ Icon, title, desc, right }: { Icon: IconType; title: string; desc: string; right?: React.ReactNode }) {
   return (

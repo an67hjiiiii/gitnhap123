@@ -98,6 +98,11 @@ function scan() {
         const ctl = child.matches(CONTROL);
         const pad = ctl ? CELL / 2 : 0;
         paint(l - pad, t - pad, r + pad, b + pad, ctl ? 10 : 1);
+        // thẻ có nền chứa nút/ô nhập: tô cả các điều khiển bên trong với trọng số cao (không đi vào thẻ thì bỏ sót chúng)
+        if (!ctl) for (const inner of child.querySelectorAll(CONTROL)) {
+          const ir = inner.getBoundingClientRect();
+          if (ir.width && ir.height) paint(ir.left - CELL / 2, ir.top - d - CELL / 2, ir.right + CELL / 2, ir.bottom - d + CELL / 2, 10);
+        }
         continue;
       }
       const ov = rc.width && rc.height ? getComputedStyle(child).overflow : 'visible';

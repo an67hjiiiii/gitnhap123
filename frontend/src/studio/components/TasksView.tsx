@@ -99,6 +99,7 @@ export const TasksView: React.FC<Props> = ({ spaceId, spaceName, docIds, levelNa
     </li>;
   };
   const pendingToMe = (reqs?.to_me ?? []).filter(r => r.can_decide);
+  const handled = (reqs?.to_me ?? []).filter(r => !r.can_decide);
 
   return (
     <main className="pg tl tone-overview tsk">
@@ -109,12 +110,23 @@ export const TasksView: React.FC<Props> = ({ spaceId, spaceName, docIds, levelNa
         {error && <p className="note is-error" role="alert">{error}</p>}
         <div className="tsk-cols">
           <section className="dz-card tsk-card">
+            {reqs && pendingToMe.length === 0 && reqs.mine.length === 0 && handled.length === 0 ? <div className="tsk-empty">
+              <h3><Inbox size={16} />Chưa có đơn nào</h3>
+              <p>Đơn bạn gửi và đơn chờ bạn duyệt sẽ hiện ở đây. Một đơn đi qua:</p>
+              <ul className="tsk-flow">
+                <li><FilePlus2 size={16} /><b>Tạo đơn</b><small>Nghỉ phép, mua sắm, tạm ứng…</small></li>
+                <li><ShieldCheck size={16} /><b>Kiểm tra theo quy định</b><small>AI tra nội quy: ai duyệt, có đủ điều kiện không</small></li>
+                <li><Send size={16} /><b>Người duyệt nhận thông báo</b><small>{levelName.MANAGER} hoặc {levelName.EXECUTIVE} duyệt hay từ chối, có ghi chú</small></li>
+              </ul>
+            </div> : <>
             <header><h3><Inbox size={16} />Chờ tôi duyệt {pendingToMe.length > 0 && <span className="og-count is-alert">{pendingToMe.length}</span>}</h3></header>
             {reqs && pendingToMe.length === 0 && <p className="lib-empty">Không có đơn nào chờ bạn duyệt.</p>}
             <ul className="req-list">{pendingToMe.map(r => row(r, true))}</ul>
             <header><h3><Send size={16} />Đơn tôi đã gửi</h3></header>
             {reqs && reqs.mine.length === 0 && <p className="lib-empty">Bạn chưa gửi đơn nào.</p>}
             <ul className="req-list">{(reqs?.mine ?? []).map(r => row(r))}</ul>
+            {handled.length > 0 && <><header><h3><CheckCheck size={16} />Đơn đã xử lý</h3></header>
+              <ul className="req-list">{handled.slice(0, 10).map(r => row(r))}</ul></>}</>}
           </section>
 
           <section className="dz-card tsk-card req-form">
@@ -127,10 +139,14 @@ export const TasksView: React.FC<Props> = ({ spaceId, spaceName, docIds, levelNa
             <button type="button" className="btn btn-ghost" disabled={!form.title.trim() || busy === 'check' || docIds.length === 0} onClick={runCheck}
               title={docIds.length === 0 ? 'Tổ chức chưa có tài liệu quy định để kiểm tra' : undefined}>
               {busy === 'check' ? <span className="spin is-dark" /> : <ShieldCheck size={15} />}Kiểm tra theo quy định</button>
+            {docIds.length === 0 ? <small className="req-hint">Tổ chức chưa có tài liệu quy định (nội quy, quy chế) nên chưa kiểm tra được; vẫn gửi đơn được.</small>
+              : !form.title.trim() && <small className="req-hint">Nhập tiêu đề để kiểm tra đơn theo quy định của tổ chức.</small>}
             {check && <div className="req-check-box">
               <p>{check.approver ? <>Theo quy định: <b>{check.approver}</b> duyệt.</> : 'Không thấy quy định cấp duyệt cho đơn này.'}</p>
               {check.rule && <small>{check.rule}</small>}
-              {check.conditions?.length > 0 && <ul>{check.conditions.map((c: any, i: number) => <li key={i}>{c.verdict === 'MET' ? 'Đạt' : c.verdict === 'NOT_MET' ? 'Không đạt' : 'Chưa rõ'}: {c.condition}</li>)}</ul>}
+              {check.conditions?.some((c: any) => c.verdict !== 'UNKNOWN')
+                ? <ul>{check.conditions.map((c: any, i: number) => <li key={i}>{c.verdict === 'MET' ? 'Đạt' : c.verdict === 'NOT_MET' ? 'Không đạt' : 'Chưa rõ'}: {c.condition}</li>)}</ul>
+                : form.kind === 'leave' && <small>Chưa thấy điều kiện nghỉ phép rõ ràng trong tài liệu của tổ chức; người duyệt sẽ quyết định.</small>}
             </div>}
             <label>Cấp duyệt<select value={form.level} onChange={e => setForm({ ...form, level: e.target.value as '' | 'MANAGER' | 'EXECUTIVE' })}>
               <option value="">Chọn cấp duyệt…</option>

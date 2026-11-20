@@ -4,7 +4,7 @@
    mỗi trang, màu nhấn chỉ trên dữ liệu và hành động chính, chuyển động trả lời thao tác của người dùng. */
 
 .st-app{
-  --ink:#0f1b2b;--text:#3f4f63;--muted:#66758a;--faint:#94a1b2;
+  --ink:#0f1b2b;--text:#3f4f63;--muted:#66758a;--faint:#6a7889; /* chữ phụ đạt 4,5:1 trên nền trắng (đo 19/11: màu cũ #94a1b2 chỉ 2,4:1) */
   --ground:#f3f6f9;--side:rgba(255,255,255,.55);--main:transparent;
   --line:rgba(15,27,43,.08);--hover:rgba(255,255,255,.7);
   --accent:#1d66c9;--accent-2:#38b6e8;--cyan:#7fd3ff;--night:#07111c;--display:'Inter Tight Variable','Be Vietnam Pro',system-ui,sans-serif;--accent-soft:rgba(29,102,201,.08);
@@ -235,7 +235,7 @@
 .st-app{--surface:#fff;--surface-2:#f6f7f9;--line-2:#dfe3e8}
 .st-app[data-theme="dark"]{
   color-scheme:dark;
-  --ink:#e9eff7;--text:#b9c5d4;--muted:#8d9bb0;--faint:#66758c;
+  --ink:#e9eff7;--text:#b9c5d4;--muted:#8d9bb0;--faint:#7d8ca1;
   --ground:#060c17;--side:rgba(13,21,36,.62);--surface:rgba(18,28,46,.72);--surface-2:rgba(255,255,255,.04);--line-2:rgba(255,255,255,.1);
   --line:rgba(255,255,255,.08);--hover:rgba(255,255,255,.06);--accent:#4d9bff;--accent-soft:rgba(77,155,255,.14);
   --glass:rgba(16,26,43,.6);--glass-strong:rgba(14,23,39,.9);--glass-edge:rgba(255,255,255,.08);
@@ -635,6 +635,7 @@ html[data-bot-flying] .st-main .ws-bot{opacity:0}
 @media (max-width:767px){
   html .st-app :is(button,[role="button"],select,a.btn,.sb-link,.sb-search,.hist-row){min-height:44px}
   html .st-app :is(.icon-btn,.sb-icon,.sb-x,.pgd-bot){min-width:44px;min-height:44px}
+  html .st-app :is(input[type="text"],input[type="search"],input[type="number"],input[type="email"],input[type="password"],input:not([type]),textarea){min-height:44px}
   html .st-app .hist-row :is(button,[role="button"]),
   html .st-app :is(button,[role="button"])[aria-label]:not(:has(span,strong,em)):empty,
   html .st-app :is(button,[role="button"])[aria-label]:has(> svg:only-child){min-width:44px}
@@ -642,3 +643,6 @@ html[data-bot-flying] .st-main .ws-bot{opacity:0}
   html .st-app .sb-brand .sb-tools{margin-left:auto}
   html .st-app .md :is(button,a){min-height:0}  /* chữ trong câu trả lời giữ nguyên dòng */
 }
+/* chế độ tối (đo 19/11): nút trang đang chọn chữ trắng trên nền sáng 1,2:1; ô chủ đề nổi bật chữ trắng trên xanh sáng 2,8:1 */
+.st-app[data-theme="dark"] .ov-pg.is-on{color:#0f1d30}
+.st-app[data-theme="dark"] .tone-overview .ov-tile.is-dark{color:#0b1626}

@@ -2,6 +2,8 @@
 import React, { useState } from 'react';
 import { Download, FileText, Printer } from 'lucide-react';
 import { exportDocx } from '../../services/api';
+import '../../styles/pages-2b.css';
+import { DOC_KIND_LABEL, DocTemplateInfo, loadDocTemplate, saveDocTemplate } from '../../utils/docTemplate';
 import { download } from './shared';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -70,8 +72,26 @@ export function ExportButtons({ title, markdown, filename }: { title: string; ma
     try { saveBlob(`${filename}.docx`, await exportDocx(markdown)); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
   const pdf = () => { setError(null); try { printPdf(title, markdown); } catch (e: any) { setError(e.message); } };
+  // Word theo mẫu văn bản hành chính (đợt 10): cơ quan, quốc hiệu, tên loại, chữ ký
+  const [tpl, setTpl] = useState<null | (DocTemplateInfo & { kind: string; title: string })>(null);
+  const wordTemplate = async () => {
+    if (!tpl) return;
+    setBusy(true); setError(null);
+    try { saveDocTemplate({ org: tpl.org, place: tpl.place, signer: tpl.signer }); saveBlob(`${filename}.docx`, await exportDocx(markdown, tpl)); setTpl(null); }
+    catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
   return <span className="xp" role="group" aria-label="Tải xuống">
     <button type="button" className="btn btn-ghost is-sm" onClick={word} disabled={busy}>{busy ? <span className="spin is-dark" /> : <FileText size={14} />}Word</button>
+    <button type="button" className="btn btn-ghost is-sm" onClick={() => setTpl({ ...loadDocTemplate(), kind: 'bao_cao', title })} disabled={busy} aria-expanded={!!tpl}><FileText size={14} />Word theo mẫu</button>
+    {tpl && <span className="xp-tpl" role="group" aria-label="Thông tin văn bản theo mẫu">
+      <label>Loại<select value={tpl.kind} onChange={e => setTpl({ ...tpl, kind: e.target.value })}>{Object.entries(DOC_KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+      <label>Cơ quan<input value={tpl.org} onChange={e => setTpl({ ...tpl, org: e.target.value })} placeholder="Tên cơ quan, đơn vị" /></label>
+      <label>Địa danh<input value={tpl.place} onChange={e => setTpl({ ...tpl, place: e.target.value })} placeholder="Đà Nẵng" /></label>
+      <label>Trích yếu<input value={tpl.title} onChange={e => setTpl({ ...tpl, title: e.target.value })} /></label>
+      <label>Người ký<input value={tpl.signer} onChange={e => setTpl({ ...tpl, signer: e.target.value })} placeholder="Họ và tên" /></label>
+      <span className="xp-tpl-acts"><button type="button" className="btn btn-dark is-sm" onClick={wordTemplate} disabled={busy}>Tải Word</button>
+        <button type="button" className="btn btn-ghost is-sm" onClick={() => setTpl(null)}>Hủy</button></span>
+    </span>}
     <button type="button" className="btn btn-ghost is-sm" onClick={pdf} title="Mở hộp thoại in, chọn Lưu thành PDF"><Printer size={14} />PDF</button>
     <button type="button" className="btn btn-ghost is-sm" onClick={() => download(`${filename}.md`, markdown, 'text/markdown')}><Download size={14} />.md</button>
     {error && <span className="af-err" role="alert">{error}</span>}
