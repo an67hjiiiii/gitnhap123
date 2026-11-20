@@ -2,10 +2,15 @@
 // Báo cáo lưu ở backend (/studio/reports) theo từng người; mở = đi tới công cụ đã tạo ra nó (công cụ tự nạp bản đã lưu).
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, Archive, ClipboardCheck, FileSearch, GitCompareArrows, RefreshCw, Search, Trash2, Wrench } from 'lucide-react';
-import { deleteReport, listAllReports, SavedReport } from '../services/api';
+import { deleteReport, exportDocx, getChunk, getReport, listAllReports, SavedReport, updateReport } from '../services/api';
+import { StudioModal } from './StudioModal';
+import { Markdown } from '../utils/markdown';
+import { saveBlob } from './analysis/exporters';
+import { BookOpen, FileDown, Pencil, Save } from 'lucide-react';
 import type { NavigationTab } from '../types';
 import { ToolHeader } from './analysis/shared';
 import '../styles/pages-2b.css';
+import '../styles/results-hub.css';
 
 // loại báo cáo → tên hiển thị, trang công cụ mở lại được, màu nhận diện
 const KINDS: Record<string, { label: string; tab?: NavigationTab; hue: string }> = {
@@ -19,6 +24,8 @@ const KINDS: Record<string, { label: string; tab?: NavigationTab; hue: string }>
   security_review: { label: 'Rà soát bảo mật', tab: 'toolkit', hue: 'red' },
   traceability: { label: 'Rà soát theo tiêu chí', tab: 'toolkit', hue: 'violet' },
   criteria: { label: 'Danh mục tiêu chí', tab: 'toolkit', hue: 'violet' },
+  answer: { label: 'Câu trả lời', hue: 'blue' },            // Đợt 6: mở ngay tại đây, sửa trước khi xuất
+  compare: { label: 'So sánh phiên bản', tab: 'compare', hue: 'amber' },
 };
 // những công cụ tạo ra kết quả lưu được
 const MAKERS: { tab: NavigationTab; title: string; desc: string; Icon: typeof FileSearch }[] = [
@@ -38,7 +45,31 @@ function group(d: Date) {
 
 type Props = { onOpen: (tab: NavigationTab, report: SavedReport) => void; onGo: (tab: NavigationTab) => void };
 
+/** Câu trả lời đã lưu: sửa nội dung trước khi xuất Word; nguồn đi kèm tệp. Mở đoạn nguồn thì máy chủ kiểm quyền lại. */
+function AnswerViewer({ id, onClose }: { id: string; onClose: () => void }) {
+  const [r, setR] = useState<SavedReport | null>(null);
+  const [text, setText] = useState('');
+  const [edit, setEdit] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [src, setSrc] = useState<Record<string, string>>({});
+  useEffect(() => { getReport(id).then(x => { setR(x); setText(x.payload?.markdown ?? ''); }).catch(e => setMsg(e.message)); }, [id]);
+  const cites: string[] = r?.payload?.citations ?? [];
+  const openCite = (c: string) => getChunk(c).then(x => setSrc(s => ({ ...s, [c]: `${x.source_name}: ${x.text.slice(0, 400)}` }))).catch(e => setSrc(s => ({ ...s, [c]: e.message })));
+  const withSources = () => `# ${r?.payload?.question || r?.title}\n\n${text}` + (cites.length ? `\n\n## Nguồn\n\n${cites.map(c => `- ${c}`).join('\n')}` : '');
+  return <StudioModal labelId="sav-answer" icon={<BookOpen size={18} />} title={r?.title || 'Câu trả lời đã lưu'} subtitle={r ? `Lưu lúc ${new Date(r.updated_at ?? r.created_at).toLocaleString('vi-VN')}` : 'Đang tải…'} onClose={onClose}
+    footer={<>{msg && <span className="sav-msg">{msg}</span>}
+      <button className="btn btn-ghost" onClick={() => setEdit(e => !e)}><Pencil size={14} />{edit ? 'Xem' : 'Sửa'}</button>
+      {edit && <button className="btn btn-ghost" onClick={() => r && updateReport(r.report_id, { ...r.payload, markdown: text }).then(() => setMsg('Đã lưu thay đổi')).catch(e => setMsg(e.message))}><Save size={14} />Lưu thay đổi</button>}
+      <button className="btn btn-dark" disabled={!r} onClick={async () => { try { saveBlob(`tra-loi_${id.slice(-8)}.docx`, await exportDocx(withSources())); } catch (e: any) { setMsg(e.message); } }}><FileDown size={14} />Xuất Word kèm nguồn</button></>}>
+    {r?.payload?.question && <p className="sav-q"><b>Câu hỏi:</b> {r.payload.question}</p>}
+    {edit ? <textarea className="sav-edit" value={text} onChange={e => setText(e.target.value)} rows={14} aria-label="Sửa nội dung câu trả lời" />
+      : <div className="md"><Markdown text={text} /></div>}
+    {cites.length > 0 && <div className="sav-cites"><b>Nguồn</b>{cites.map(c => <div key={c}><button type="button" className="skc-cite" onClick={() => openCite(c)}>{r?.payload?.sources?.[cites.indexOf(c)] ?? c}</button>{src[c] && <small>{src[c]}</small>}</div>)}</div>}
+  </StudioModal>;
+}
+
 export const SavedResultsView: React.FC<Props> = ({ onOpen, onGo }) => {
+  const [viewing, setViewing] = useState<string | null>(null);
   const [rows, setRows] = useState<SavedReport[] | null>(null);
   const [kind, setKind] = useState('');
   const [q, setQ] = useState('');
@@ -70,6 +101,7 @@ export const SavedResultsView: React.FC<Props> = ({ onOpen, onGo }) => {
 
   return (
     <main className="pg tl tone-overview sav">
+      {viewing && <AnswerViewer id={viewing} onClose={() => setViewing(null)} />}
       <div className="pg-col">
         <ToolHeader Icon={Archive} title="Kết quả đã lưu" desc={desc}
           right={<button className="btn btn-ghost" onClick={load} aria-label="Tải lại danh sách"><RefreshCw size={15} />Tải lại</button>} />
@@ -101,7 +133,8 @@ export const SavedResultsView: React.FC<Props> = ({ onOpen, onGo }) => {
                   <b className="sav-title" title={r.title}>{r.title}</b>
                   <time dateTime={when(r).toISOString()}>{when(r).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} · {when(r).toLocaleDateString('vi-VN')}</time>
                   <span className="sav-acts">
-                    {k?.tab && <button type="button" className="btn btn-dark is-sm" onClick={() => onOpen(k.tab!, r)}><ArrowUpRight size={14} />Mở</button>}
+                    {r.kind === 'answer' ? <button type="button" className="btn btn-dark is-sm" onClick={() => setViewing(r.report_id)}><ArrowUpRight size={14} />Mở</button>
+                      : k?.tab && <button type="button" className="btn btn-dark is-sm" onClick={() => onOpen(k.tab!, r)}><ArrowUpRight size={14} />Mở</button>}
                     <button type="button" className="btn btn-ghost is-sm" onClick={() => remove(r)} aria-label={`Xóa ${r.title}`} title="Xóa"><Trash2 size={14} /></button>
                   </span>
                 </li>;

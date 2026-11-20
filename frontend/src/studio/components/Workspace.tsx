@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, Wrench, Paperclip, PanelRight, Pencil, RotateCcw, Archive, ListChecks, CornerDownRight, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
-import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions, saveReport, exportDocx } from '../services/api';
+import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions, saveReport, exportDocx, canSaveReports } from '../services/api';
 import { WorkspaceContext, CtxTab } from './WorkspaceContext';
 import { DocumentReader } from './DocumentReader';
 import { saveBlob } from './analysis/exporters';
@@ -338,7 +338,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   };
   const saveAnswer = async (runId: string, question: string, markdown: string, cites: string[]) => {
     setSaved(s => ({ ...s, [runId]: 'Đang lưu…' }));
-    try { await saveReport({ kind: 'answer', title: question.slice(0, 160) || 'Câu trả lời', workspace_id: workspaceId ? String(workspaceId) : null, payload: { run_id: runId, question, markdown, citations: cites } }); setSaved(s => ({ ...s, [runId]: 'Đã lưu vào Kết quả' })); }
+    try { await saveReport({ kind: 'answer', title: question.slice(0, 160) || 'Câu trả lời', workspace_id: workspaceId ? String(workspaceId) : null, payload: { run_id: runId, question, markdown, citations: cites, sources: cites.map(c => citeLabel(c, docsForCite)) } }); setSaved(s => ({ ...s, [runId]: 'Đã lưu vào Kết quả' })); }
     catch (err: any) { setSaved(s => ({ ...s, [runId]: err.message })); }
   };
   const wordOf = async (runId: string, question: string, markdown: string) => {
@@ -517,7 +517,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                     const q = messages.slice(0, i).reverse().find(x => x.role === 'USER')?.content ?? '';
                     const md = stripSources(answerText(m.content));
                     return <div className="ws-next" aria-label="Bước tiếp theo"><span>Bước tiếp theo</span>
-                      <button type="button" onClick={() => saveAnswer(run.run_id, q, md, cites)} disabled={!!saved[run.run_id]}><Archive size={13} />{saved[run.run_id] ?? 'Lưu vào Kết quả'}</button>
+                      {canSaveReports() && <button type="button" onClick={() => saveAnswer(run.run_id, q, md, cites)} disabled={!!saved[run.run_id]}><Archive size={13} />{saved[run.run_id] ?? 'Lưu vào Kết quả'}</button>}
                       <button type="button" onClick={() => wordOf(run.run_id, q, md)}><FileDown size={13} />Xuất Word</button>
                       {cites.length > 0 && <button type="button" onClick={() => showChunk(cites[0])}><BookOpen size={13} />Mở nguồn</button>}
                     </div>;

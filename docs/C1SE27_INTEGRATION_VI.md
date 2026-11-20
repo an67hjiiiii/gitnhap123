@@ -357,6 +357,14 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Kiểm tra: backend 364 đạt (ý định quiz/so sánh, chủ đề quiz, lọc đoạn theo chủ đề, P1-1); frontend 15 kiểm thử, build đạt.
 - Giới hạn: chất lượng câu hỏi do qwen3:4b soạn chưa được người dạy chấm; luật tách chủ đề P1-1 chỉ hiểu mẫu câu "có được / đủ điều kiện / hưởng / xin …", câu khác giữ hành vi cũ (hỏi lại một lần).
 
+### Đợt 6: Kết quả & công việc
+- Một trang nhiều tab (`ResultsHub.tsx`): Đã lưu (danh sách cũ), Cần xem xét (đơn chờ tôi duyệt, thông báo tài liệu mới thay thế/mâu thuẫn chưa đọc, tài liệu trùng hoặc lỗi chất lượng; mỗi mục có nút đi tới đúng chỗ xử lý; số trên tab đếm từ máy chủ), Đơn từ (trang đơn cũ trong tổ chức; không gian cá nhân thì hướng dẫn tạo/tham gia tổ chức), Thông báo (thông báo tổ chức và 30 hoạt động gần nhất). Mục "Đơn từ" trên thanh bên và trong thông báo mở thẳng tab Đơn từ.
+- Câu trả lời lưu từ ô chat mở ngay trong Đã lưu: xem, sửa nội dung, lưu thay đổi, xuất Word kèm mục "Nguồn" (tên tài liệu, đoạn); bấm nguồn thì máy chủ kiểm quyền lại như trích dẫn. So sánh đã lưu mở lại đúng cặp ở trang So sánh. Trong không gian tổ chức không hiện nút "Lưu vào Kết quả" (máy chủ không lưu báo cáo cá nhân trong tổ chức, đúng thiết kế cũ).
+- P1-4: chủ tổ chức duyệt được mọi đơn (trừ đơn của chính mình) như Ban giám đốc; khi gửi đơn mà không có ai khác duyệt được ở cấp đã chọn, máy chủ trả 409 kèm hướng dẫn (không tạo đơn treo); biểu mẫu hỏi trước `GET /org/spaces/{id}/requests/approvers` và hiện cảnh báo, khóa nút Gửi.
+- Thử theo vai trong tổ chức thử "Công ty Thử Đợt 20" (dữ liệu thử, tài khoản `*.dot20@c27.local`): nhân viên gửi đơn cấp Trưởng phòng; Trưởng phòng thấy "Đơn chờ bạn duyệt" ở Cần xem xét; chủ tổ chức (Ban giám đốc duy nhất) chọn cấp Ban giám đốc → cảnh báo, nút Gửi khóa (điện thoại, giao diện tối, không tràn ngang).
+- Kiểm tra: backend 365 đạt (`test_sole_approver_cannot_submit_to_own_level_and_is_warned`); frontend 15 kiểm thử, build đạt.
+- Giới hạn: chưa có người duyệt thay thế khi vắng, chưa gửi thông báo qua email; Excel cho câu trả lời chưa có (chỉ Word); "Cần xem xét" chưa có mục "kết quả cần người duyệt lại".
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

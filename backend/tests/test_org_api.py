@@ -577,3 +577,15 @@ def test_executive_level_request_only_executive_decides(env):
     assert u["binh"].post(f"/api/org/spaces/{sp}/requests/{rid}/decide", json={"decision": "APPROVED"}).status_code == 403
     assert u["chi"].post(f"/api/org/spaces/{sp}/requests/{rid}/withdraw").json()["status"] == "WITHDRAWN"
     assert u["an"].get(f"/api/org/spaces/{sp}/requests").json()["to_me"][0]["can_decide"] is False  # đã rút: không duyệt nữa
+
+
+def test_sole_approver_cannot_submit_to_own_level_and_is_warned(env):
+    """P1-4: người duy nhất ở Ban giám đốc (chủ tổ chức "an") gửi đơn cấp Ban giám đốc → báo rõ, không tạo đơn treo."""
+    factory, u = env
+    sp, kd, kt = _setup_company(factory, u)
+    pre = u["an"].get(f"/api/org/spaces/{sp}/requests/approvers?level=EXECUTIVE").json()
+    assert pre["count"] == 0
+    r = u["an"].post(f"/api/org/spaces/{sp}/requests", json={"title": "Nghỉ phép 6 ngày", "days": 6, "approver_level": "EXECUTIVE"})
+    assert r.status_code == 409 and "Không có ai khác duyệt" in r.json()["detail"]
+    assert u["an"].get(f"/api/org/spaces/{sp}/requests").json()["mine"] == []
+    assert u["chi"].get(f"/api/org/spaces/{sp}/requests/approvers?level=EXECUTIVE").json()["count"] >= 1

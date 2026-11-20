@@ -37,6 +37,7 @@ import { SavedResultsView } from './components/SavedResultsView';
 import { TasksView } from './components/TasksView';
 import { SettingsView } from './components/SettingsView';
 import { CompareView } from './components/CompareView';
+import { ResultsHub, HubTab } from './components/ResultsHub';
 import { orgNoteText } from './components/Header';
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({default: module.LandingPage}))); 
 import { LoginPage } from './pages/LoginPage';
@@ -46,6 +47,7 @@ import { RobotProvider, useRobotAssistant } from './components/robot/RobotContex
 import './styles/shell-2026.css';  // khung mới (Đợt 1–2): nạp sau CSS của các thành phần
 import { 
   analyzeQuery, 
+  getReport,
   getDocuments, 
   uploadDocument, 
   seedSampleDocs, 
@@ -104,6 +106,7 @@ function DashboardWorkspace({
   const [historyOpen, setHistoryOpen] = useState(false);
   // thẻ So sánh trong chat → trang So sánh phiên bản với đúng cặp tài liệu
   const [comparePair, setComparePair] = useState<{ old: string; new: string } | null>(null);
+  const [hubTab, setHubTab] = useState<HubTab>('saved');
   const [toolTarget, setToolTarget] = useState<{ pack: string; id: string } | null>(null);
   useEffect(() => { if (activeTab !== 'toolkit') setToolTarget(null); }, [activeTab]);
   useEffect(() => {
@@ -152,7 +155,6 @@ function DashboardWorkspace({
   const currentWs = workspaces.find(w => w.id === currentWorkspaceId);
   const [profileSource, setProfileSource] = useState('');  // Thư viện → Hồ sơ tài liệu của đúng tài liệu
   // Việc cần làm chỉ có trong tổ chức: đổi sang không gian cá nhân thì về Không gian làm việc
-  useEffect(() => { if (activeTab === 'tasks' && currentWs && currentWs.kind !== 'org') setActiveTab('orchestration'); }, [activeTab, currentWs]);
   const inOrg = isOrgId(currentWorkspaceId);
   setDomainPack(currentWs?.domain_pack);
   // thiếu lĩnh vực (dữ liệu cũ) = Phần mềm; quyết định bộ lọc kho tài liệu và nội dung trang Bộ công cụ
@@ -483,15 +485,19 @@ function DashboardWorkspace({
         {activeTab === 'library' && <LibraryView docs={documents} onUploadFile={async f => { await handleUpload(f); }}
           onOpenProfile={id => { setProfileSource(id); setActiveTab('documents'); }} onOpenConsistency={() => setActiveTab('consistency')}
           onAsk={(sourceId, name) => { setActiveConversationId(null); setPrefill({ text: `Nội dung chính của tài liệu ${name} là gì?`, key: Date.now(), sourceId, sourceName: name }); setActiveTab('orchestration'); }} />}
-        {activeTab === 'results' && <SavedResultsView onOpen={(tab, r) => {
-          // hồ sơ, sơ đồ tư duy: tên báo cáo là tên tệp → mở đúng tài liệu đó; công cụ khác tự nạp bản đã lưu
-          const doc = (r.kind === 'doc_profile' || r.kind === 'mindmap') ? documents.find(d => d.source_file === r.title) : undefined;
-          if (doc) setProfileSource(String(doc.id));
-          setActiveTab(tab);
-        }} onGo={setActiveTab} />}
-        {activeTab === 'tasks' && currentWs?.kind === 'org' && <TasksView spaceId={String(currentWorkspaceId)} spaceName={currentWs.name}
-          noteText={n => orgNoteText(n, orgTerms(currentWs))} onOpenOrg={() => setActiveTab('organization')}
-          docIds={documents.map(d => String(d.id))} levelName={{ MANAGER: orgTerms(currentWs).level.MANAGER, EXECUTIVE: orgTerms(currentWs).level.EXECUTIVE }} />}
+        {(activeTab === 'results' || activeTab === 'tasks') && <ResultsHub key={`rh-${currentWorkspaceId}`} tab={activeTab === 'tasks' ? 'requests' : hubTab}
+          onTab={t => { setHubTab(t); setActiveTab('results'); }} spaceId={inOrg ? String(currentWorkspaceId) : undefined} onGo={setActiveTab}
+          noteText={n => orgNoteText(n, orgTerms(workspaces.find(w => w.id === n.space_id) ?? currentWs))}
+          saved={<SavedResultsView onOpen={(tab, r) => {
+            // hồ sơ, sơ đồ tư duy: tên báo cáo là tên tệp → mở đúng tài liệu đó; so sánh: mở lại đúng cặp; công cụ khác tự nạp bản đã lưu
+            const doc = (r.kind === 'doc_profile' || r.kind === 'mindmap') ? documents.find(d => d.source_file === r.title) : undefined;
+            if (doc) setProfileSource(String(doc.id));
+            if (r.kind === 'compare') getReport(r.report_id).then(x => { if (x.payload?.old?.source_id) setComparePair({ old: x.payload.old.source_id, new: x.payload.new.source_id }); }).catch(() => undefined);
+            setActiveTab(tab);
+          }} onGo={setActiveTab} />}
+          requests={currentWs?.kind === 'org' ? <TasksView spaceId={String(currentWorkspaceId)} spaceName={currentWs.name}
+            noteText={n => orgNoteText(n, orgTerms(currentWs))} onOpenOrg={() => setActiveTab('organization')}
+            docIds={documents.map(d => String(d.id))} levelName={{ MANAGER: orgTerms(currentWs).level.MANAGER, EXECUTIVE: orgTerms(currentWs).level.EXECUTIVE }} /> : undefined} />}
         {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
           onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} onChanged={refreshState} health={health} docCount={documents.length} />}
         {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} initialTool={toolTarget} />}

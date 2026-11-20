@@ -2,7 +2,7 @@
 // xem song song có tô chỗ khác, mở nguồn, xuất Word/Excel, lưu vào Kết quả. Không gọi mô hình; quyền kiểm ở máy chủ.
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowRight, Archive, BookOpen, CheckCircle2, FileDown, FileSpreadsheet, GitCompareArrows, Sparkles } from 'lucide-react';
-import { compareVersions, documentValidity, DocValidity, exportDocx, saveReport, VersionCompare, VersionItem } from '../services/api';
+import { canSaveReports, compareVersions, documentValidity, DocValidity, exportDocx, saveReport, VersionCompare, VersionItem } from '../services/api';
 import { ToolHeader } from './analysis/shared';
 import { saveBlob } from './analysis/exporters';
 import { DocumentReader } from './DocumentReader';
@@ -96,7 +96,7 @@ export const CompareView: React.FC<{ docs: Doc[]; workspaceId?: number | string;
             <div className="cv-acts">
               <button className="btn btn-ghost is-sm" onClick={word}><FileDown size={14} />Word</button>
               <button className="btn btn-ghost is-sm" onClick={csv}><FileSpreadsheet size={14} />Excel (.csv)</button>
-              <button className="btn btn-dark is-sm" onClick={save} disabled={!!saved}><Archive size={14} />{saved || 'Lưu vào Kết quả'}</button>
+              {canSaveReports() && <button className="btn btn-dark is-sm" onClick={save} disabled={!!saved}><Archive size={14} />{saved || 'Lưu vào Kết quả'}</button>}
             </div>
           </section>
           <section className="dz-card cv-table" aria-label="Bảng đối chiếu">

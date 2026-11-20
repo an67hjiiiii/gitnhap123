@@ -923,6 +923,9 @@ export interface OrgRequest {
   requester: string; mine: boolean; can_decide: boolean; check_result: Record<string, any>;
   history: { at: string; by: string; action: string; note?: string }[]; created_at: string; decided_at: string | null;
 }
+/** P1-4: trước khi gửi, có bao nhiêu người khác duyệt được ở cấp này. */
+export const requestApprovers = (spaceId: string, level: 'MANAGER' | 'EXECUTIVE') =>
+  call<{ level: string; count: number; needs_department: boolean }>(`/org/spaces/${encodeURIComponent(spaceId)}/requests/approvers?level=${level}`);
 export const listRequests = (spaceId: string) => call<{ mine: OrgRequest[]; to_me: OrgRequest[] }>(`/org/spaces/${encodeURIComponent(spaceId)}/requests`);
 export const createRequest = (spaceId: string, body: { kind: string; title: string; details: string; days: number | null; approver_level: string; check_result: Record<string, unknown> }) =>
   post<OrgRequest>(`/org/spaces/${encodeURIComponent(spaceId)}/requests`, body);
