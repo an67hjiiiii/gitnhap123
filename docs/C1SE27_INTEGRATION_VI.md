@@ -311,6 +311,20 @@ Kiểm tra mọi trang (10 trang thanh bên + Hồ sơ tài liệu, Kiểm tra m
 - Còn tồn (ghi vào tài liệu đề xuất phát triển 20/11): truy xuất bỏ sót đoạn chứa câu trả lời (hỏi "CSDL gồm những bảng nào" chỉ lấy đoạn đầu các tài liệu, trả lời "không có thông tin" dù tài liệu có mục danh sách bảng; sửa phải đụng phần truy xuất dùng chung với điều kiện C nên cần nhóm đồng ý); lượt hỏi lại của kỹ năng điều kiện ép mô hình tìm điều kiện cả khi tài liệu không liên quan; tạo câu hỏi trắc nghiệm trong ô chat chưa có phương án và đáp án; người duy nhất ở một cấp gửi đơn lên chính cấp đó thì không ai duyệt được; bộ tài liệu mẫu chỉ có ngành phần mềm; "Chính sách bảo mật" bị nhận là văn bản pháp quy.
 - Kiểm tra: backend 346 đạt; frontend `tsc`, `build`, 9 kiểm thử đạt; 4 trang không tràn ngang ở 375 px, đã xem sáng/tối.
 
+## Kế hoạch liền mạch Đợt 0–12 (20/11, theo tài liệu đề xuất phát triển 20/11, mục 8)
+
+Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọn, giữ nguyên thực nghiệm A/B/C và dữ liệu nghiên cứu; mọi thay đổi truy xuất, chọn tác tử, học từ người dùng chỉ ở chế độ sản phẩm.
+
+### Đợt 0: mốc an toàn
+- Commit phần dở (OCR, thư mục chung, bộ cài, Word theo mẫu, 4 trang làm lại) `30e501d`; tag cục bộ `backup/truoc-dot1-2026-11-20`. Backend 346 đạt; frontend tsc, build, 9 kiểm thử đạt.
+
+### Đợt 1: khung ứng dụng mới
+- Thanh bên chỉ điều hướng: Không gian làm việc, Tài liệu, So sánh phiên bản, Kỹ năng, Kết quả & công việc, Tổng quan, Tổ chức; nhóm Nghiên cứu (khi bật) và Quản trị (theo quyền). Trang con (Hồ sơ tài liệu, Kiểm tra mâu thuẫn, Đơn từ) tô theo mục cha. Chân thanh bên là khối Kho tri thức: số tài liệu, số đoạn, tên mô hình hoặc "Chưa kết nối mô hình" (số lấy từ máy chủ).
+- Thanh trên (`Topbar.tsx`): biểu tượng và tên trang, một câu mô tả (`utils/pageMeta.ts`), chọn không gian (cá nhân/tổ chức, tạo, xóa), Lịch sử trò chuyện (ngăn kéo bên phải), thông báo, trợ giúp (phím tắt), menu ảnh đại diện (Cài đặt, sáng/tối, đổi ảnh, đổi tài khoản, đăng xuất). Điện thoại: nút mở thanh bên dạng ngăn kéo.
+- Danh sách tài liệu chuyển vào cột phải của Không gian làm việc (mục "Thêm và quản lý tài liệu"); danh sách cuộc trò chuyện chuyển vào ngăn kéo Lịch sử.
+- Màu: chủ dự án bác bản thanh bên xanh đậm (20/11) → giữ nền kính sáng của bản gốc; mục đang chọn là viên xanh thương hiệu đặc, chữ trắng; khối Kho tri thức tông xanh nhạt.
+- Kiểm tra: ảnh 1440 px và 390 px, sáng và tối bằng Playwright, không tràn ngang, không lỗi console.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

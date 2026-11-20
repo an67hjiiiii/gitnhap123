@@ -53,7 +53,7 @@ function bubbleRect(x: number, y: number, side: Side, vert: Vert): Box {
 /** Khối có tự vẽ ra thứ gì không (nền, viền, bóng, chữ trực tiếp) hay chỉ là khung trong suốt bao các khối khác. */
 function paints(n: Element): boolean {
   if (n.matches(SOLID)) return true;
-  if (n.classList.contains('st-mobilebar')) return false; // nền thanh trên cùng (điện thoại): chỗ trống bên phải được dùng
+  if (n.classList.contains('st-topbar')) return false; // nền thanh trên cùng (điện thoại): chỗ trống bên phải được dùng
   const cs = getComputedStyle(n);
   if (cs.visibility === 'hidden' || cs.display === 'none') return false;
   if (!/(transparent|,\s*0\))$/.test(cs.backgroundColor) || cs.backgroundImage !== 'none' || cs.boxShadow !== 'none'
@@ -168,7 +168,7 @@ function findSpot({ main, bottom, rank }: ScanMap): Spot & { score: number } {
 /** Điện thoại: trang kín hết chiều ngang nên robot đậu cố định ở đầu phải thanh trên cùng; bong bóng hiện bên dưới vài giây rồi ẩn. */
 function dockSpot(): Spot | null {
   if (window.innerWidth >= 640) return null;
-  const bar = document.querySelector('.st-mobilebar')?.getBoundingClientRect();
+  const bar = document.querySelector('.st-topbar')?.getBoundingClientRect();
   if (!bar || !bar.height) return null;
   return { x: bar.right - BOT - 8, y: bar.top + (bar.height - BOT) / 2, side: 'left', vert: 'down' };
 }
