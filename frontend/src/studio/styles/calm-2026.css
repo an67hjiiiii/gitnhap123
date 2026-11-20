@@ -215,3 +215,4 @@
 .st-app[data-theme="dark"] .st-cluster .tb-ws{background:rgba(255,255,255,.05)!important}
 .st-app .tl-right .btn-dark,.st-app .tl-head .btn-dark{background:var(--accent)!important;background-image:none!important;color:#fff!important;box-shadow:0 6px 14px -8px rgba(29,102,201,.55)!important}
 .st-app .lib-tool-ico,.st-app .sav-maker svg,.st-app .tl-mark{background:var(--tile)!important;background-image:none!important;color:var(--glyph)!important;box-shadow:none!important}
+@media (min-width:1280px){.st-app .ws-shell.is-folded{padding-top:62px}.st-app .ws-shell.is-folded>.wc{margin-top:0}}
