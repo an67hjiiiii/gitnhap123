@@ -20,6 +20,7 @@ from app.research.registry import WORK_PACK
 from app.analysis.watch import replacement_pairs
 from app.core.secret_audit import log_secret_access
 from app.research.agent_selection import CLARIFY_LABELS, clarify_options, select_agents
+from app.analysis import versions
 from app.analysis import blind_rating, casework, consistency, domain_tools, design, evaluation, grounding, insights, reading, req_quality, security_review
 from app.analysis.traceability import (Requirement, assign_agent, check_requirement, extract_checklist, extract_requirements, missing_term_groups,
                                        evidence_for, requirement_query)
@@ -98,6 +99,11 @@ class GenerateBody(BaseModel):
     source_ids: list[str] = Field(min_length=1, max_length=20)
     count: int = Field(default=8, ge=1, le=15)
     domain_pack: PackName | None = None
+
+
+class CompareBody(BaseModel):
+    old_source_id: str = Field(min_length=1, max_length=128)
+    new_source_id: str = Field(min_length=1, max_length=128)
 
 
 class SourcesBody(BaseModel):
@@ -509,6 +515,22 @@ def build_router(
         # nhận dạng cố định: không có chữ "hợp đồng" hay cặp "bên a"/"bên b" thì có thể chọn nhầm tài liệu
         merged["looks_like_contract"] = "hợp đồng" in text or ("bên a" in text and "bên b" in text)
         return merged
+
+    @router.post("/tools/compare")
+    def tool_compare(body: CompareBody, request: Request) -> dict:
+        """So sánh hai phiên bản theo Chương/Điều/Khoản (Đợt 4). Chỉ mã, không gọi mô hình; quyền như mọi công cụ khác."""
+        if body.old_source_id == body.new_source_id:
+            raise HTTPException(422, "Chọn hai tài liệu khác nhau để so sánh.")
+        user = current_user(request)
+        texts, names = {}, {}
+        for sid in (body.old_source_id, body.new_source_id):
+            cs = _all_chunks(user, [sid])
+            texts[sid], names[sid] = "\n\n".join(c.text for c in cs), cs[0].source_name
+        result = versions.compare_versions(texts[body.old_source_id], texts[body.new_source_id])
+        if not result["old_units"] or not result["new_units"]:
+            raise HTTPException(422, "Không tách được Điều hoặc mục trong một trong hai tài liệu (cần tiêu đề 'Điều N' hoặc tiêu đề mục).")
+        return {**result, "old": {"source_id": body.old_source_id, "source_name": names[body.old_source_id]},
+                "new": {"source_id": body.new_source_id, "source_name": names[body.new_source_id]}}
 
     @router.post("/tools/validity")
     def tool_validity(body: SourcesBody, request: Request) -> dict:

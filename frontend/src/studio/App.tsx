@@ -36,6 +36,7 @@ import { LibraryView } from './components/LibraryView';
 import { SavedResultsView } from './components/SavedResultsView';
 import { TasksView } from './components/TasksView';
 import { SettingsView } from './components/SettingsView';
+import { CompareView } from './components/CompareView';
 import { orgNoteText } from './components/Header';
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({default: module.LandingPage}))); 
 import { LoginPage } from './pages/LoginPage';
@@ -101,6 +102,13 @@ function DashboardWorkspace({
   const [prefill, setPrefill] = useState<{ text: string; key: number; sourceId?: string; sourceName?: string } | null>(null);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // thẻ So sánh trong chat → trang So sánh phiên bản với đúng cặp tài liệu
+  const [comparePair, setComparePair] = useState<{ old: string; new: string } | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => { const d = (e as CustomEvent).detail; if (d?.old && d?.new) { setComparePair({ old: d.old, new: d.new }); setActiveTab('compare'); } };
+    window.addEventListener('oq-open-compare', on);
+    return () => window.removeEventListener('oq-open-compare', on);
+  }, []);
   const [toast, setToast] = useState<{ text: string; tone: 'error' | 'ok' | 'warn' } | null>(null);
   const [freshDoc, setFreshDoc] = useState<{ id: string; name: string } | null>(null);
   useEffect(() => {
@@ -481,6 +489,7 @@ function DashboardWorkspace({
         {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
           onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} onChanged={refreshState} health={health} docCount={documents.length} />}
         {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}-${currentWs?.domain_pack ?? 'software'}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} />}
+        {activeTab === 'compare' && <CompareView key={`cmp-${currentWorkspaceId}`} docs={documents} workspaceId={currentWorkspaceId} initial={comparePair} />}
         {activeTab === 'consistency' && <ConsistencyView key={`cons-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'rating' && <BlindRatingView />}
         {activeTab === 'users' && user?.role === 'admin' && <UsersAdminView currentUserId={String(user.id)} />}

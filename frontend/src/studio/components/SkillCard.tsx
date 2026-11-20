@@ -1,11 +1,12 @@
 // Thẻ kết quả kỹ năng trong ô chat (đợt 4, bản làm thử): kỹ năng do bộ định tuyến chọn hoặc người dùng gọi bằng "/".
 // Kết luận tổng do luật cố định ở backend suy ra; thẻ chỉ hiển thị, mọi căn cứ bấm được vào đoạn gốc.
 import React from 'react';
-import { AlertTriangle, CheckCircle2, CircleHelp, ClipboardCheck, FileClock, Gavel, ListOrdered, UserCheck, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, CheckCircle2, CircleHelp, ClipboardCheck, FileClock, Gavel, GitCompareArrows, ListOrdered, UserCheck, XCircle } from 'lucide-react';
+import { CHANGE_LABEL, changeTone } from '../utils/compareText';
 import type { SkillKey, SkillOutput } from '../services/api';
 
 const ICON: Record<SkillKey, React.ElementType> = {
-  conditions: ClipboardCheck, procedure: ListOrdered, approver: UserCheck, contract_review: Gavel, validity: FileClock,
+  conditions: ClipboardCheck, procedure: ListOrdered, approver: UserCheck, contract_review: Gavel, validity: FileClock, compare: GitCompareArrows,
 };
 const OVERALL: Record<string, { text: string; tone: string }> = {
   ELIGIBLE: { text: 'Đủ điều kiện', tone: 'ok' },
@@ -67,6 +68,22 @@ export const SkillCard: React.FC<Props> = ({ label, reason, out, citeLabel, onCi
       return <li key={x.source_id}><span className={`skc-badge is-${t.tone}`}>{t.text}</span>
         <div><b>{x.number || x.source_name}</b><small>{[x.effective && `Hiệu lực từ ${x.effective}`, x.replaces.length > 0 && `Thay thế ${x.replaces.join(', ')}`, x.status_note].filter(Boolean).join(' · ')}</small></div></li>;
     })}</ul>;
+  } else if (out.skill === 'compare') {
+    // tóm tắt chỉ từ các mục đã đối chiếu bằng mã; bảng đầy đủ ở trang So sánh phiên bản
+    const changed = out.data.items.filter(it => it.change !== 'UNCHANGED');
+    body = <>
+      <p className="skc-rule"><b>{out.data.old.source_name}</b> → <b>{out.data.new.source_name}</b></p>
+      <p className="skc-chips">{(['ADDED', 'MODIFIED', 'MOVED_MODIFIED', 'MOVED', 'REMOVED', 'UNCHANGED'] as const).filter(k => out.data.counts[k]).map(k =>
+        <span key={k} className={`skc-badge is-${changeTone(k)}`}>{CHANGE_LABEL[k]} {out.data.counts[k]}</span>)}</p>
+      {changed.length === 0 ? <p className="skc-verdict is-ok">Hai bản giống nhau ở mọi mục.</p>
+        : <ul className="skc-rows">{changed.slice(0, 6).map((it, i) => <li key={i}><span className={`skc-badge is-${changeTone(it.change)}`}>{CHANGE_LABEL[it.change]}</span>
+          <div><b>{(it.new ?? it.old)!.key}{(it.new ?? it.old)!.title ? `. ${(it.new ?? it.old)!.title}` : ''}</b>
+            <small>{it.clauses?.length ? it.clauses.map(c => `Khoản ${c.clause}: ${c.change === 'ADDED' ? 'thêm' : c.change === 'REMOVED' ? 'bỏ' : 'sửa'}`).join(' · ')
+              : it.change === 'MOVED' || it.change === 'MOVED_MODIFIED' ? `Từ ${it.old!.key} sang ${it.new!.key}` : it.numbers_changed?.length ? `Số thay đổi: ${it.numbers_changed.join(', ')}` : ''}</small></div></li>)}</ul>}
+      {changed.length > 6 && <p className="skc-rule">Còn {changed.length - 6} mục thay đổi khác.</p>}
+      <button type="button" className="btn btn-dark is-sm skc-open" onClick={() => window.dispatchEvent(new CustomEvent('oq-open-compare', { detail: { old: out.data.old.source_id, new: out.data.new.source_id } }))}>
+        <ArrowUpRight size={14} />Mở bảng chi tiết</button>
+    </>;
   }
 
   return (
@@ -74,7 +91,7 @@ export const SkillCard: React.FC<Props> = ({ label, reason, out, citeLabel, onCi
       <header><span className="skc-ico"><I size={16} /></span><div><b>{label}</b>{reason && <small>{reason}</small>}</div></header>
       {d.note && /[àáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]/i.test(d.note) && <p className="skc-note">{d.note}</p>}  {/* ghi chú mô hình viết tiếng Anh thì ẩn */}
       {body}
-      <footer>Kết luận tổng do luật cố định suy ra, mô hình chỉ đọc và trích; người có thẩm quyền quyết định cuối cùng.{measured && <span>{measured}</span>}</footer>
+      <footer>{out.skill === 'compare' || out.skill === 'validity' ? 'Kết quả do mã đối chiếu, không gọi mô hình; người có thẩm quyền xác nhận trước khi dùng.' : 'Kết luận tổng do luật cố định suy ra, mô hình chỉ đọc và trích; người có thẩm quyền quyết định cuối cùng.'}{measured && <span>{measured}</span>}</footer>
     </article>
   );
 };

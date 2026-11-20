@@ -170,7 +170,9 @@ function dockSpot(): Spot | null {
   if (window.innerWidth >= 640) return null;
   const bar = document.querySelector('.st-topbar')?.getBoundingClientRect();
   if (!bar || !bar.height) return null;
-  return { x: bar.right - BOT - 8, y: bar.top + (bar.height - BOT) / 2, side: 'left', vert: 'down' };
+  // đậu ngay bên trái cụm nút (không che ảnh đại diện); CSS chừa sẵn chỗ ở cuối tên trang
+  const acts = document.querySelector('.st-topbar .tb-actions')?.getBoundingClientRect();
+  return { x: (acts?.left ?? bar.right) - BOT - 4, y: bar.top + (bar.height - BOT) / 2, side: 'left', vert: 'down' };
 }
 
 /** Vị trí và cỡ của robot to ở trang gốc (đo lúc trang gốc còn hiện). */

@@ -23,6 +23,7 @@ export function summarizeSkill(skill: string, label: string, data: any): string 
     case 'approver': return head + (data.approver ? `người duyệt là ${data.approver}` : 'không thấy quy định cấp duyệt') + '.';
     case 'contract_review': return head + (data.risks?.length ? `${data.risks.length} điều khoản cần lưu ý` : 'không thấy điều khoản rủi ro rõ ràng') + '.';
     case 'validity': return head + (data.documents || []).map((d: any) => `${d.number || d.source_name}: ${d.status}`).join('; ') + '.';
+    case 'compare': { const c = data.counts || {}; return head + `${data.old?.source_name} → ${data.new?.source_name}: thêm ${c.ADDED ?? 0}, sửa ${(c.MODIFIED ?? 0) + (c.MOVED_MODIFIED ?? 0)}, bỏ ${c.REMOVED ?? 0}, giữ ${c.UNCHANGED ?? 0} mục.`; }
     default: return head.trim();
   }
 }

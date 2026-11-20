@@ -17,6 +17,12 @@ SKILLS: dict[str, tuple[str, str, frozenset[str] | None]] = {
         r"\b(ra soat|kiem tra|xem xet|danh gia)\b.{0,30}\bhop dong\b|\bdieu khoan\b.{0,25}\b(bat loi|rui ro|phat|nguy hiem)\b",
         frozenset({"contract"}),
     ),
+    # Đợt 4: so sánh hai phiên bản (bản cũ/bản mới) theo Điều/Khoản; trang So sánh xem chi tiết
+    "compare": (
+        "So sánh phiên bản",
+        r"\b(so sanh|doi chieu)\b.{0,60}\b(ban|phien ban|quy che|quy dinh|van ban|cu|moi|nam)\b|\b(ban moi|phien ban moi)\b.{0,40}\b(khac|thay doi|diem moi)\b|\bthay doi gi\b.{0,40}\b(so voi|ban cu)\b",
+        None,
+    ),
     "validity": (
         "Hiệu lực văn bản",
         r"\b(con hieu luc|het hieu luc|hieu luc tu|bi thay the|hieu luc)\b",
