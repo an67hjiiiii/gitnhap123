@@ -10,6 +10,7 @@
 .st-app .sb.sb-nav-only .sb-link.is-on .sb-ico{box-shadow:0 0 0 2px rgba(255,255,255,.55)}
 .st-app[data-theme="dark"] .sb-nav-only .sb-glide{background:linear-gradient(135deg,#2a6fd0,#2f93dd)!important}
 .sb-ico[data-tone="compare"]{--c1:#8fd8ff;--c2:#2f6fe0}
+.sb-ico[data-tone="results"]{--c1:#62e392;--c2:#1ca451}
 
 /* khối Kho tri thức ở chân thanh bên: số thật từ máy chủ */
 .st-app .sb-kb{position:relative;display:grid;gap:9px;width:100%;margin-top:10px;padding:12px;border:1px solid rgba(29,102,201,.14);border-radius:18px;text-align:left;overflow:hidden;isolation:isolate;

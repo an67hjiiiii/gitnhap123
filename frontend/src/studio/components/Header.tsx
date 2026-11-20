@@ -184,7 +184,7 @@ export const Header: React.FC<SidebarProps> = ({
   return (
     <>
       {isMobileDrawerOpen && <div className="sb-overlay" onClick={onToggleMobileDrawer} />}
-      <aside className={`sb sb-nav-only${isMobileDrawerOpen ? ' is-open' : ''}${rail && !isMobileDrawerOpen ? ' is-rail' : ''}`} aria-label="Thanh điều hướng">
+      <aside className={`sb sb-fn${isMobileDrawerOpen ? ' is-open' : ''}${rail && !isMobileDrawerOpen ? ' is-rail' : ''}`} aria-label="Thanh điều hướng">
         <div className="sb-brand">
           <Link to="/" className="sb-logo" title="Về trang giới thiệu đề tài" aria-label="OrchestrIQ Studio, về trang giới thiệu"><BrandLogo size="sm" showSubtitle={false} /></Link>
           {onToggleMobileDrawer && <button className="sb-x" onClick={onToggleMobileDrawer} aria-label="Đóng thanh bên"><X size={18} /></button>}
@@ -207,7 +207,7 @@ export const Header: React.FC<SidebarProps> = ({
                 {group && <p className="sb-group">{group}</p>}
                 <button onClick={() => go(id)} aria-label={label} aria-current={current === id ? 'page' : undefined} className={`sb-link${current === id ? ' is-on' : ''}`}
                   onMouseEnter={showTip} onFocus={showTip} onMouseLeave={hideTip} onBlur={hideTip}>
-                  <span className="sb-ico2" aria-hidden="true"><Icon size={18} strokeWidth={1.9} /></span><span>{label}</span>
+                  <span className="sb-ico" data-tone={id} aria-hidden="true">{NAV_ICONS[id] ?? <Icon size={16} strokeWidth={2.2} />}</span><span>{label}</span>
                 </button>
               </React.Fragment>
             ))}
