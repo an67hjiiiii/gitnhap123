@@ -169,6 +169,7 @@ export const Topbar: React.FC<TopbarProps> = ({
               const groups = [['Cá nhân', shown.filter(w => w.kind !== 'org')], ['Tổ chức', shown.filter(w => w.kind === 'org')]] as const;
               return <div className="pop tb-drop wsp-pop" role="menu" aria-label="Không gian làm việc">
                 <div className="wsp-pop-head"><b>Không gian làm việc</b><span className="wsp-count">{workspaces.length}</span></div>
+                {current?.kind === 'org' && <p className="wsp-note">Đang ở <b>{current.name}</b>: AI và các công cụ chỉ dùng tài liệu bạn được phép xem trong tổ chức này.</p>}
                 {workspaces.length >= 5 && <label className="wsp-find"><Search size={14} />
                   <input autoFocus value={wsQuery} onChange={e => setWsQuery(e.target.value)} placeholder="Tìm không gian…" aria-label="Tìm không gian" /></label>}
                 <div className="pop-scroll wsp-list">

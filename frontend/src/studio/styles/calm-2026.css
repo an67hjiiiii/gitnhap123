@@ -229,3 +229,7 @@
 .st-app[data-theme="dark"] .ws-auto{background:transparent;color:var(--muted)}
 .st-app[data-theme="dark"] .cht-status.is-complete{background:rgba(47,174,116,.16);color:#7dd3a8}
 .st-app .cht-status.is-complete{background:var(--ok-soft,#e8f6ef);color:var(--ok-ink,#167a50)}
+/* dải "đang ở tổ chức" đè lên cụm góc phải → trên máy tính chuyển câu nhắc vào menu chọn không gian */
+@media (min-width:1024px){.st-app .st-main>.og-banner{display:none}}
+.st-app .wsp-note{margin:0 8px 8px;padding:8px 10px;border-radius:10px;background:var(--accent-soft);font-size:12.5px;color:var(--text)}
+@media (max-width:720px){.st-app .og-banner button{display:none}.st-app .og-banner{font-size:12.5px}}

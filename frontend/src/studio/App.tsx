@@ -358,7 +358,7 @@ function DashboardWorkspace({
     setActiveConversationId(null);
     const targetWs = workspaces.find(w => w.id === wsId);
     setRobotState('searching');
-    robotSpeak(`Đã chuyển sang dự án: "${targetWs?.name || 'mới'}". Đang tải kho tài liệu...`);
+    robotSpeak(`Đã chuyển sang "${targetWs?.name || 'không gian mới'}". Đang tải tài liệu…`);
   };
 
 
