@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from app.api.auth import router as auth_router
+from app.api.oidc import build_router as _build_oidc_router
 from app.api.auth import get_session_token
 from app.auth.store import AuthStore, InvalidSessionError
 from app.core.access import require_active_member
@@ -76,6 +77,7 @@ def _configured_stores(storage_backend: str | None = None):
 app = FastAPI(title="Local Multi-Agent RAG", version="0.2.0-m0")
 app.mount("/static", StaticFiles(directory=BASE / "app" / "static"), name="static")
 app.include_router(auth_router)
+app.include_router(_build_oidc_router())  # đăng nhập tổ chức: tắt khi chưa đặt OIDC_PROVIDERS
 auth_store, source_store, run_store, postgres_runtime = _configured_stores()
 app.state.storage_backend = STORAGE_BACKEND
 app.state.auth_store = auth_store

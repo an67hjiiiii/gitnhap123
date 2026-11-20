@@ -3,7 +3,8 @@
 #   powershell -ExecutionPolicy Bypass -File docker/install.ps1            # cài
 #   powershell -ExecutionPolicy Bypass -File docker/install.ps1 -DryRun    # chỉ kiểm tra, không đổi gì
 # Không tải phần mềm nào ngoài ảnh Docker của dự án (postgres, ollama) và mô hình Ollama; Docker Desktop phải cài sẵn.
-param([switch]$DryRun, [switch]$OllamaInDocker, [int]$WebPort = 8080)
+# -Project: tên dự án Docker (mặc định orchestriq); chạy thử bên cạnh bản thật thì đặt tên khác và cổng khác.
+param([switch]$DryRun, [switch]$OllamaInDocker, [int]$WebPort = 8080, [string]$Project = 'orchestriq')
 $ErrorActionPreference = 'Stop'
 $here = $PSScriptRoot
 function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }
@@ -46,7 +47,7 @@ else {
 }
 
 Step '4/5 Bật hệ thống'
-$compose = @('compose', '-f', (Join-Path $here 'docker-compose.server.yml')) + $(if ($OllamaInDocker) { @('--profile', 'ollama') } else { @() })
+$compose = @('compose', '-p', $Project, '-f', (Join-Path $here 'docker-compose.server.yml')) + $(if ($OllamaInDocker) { @('--profile', 'ollama') } else { @() })
 if ($DryRun) { Write-Host "(thử) docker $($compose -join ' ') up -d --build" }
 else { & docker @compose up -d --build; if ($LASTEXITCODE -ne 0) { throw 'docker compose up thất bại.' } }
 

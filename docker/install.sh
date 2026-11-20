@@ -6,8 +6,8 @@
 # Không tải phần mềm nào ngoài ảnh Docker của dự án và mô hình Ollama; Docker phải cài sẵn.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-DRY=0; WEB_PORT=8080
-for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; --port=*) WEB_PORT="${a#*=}" ;; esac; done
+DRY=0; WEB_PORT=8080; PROJECT=orchestriq
+for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; --port=*) WEB_PORT="${a#*=}" ;; --project=*) PROJECT="${a#*=}" ;; esac; done
 step() { printf '\n== %s\n' "$1"; }
 
 step "1/5 Kiểm tra Docker"
@@ -42,7 +42,7 @@ else
   echo "Đã tạo docker/.env (mật khẩu CSDL ngẫu nhiên, không in ra màn hình)."
 fi
 
-COMPOSE=(docker compose -f "$HERE/docker-compose.server.yml" --profile ollama)
+COMPOSE=(docker compose -p "$PROJECT" -f "$HERE/docker-compose.server.yml" --profile ollama)
 step "4/5 Bật hệ thống"
 if [ "$DRY" -eq 1 ]; then echo "(thử) ${COMPOSE[*]} up -d --build"; else "${COMPOSE[@]}" up -d --build; fi
 

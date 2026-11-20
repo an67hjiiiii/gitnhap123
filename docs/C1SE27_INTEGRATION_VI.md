@@ -391,6 +391,12 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Kiểm tra: ảnh mọi trang ở 1440, 768, 390 px, sáng và tối (Playwright), không tràn ngang, không lỗi console; tài khoản quản trị thử xem được nhóm Nghiên cứu và Quản trị; bộ dò thiết kế (impeccable detect) không báo lỗi trên tệp CSS mới. Frontend 16 kiểm thử, build đạt.
 - Giới hạn: các trang cũ (Phòng đánh giá, Thực nghiệm, Cơ sở dữ liệu, cổng quản trị) chỉ đổi theo bảng màu chung, chưa làm lại bố cục; biểu đồ ở Tổng quan vẫn dùng màu theo nhóm (đã kiểm khả năng phân biệt màu từ trước).
 
+### Đợt 10 (phần 1, đang làm): bộ cài Docker chạy thật, đăng nhập tổ chức OIDC
+- Bộ cài có tham số tên dự án Docker (`-Project` / `--project=`) để chạy thử bên cạnh bản thật. Chạy thật trên máy này: `docker/install.ps1 -Project orchestriq-thu -WebPort 18080` (dự án Docker riêng, cổng riêng, CSDL riêng trong Docker; không đụng CSDL phát triển cổng 55435). Lần 1 lỗi ở bước build giao diện: `npm ci` báo ENETUNREACH (Node ưu tiên IPv6, mạng Docker không có IPv6) → Dockerfile giao diện ưu tiên IPv4 và thử lại khi mạng chập chờn. Lần 2 cài xong trong 101 giây (ảnh backend đã có sẵn từ lần 1, nên chưa phải thời gian cài trên máy sạch); `/api/health` và giao diện ở cổng 18080 trả 200.
+- Đăng nhập bằng tài khoản tổ chức (`backend/app/api/oidc.py`), TẮT MẶC ĐỊNH, bật bằng biến môi trường `OIDC_PROVIDERS`, `OIDC_<TÊN>_CLIENT_ID/SECRET`, `OIDC_REDIRECT_BASE`, `OIDC_ALLOWED_DOMAINS`. Authorization Code + PKCE, state/nonce trong cookie ký HMAC 10 phút, kiểm chữ ký RS256 bằng JWKS (tính bằng phép RSA của Python, không thêm thư viện), iss/aud/exp/nonce/email_verified, lọc miền email. Tài khoản cùng email thì dùng, chưa có thì tạo tài khoản USER. Trang đăng nhập chỉ hiện nút khi máy chủ đã bật. Kiểm thử với nhà cung cấp giả lập (`tests/test_oidc.py`: luồng đầy đủ, sai state, sai mã, token khác ứng dụng, chữ ký giả, tắt mặc định). Chưa thử với tài khoản Google/Microsoft thật (cần tổ chức đăng ký ứng dụng).
+- Còn lại của Đợt 10: hướng dẫn vận hành (cài, sao lưu, khôi phục, nâng cấp), thử cài trên máy sạch, OCR (máy này chưa có Tesseract).
+- Kiểm tra: backend 376 đạt; frontend tsc đạt.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

@@ -1,8 +1,10 @@
 # Giao diện OrchestrIQ Studio cho máy chủ: build bằng Node rồi phục vụ bằng nginx (chuyển /api sang backend).
 FROM node:22-alpine AS build
 WORKDIR /src
+# chạy thật 20/11: npm ci lỗi ENETUNREACH vì Node ưu tiên IPv6 mà mạng Docker không có IPv6 → ưu tiên IPv4, thử lại khi mạng chập chờn
+ENV NODE_OPTIONS=--dns-result-order=ipv4first
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --fetch-retries=5 --fetch-retry-mintimeout=5000
 COPY . .
 RUN npm run build
 
