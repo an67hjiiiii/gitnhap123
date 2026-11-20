@@ -16,7 +16,10 @@ import { navDirection } from '../utils/navOrder';
 const SAY: Partial<Record<NavigationTab, string>> = {
   overview: 'Xem nhanh hệ thống đang chạy tốt tới đâu.',
   documents: 'Đọc hiểu một tài liệu chỉ trong vài phút.',
-  toolkit: 'Ba công cụ cần nhất cho ngành của không gian này.',
+  toolkit: 'Chọn kỹ năng theo ngành, mở là chạy trên tài liệu của bạn.',
+  compare: 'Chọn bản cũ và bản mới, mình chỉ ra Điều nào đổi.',
+  library: 'Tài liệu của bạn: tải lên, phân loại, mở hồ sơ.',
+  results: 'Mở lại kết quả đã lưu và việc cần xem xét.',
   consistency: 'Tìm chỗ các tài liệu đang nói ngược nhau.',
   evaluation: 'So A, B, C trên cùng một bộ câu hỏi.',
   benchmarks: 'Đặt ba cách trả lời cạnh nhau để so.',

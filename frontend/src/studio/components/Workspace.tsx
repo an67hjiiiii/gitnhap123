@@ -360,7 +360,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     </React.Fragment>));
   const slashQ = !forced && draft.startsWith('/') ? draft.slice(1).trim().toLowerCase() : null;
   const slashHits = slashQ === null ? [] : SKILL_LIST.filter(k => !slashQ || k.label.toLowerCase().includes(slashQ));
-  const toolkitHit = slashQ !== null && !!onOpenToolkit && (!slashQ || 'bộ công cụ theo ngành'.includes(slashQ) || 'công cụ'.includes(slashQ));
+  // kỹ năng cần bảng hoặc danh mục tiêu chí riêng: "/" mở thẳng kỹ năng đó trong danh mục (Đợt 5)
+  const TOOL_LINKS = [
+    { label: 'Rà soát theo tiêu chí', hint: 'Kiểm tài liệu theo danh mục tiêu chí: Có, Chưa rõ, Chưa thấy, kèm nguồn', pack: 'general', id: 'criteria' },
+    { label: 'Bảng dữ liệu theo quy định', hint: 'Tải bảng Excel, máy so từng dòng với ngưỡng trong quy chế', pack: 'education', id: 'roster' },
+    { label: 'Danh mục kỹ năng', hint: 'Mọi kỹ năng theo ngành: giáo dục, công ty, văn phòng, kỹ thuật', pack: '', id: '' },
+  ];
+  const toolHits = slashQ === null || !onOpenToolkit ? [] : TOOL_LINKS.filter(t => !slashQ || t.label.toLowerCase().includes(slashQ));
+  const toolkitHit = toolHits.length > 0;
+  const openTool = (t: typeof TOOL_LINKS[number]) => { setDraft(''); if (t.id) window.dispatchEvent(new CustomEvent('oq-open-tool', { detail: { pack: t.pack, id: t.id } })); else onOpenToolkit!(); };
   const pickSlash = (k: SkillKey) => { setForced(k); setDraft(''); inputRef.current?.focus(); };
   const busyNow = busy(state) || !!pending;
 
@@ -376,15 +384,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         {(slashHits.length > 0 || toolkitHit) && <div className="ws-slash" role="listbox" aria-label="Chọn kỹ năng">
           {slashHits.map((k, i) => <button key={k.key} type="button" role="option" aria-selected={i === 0} className={i === 0 ? 'is-on' : ''} onClick={() => pickSlash(k.key)}>
             <Sparkles size={16} /><b>{k.label}</b><small>{k.hint}</small></button>)}
-          {toolkitHit && <button type="button" role="option" aria-selected={slashHits.length === 0} className={slashHits.length === 0 ? 'is-on' : ''} onClick={() => { setDraft(''); onOpenToolkit!(); }}>
-            <Wrench size={16} /><b>Bộ công cụ theo ngành</b><small>Tạo câu hỏi ôn tập, xét duyệt theo danh sách, tính phép, tra cứu quy chế…</small></button>}
+          {toolHits.map((t, i) => <button key={t.label} type="button" role="option" aria-selected={slashHits.length === 0 && i === 0} className={slashHits.length === 0 && i === 0 ? 'is-on' : ''} onClick={() => openTool(t)}>
+            <Wrench size={16} /><b>{t.label}</b><small>{t.hint}</small></button>)}
         </div>}
         {forced && <div className="ws-only"><Sparkles size={13} /><span>Kỹ năng: <b>{SKILL_LIST.find(k => k.key === forced)?.label}</b></span><button type="button" onClick={() => setForced(null)}>Bỏ chọn</button></div>}
         <textarea ref={inputRef} rows={fresh ? 3 : 1} value={draft} aria-label="Câu hỏi hoặc yêu cầu"
           placeholder={mode === 'quick' ? (forced ? 'Mô tả trường hợp hoặc yêu cầu cho kỹ năng…' : 'Hỏi bất kỳ điều gì, hoặc gõ "/" để chọn kỹ năng…') : 'Mô tả yêu cầu cần phân tích…'}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (slashHits.length) pickSlash(slashHits[0].key); else if (toolkitHit) { setDraft(''); onOpenToolkit!(); } else void send(); }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (slashHits.length) pickSlash(slashHits[0].key); else if (toolkitHit) openTool(toolHits[0]); else void send(); }
             else if (e.key === 'Escape' && slashHits.length) setDraft('');
           }} />
         <div className="ws-bar">

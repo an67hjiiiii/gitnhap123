@@ -104,10 +104,16 @@ function DashboardWorkspace({
   const [historyOpen, setHistoryOpen] = useState(false);
   // thẻ So sánh trong chat → trang So sánh phiên bản với đúng cặp tài liệu
   const [comparePair, setComparePair] = useState<{ old: string; new: string } | null>(null);
+  const [toolTarget, setToolTarget] = useState<{ pack: string; id: string } | null>(null);
+  useEffect(() => { if (activeTab !== 'toolkit') setToolTarget(null); }, [activeTab]);
   useEffect(() => {
     const on = (e: Event) => { const d = (e as CustomEvent).detail; if (d?.old && d?.new) { setComparePair({ old: d.old, new: d.new }); setActiveTab('compare'); } };
     window.addEventListener('oq-open-compare', on);
-    return () => window.removeEventListener('oq-open-compare', on);
+    // lối đi chung từ thẻ kỹ năng / lệnh "/" sang một trang hoặc một kỹ năng trong danh mục
+    const go = (e: Event) => { const d = (e as CustomEvent).detail; if (typeof d === 'string') setActiveTab(d as NavigationTab); };
+    const tool = (e: Event) => { const d = (e as CustomEvent).detail; if (d?.pack && d?.id) { setToolTarget({ pack: d.pack, id: d.id }); setActiveTab('toolkit'); } };
+    window.addEventListener('oq-go', go); window.addEventListener('oq-open-tool', tool);
+    return () => { window.removeEventListener('oq-open-compare', on); window.removeEventListener('oq-go', go); window.removeEventListener('oq-open-tool', tool); };
   }, []);
   const [toast, setToast] = useState<{ text: string; tone: 'error' | 'ok' | 'warn' } | null>(null);
   const [freshDoc, setFreshDoc] = useState<{ id: string; name: string } | null>(null);
@@ -488,7 +494,7 @@ function DashboardWorkspace({
           docIds={documents.map(d => String(d.id))} levelName={{ MANAGER: orgTerms(currentWs).level.MANAGER, EXECUTIVE: orgTerms(currentWs).level.EXECUTIVE }} />}
         {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
           onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} onChanged={refreshState} health={health} docCount={documents.length} />}
-        {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}-${currentWs?.domain_pack ?? 'software'}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} />}
+        {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} initialTool={toolTarget} />}
         {activeTab === 'compare' && <CompareView key={`cmp-${currentWorkspaceId}`} docs={documents} workspaceId={currentWorkspaceId} initial={comparePair} />}
         {activeTab === 'consistency' && <ConsistencyView key={`cons-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'rating' && <BlindRatingView />}

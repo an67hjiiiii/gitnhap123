@@ -86,6 +86,30 @@ def _text(value: object, limit: int = 400) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+_SUBJECT = re.compile(r"\b(duoc|dieu kien|tieu chuan|huong|xin)\s+([a-z ]+?)(?=\s+\d|\s+khong\b|\s+(neu|khi|trong|tai)\b|[?.,;]|$)")
+
+
+def question_subject(question: str) -> list[str]:
+    """Chủ đề của câu hỏi điều kiện: phần sau "được / đủ điều kiện / hưởng / xin" tới con số hoặc "không".
+    "Có được nghỉ phép 6 ngày không?" → ["nghi_phep"]; "Có đủ điều kiện học bổng không?" → ["hoc_bong"]."""
+    from app.retrieval.hybrid import _STOP, fold
+    m = _SUBJECT.search(fold(question))
+    if not m:
+        return []
+    words = [w for w in m.group(2).split() if w not in _STOP and len(w) > 1][:3]
+    return [f"{x}_{y}" for x, y in zip(words, words[1:])] or words
+
+
+def mentions_question(question: str, evidence: list[SourceChunk]) -> bool:
+    """Đoạn quy định có nói tới chủ đề của câu hỏi không. Dùng để không ép mô hình tìm điều kiện trong tài liệu không
+    liên quan (P1-1, 20/11). Không tách được chủ đề thì coi là có (giữ hành vi cũ: hỏi lại một lần)."""
+    from app.retrieval.hybrid import tokens
+    subject = question_subject(question)
+    if not subject:
+        return True
+    return bool(set(subject) & set(tokens(" ".join(c.text for c in evidence))))
+
+
 async def check_conditions(provider, question: str, case: str, evidence: list[SourceChunk]) -> dict:
     started = time.perf_counter()
     _, agent_id = assign_agent(f"{question}\n{case}")
@@ -94,6 +118,11 @@ async def check_conditions(provider, question: str, case: str, evidence: list[So
             "removed": 0, "note": "", "input_tokens": 0, "output_tokens": 0}
     if not evidence:
         return {**base, "overall": "NO_RULE", "note": "Không tìm thấy đoạn quy định nào liên quan trong tài liệu đã chọn.",
+                "latency_ms": int((time.perf_counter() - started) * 1000)}
+    if not mentions_question(question, evidence):
+        # P1-1: các đoạn tìm được không nói tới chủ đề câu hỏi (vd. hỏi nghỉ phép trong kho tài liệu kỹ thuật):
+        # báo không có quy định, không gọi mô hình để khỏi ép nó "tìm" điều kiện trong tài liệu không liên quan
+        return {**base, "overall": "NO_RULE", "note": "Các đoạn tìm được trong tài liệu đã chọn không nói tới nội dung câu hỏi.",
                 "latency_ms": int((time.perf_counter() - started) * 1000)}
     ids = [c.chunk_id for c in evidence]
     system = (

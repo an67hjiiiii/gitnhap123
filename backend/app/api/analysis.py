@@ -5,6 +5,8 @@ Tách khỏi /api/chat và các điều kiện nghiên cứu A/B/C; chỉ dùng 
 
 from __future__ import annotations
 
+import re
+
 import json
 from collections import Counter
 import secrets
@@ -21,6 +23,7 @@ from app.analysis.watch import replacement_pairs
 from app.core.secret_audit import log_secret_access
 from app.research.agent_selection import CLARIFY_LABELS, clarify_options, select_agents
 from app.analysis import versions
+from app.retrieval.hybrid import bm25_scores, fold
 from app.analysis import blind_rating, casework, consistency, domain_tools, design, evaluation, grounding, insights, reading, req_quality, security_review
 from app.analysis.traceability import (Requirement, assign_agent, check_requirement, extract_checklist, extract_requirements, missing_term_groups,
                                        evidence_for, requirement_query)
@@ -94,11 +97,22 @@ class RosterBody(BaseModel):
     id_column: int | None = Field(default=None, ge=0, lt=domain_tools.MAX_TABLE_COLS)
 
 
+_QUIZ_ASK = re.compile(r"^\W*(hay\s+|giup\s+(toi|minh)\s+)?(tao|soan|lap|viet|ra)\s+(\d+\s+)?(cau hoi|bo cau hoi|de|cau)?\s*(trac nghiem)?\s*(on tap|kiem tra)?\s*(ve|cho|theo|tu)?\s*")
+
+
+def quiz_topic(message: str) -> str:
+    """Bỏ phần lệnh ("Tạo 5 câu hỏi trắc nghiệm ôn tập về") để chỉ còn chủ đề khi chọn đoạn tài liệu."""
+    folded = fold(message)
+    rest = _QUIZ_ASK.sub("", folded).strip()
+    return rest or folded
+
+
 class GenerateBody(BaseModel):
     kind: Literal["quiz", "faq"]
     source_ids: list[str] = Field(min_length=1, max_length=20)
     count: int = Field(default=8, ge=1, le=15)
     domain_pack: PackName | None = None
+    topic: str | None = Field(default=None, max_length=500)  # ô chat: chỉ dùng các đoạn nói về chủ đề này
 
 
 class CompareBody(BaseModel):
@@ -449,6 +463,11 @@ def build_router(
     @router.post("/tools/generate")
     async def tool_generate(body: GenerateBody, request: Request) -> dict:
         chunks = _all_chunks(current_user(request), body.source_ids)
+        if body.topic and body.topic.strip():
+            # chủ đề từ ô chat ("về quy trình xử lý sự cố"): giữ các đoạn khớp từ khóa nhất, không có đoạn nào khớp thì dùng tất cả
+            scores = bm25_scores(quiz_topic(body.topic), chunks)
+            top = set(sorted(scores, key=lambda cid: -scores[cid])[:8])
+            chunks = [c for c in chunks if c.chunk_id in top] or chunks
         with use_pack(body.domain_pack):
             return await _llm(domain_tools.generate_items(provider_factory(), body.kind, chunks, body.count))
 

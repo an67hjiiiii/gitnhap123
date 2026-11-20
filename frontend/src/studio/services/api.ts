@@ -827,8 +827,10 @@ export async function parseTable(file: File): Promise<Table> {
 export const extractThresholds = (topic: string, sourceIds: string[]) => post<ToolMeasured & { rules: Threshold[] }>('/studio/tools/thresholds', { topic, source_ids: sourceIds, domain_pack: pk() });
 export const evaluateRoster = (rules: { label: string; op: Op; value: number; column: number }[], columns: string[], rows: string[][], idColumn: number | null) =>
   post<RosterResult>('/studio/tools/roster/evaluate', { rules, columns, rows, id_column: idColumn });
-export const generateItems = <T extends QuizItem | FaqItem>(kind: 'quiz' | 'faq', sourceIds: string[], count: number) =>
-  post<ToolMeasured & { items: T[] }>('/studio/tools/generate', { kind, source_ids: sourceIds, count, domain_pack: pk() });
+export const generateItems = <T extends QuizItem | FaqItem>(kind: 'quiz' | 'faq', sourceIds: string[], count: number, topic?: string) =>
+  post<ToolMeasured & { items: T[] }>('/studio/tools/generate', { kind, source_ids: sourceIds.slice(0, 20), count, domain_pack: pk(), topic });
+/** Số câu trong yêu cầu ("tạo 7 câu…"), mặc định 5, tối đa 10 để một lượt chạy trong thời gian chờ chấp nhận được. */
+export const quizCount = (message: string) => Math.min(10, Math.max(1, Number(/(\d{1,2})\s*(câu|cau)/i.exec(message)?.[1] ?? 5)));
 export const listArticles = (sourceIds: string[]) => post<{ articles: Article[] }>('/studio/tools/articles', { source_ids: sourceIds });
 export const lookupArticles = (question: string, sourceIds: string[]) =>
   post<ToolMeasured & { answer: string; cited: string[]; articles: Article[]; flags: string[] }>('/studio/tools/lookup', { question, source_ids: sourceIds, domain_pack: pk() });
@@ -859,7 +861,7 @@ export async function pickVersionPair(sourceIds: string[]): Promise<{ old: strin
 export const documentValidity = (sourceIds: string[]) => post<{ today: string; documents: DocValidity[] }>('/studio/tools/validity', { source_ids: sourceIds });
 
 // ---------------- Ô chat Tự động (đợt 4, bản làm thử): chọn một kỹ năng khi câu hỏi khớp rõ, không thì để pipeline
-export type SkillKey = 'conditions' | 'procedure' | 'approver' | 'contract_review' | 'validity' | 'compare';
+export type SkillKey = 'conditions' | 'procedure' | 'approver' | 'contract_review' | 'validity' | 'compare' | 'quiz';
 export const SKILL_LIST: { key: SkillKey; label: string; hint: string; needs?: string[] }[] = [
   { key: 'conditions', label: 'Kiểm tra điều kiện', hint: 'Một trường hợp có đủ điều kiện theo quy định không' },
   { key: 'procedure', label: 'Quy trình từng bước', hint: 'Các bước, người làm, thời hạn, giấy tờ' },
@@ -867,6 +869,7 @@ export const SKILL_LIST: { key: SkillKey; label: string; hint: string; needs?: s
   { key: 'contract_review', label: 'Rà soát hợp đồng', hint: 'Điều khoản rủi ro kèm nguyên văn', needs: ['contract'] },
   { key: 'validity', label: 'Hiệu lực văn bản', hint: 'Số hiệu, ngày hiệu lực, bị thay thế chưa', needs: ['legal_doc', 'regulation'] },
   { key: 'compare', label: 'So sánh phiên bản', hint: 'Bản mới khác bản cũ ở Điều, Khoản nào' },
+  { key: 'quiz', label: 'Tạo câu hỏi trắc nghiệm', hint: '4 phương án, có đáp án, giải thích và nguồn' },
 ];
 export type SkillRoute = { route: 'pipeline' } | { route: 'skill'; skill: SkillKey; label: string; reason: string; source_ids: string[] }
   | { route: 'clarify'; question: string; options: { agent: string; label: string }[] };  // hỏi lại khi mơ hồ (mục 3.4)
@@ -876,7 +879,8 @@ export type SkillOutput =
   | { skill: 'approver'; data: Awaited<ReturnType<typeof findApprover>> }
   | { skill: 'contract_review'; data: Awaited<ReturnType<typeof contractRisks>> }
   | { skill: 'validity'; data: Awaited<ReturnType<typeof documentValidity>> }
-  | { skill: 'compare'; data: VersionCompare };
+  | { skill: 'compare'; data: VersionCompare }
+  | { skill: 'quiz'; data: ToolMeasured & { items: QuizItem[] } };
 
 /** Phạm vi tài liệu của một câu hỏi: tài liệu chọn riêng, hoặc tài liệu của không gian cá nhân đang mở (tổ chức: backend tự lọc). */
 export async function chatScope(ws?: WorkspaceId, only?: string[]): Promise<string[] | undefined> {
@@ -892,6 +896,7 @@ export async function runSkill(skill: SkillKey, message: string, sourceIds: stri
     case 'approver': return { skill, data: await findApprover(message, sourceIds) };
     case 'contract_review': return { skill, data: await contractRisks(sourceIds) };
     case 'validity': return { skill, data: await documentValidity(sourceIds) };
+    case 'quiz': return { skill, data: await generateItems<QuizItem>('quiz', sourceIds, quizCount(message), message) };
     case 'compare': {
       const pair = await pickVersionPair(sourceIds);
       if (!pair) throw new Error('Chọn đúng hai tài liệu (bản cũ và bản mới) trong Phạm vi hỏi ở cột phải, hoặc mở trang So sánh phiên bản.');

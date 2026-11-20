@@ -157,3 +157,25 @@
 .tk-packs button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 14px;font-weight:600;font-size:13px;min-height:40px;cursor:pointer}
 .tk-packs button.is-on{background:#14202e;color:#fff;border-color:#14202e}
 .st-app[data-theme="dark"] .tk-packs button{background:#16212f;color:#dbe6f3}
+
+/* Danh mục kỹ năng (Đợt 5): màu theo ngành của từng thẻ */
+.tk-card.is-education{--tk-a:#1f8a5b;--tk-b:#e6f6ee}.tk-card.is-business_hr{--tk-a:#c26a12;--tk-b:#fdf1e3}.tk-card.is-legal_admin{--tk-a:#5b4bc4;--tk-b:#efedfc}
+.tk-card.is-software{--tk-a:#1d66c9;--tk-b:#e8f0fc}.tk-card.is-general{--tk-a:#4b5a6b;--tk-b:#eef1f4}
+.st-app[data-theme="dark"] .tk-card.is-education{--tk-a:#4fd394}.st-app[data-theme="dark"] .tk-card.is-business_hr{--tk-a:#f2a65a}.st-app[data-theme="dark"] .tk-card.is-legal_admin{--tk-a:#a89bff}
+.st-app[data-theme="dark"] .tk-card.is-software{--tk-a:#6fa8ff}.st-app[data-theme="dark"] .tk-card.is-general{--tk-a:#9fb0c2}
+.st-app[data-theme="dark"] .tk-card{--tk-b:color-mix(in srgb,var(--tk-a) 20%,transparent)}
+.tk-catalog .pg-col{max-width:1180px}
+.tk-catalog .tk-grid{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.tk-filter{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}
+.tk-filter .tk-packs{margin-top:0}
+.tk-packs button em{margin-left:4px;font-style:normal;opacity:.65;font-variant-numeric:tabular-nums}
+.tk-find{min-width:240px}
+.tk-tags{display:flex;flex-wrap:wrap;gap:5px}
+.tk-tags i{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-style:normal;font-size:11px;font-weight:700}
+.tk-cat{background:var(--tk-b);color:var(--tk-a)}
+.tk-chat{background:var(--accent-soft);color:var(--accent)}
+.tk-ran{background:var(--ok-soft,#e8f6ef);color:var(--ok-ink,#167a50)}
+.tk-tested{background:rgba(15,27,43,.05);color:var(--muted)}
+.st-app[data-theme="dark"] .tk-ran{background:rgba(47,174,116,.16);color:#6ee7b7}
+.st-app[data-theme="dark"] .tk-tested{background:rgba(255,255,255,.06)}
+@media (max-width:640px){.tk-find{min-width:0;width:100%}}
