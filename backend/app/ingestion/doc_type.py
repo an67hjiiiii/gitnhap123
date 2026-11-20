@@ -16,9 +16,12 @@ DOC_TYPES: dict[str, str] = {
     "legal_doc": "Văn bản pháp quy",
     "software_spec": "Đặc tả phần mềm",
     "lecture": "Bài giảng",
+    "internal_policy": "Chính sách, quy trình nội bộ",  # P2-2 (20/11): trước đây "Chính sách bảo mật" bị nhận là văn bản pháp quy
     "other": "Khác",
 }
 
+# đổi khi đổi luật: nhãn tự gán với phiên bản cũ được phân loại lại một lần (nhãn người dùng sửa thì giữ)
+DOC_TYPE_VERSION = "doc-type-v2"
 MIN_SCORE = 4  # dưới ngưỡng này coi là chưa đủ dấu hiệu → "other"
 
 # (nhãn, mẫu, điểm). Tiêu đề (vài dòng đầu) nặng điểm; dấu hiệu trong thân nhẹ hơn và tính tối đa 3 lần mỗi mẫu.
@@ -28,9 +31,12 @@ _TITLE = [
     ("internal_rules", r"\bnoi quy\b", 6),
     ("transcript", r"\bbang diem\b|\bket qua hoc tap\b", 6),
     ("legal_doc", r"\b(nghi dinh|thong tu|luat|quyet dinh|nghi quyet|chi thi)\b", 5),
-    ("software_spec", r"\b(dac ta|software requirements?|srs)\b", 6),
+    ("software_spec", r"\b(dac ta|software requirements?|srs|kien truc he thong|thiet ke co so du lieu|thiet ke he thong)\b", 6),
+    ("internal_policy", r"\b(chinh sach|quy trinh|so tay|huong dan noi bo|quy dinh noi bo|cam nang)\b", 6),
     ("lecture", r"\b(bai giang|giao trinh|lecture)\b", 6),
 ]
+# văn bản của Nhà nước có dấu hiệu riêng; thiếu cả quốc hiệu lẫn "căn cứ" thì điểm "văn bản pháp quy" giảm một nửa
+_STATE = r"\bcong hoa xa hoi chu nghia viet nam\b|\bcan cu\b"
 _BODY = [
     ("contract", r"\bben a\b", 2),
     ("contract", r"\bben b\b", 2),
@@ -76,6 +82,8 @@ def classify_document(source_name: str, text: str) -> str:
             scores[label] += weight
     for label, pattern, weight in _BODY:
         scores[label] += weight * min(3, len(re.findall(pattern, body)))
+    if scores["legal_doc"] and not re.search(_STATE, body):
+        scores["legal_doc"] //= 2
     best = max(scores, key=lambda k: scores[k])
     return best if scores[best] >= MIN_SCORE else "other"
 

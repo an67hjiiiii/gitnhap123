@@ -17,6 +17,7 @@ export function suggestSkills(docTypes: (string | null | undefined)[], question 
   if (types.has('contract')) add('contract_review', 'Có hợp đồng trong phạm vi');
   if (types.has('legal_doc') || types.has('regulation')) { add('validity', 'Có văn bản quy định'); add('conditions', 'Có văn bản quy định'); }
   if (types.has('internal_rules')) { add('procedure', 'Có nội quy'); add('approver', 'Có nội quy'); }
+  if (types.has('internal_policy')) add('procedure', 'Có chính sách, quy trình nội bộ');
   return out.slice(0, 3);
 }
 

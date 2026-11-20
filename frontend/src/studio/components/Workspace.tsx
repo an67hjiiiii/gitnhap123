@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, Wrench, Paperclip, PanelRight, Pencil, RotateCcw, Archive, ListChecks, CornerDownRight, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, VolumeX, Zap } from 'lucide-react';
-import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions, saveReport, exportDocx, canSaveReports } from '../services/api';
+import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, profileQuestions, saveReport, exportDocx, canSaveReports, SAMPLE_PACKS } from '../services/api';
 import { WorkspaceContext, CtxTab } from './WorkspaceContext';
 import { DocumentReader } from './DocumentReader';
 import { saveBlob } from './analysis/exporters';
@@ -82,7 +82,7 @@ interface WorkspaceProps {
   modelOk?: boolean;
   workspaceName?: string;
   recent?: { conversation_id: string; title: string; updated_at: string }[];
-  onSeed?: () => void;
+  onSeed?: (pack?: string) => void;
   onUploadFile?: (file: File) => void | Promise<void>;
   /** Câu hỏi điền sẵn từ trang khác (ví dụ Hồ sơ tài liệu → Hỏi ngay); key đổi mỗi lần để điền lại. */
   prefill?: { text: string; key: number; sourceId?: string; sourceName?: string } | null;
@@ -444,7 +444,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
           {open && suggested.length > 0 && <div className="ws-suggest"><p>{freshQ.forId ? 'Bạn có thể hỏi' : 'Gợi ý từ hồ sơ tài liệu'}</p><div>
             {suggested.map(s => <button key={s.question} type="button" title={s.source} onClick={() => { setMode('quick'); setDraft(s.question); inputRef.current?.focus(); }}>{s.question}</button>)}
           </div></div>}
-          {docCount === 0 && onSeed && <div className="ws-empty-kb"><Inbox size={18} /><span>Kho đang trống.</span><button type="button" onClick={onSeed}>Dùng bộ tài liệu mẫu</button><button type="button" onClick={() => fileRef.current?.click()}>Tải tài liệu lên</button></div>}
+          {docCount === 0 && onSeed && <div className="ws-empty-kb"><div className="ws-empty-head"><Inbox size={18} /><span>Kho đang trống. Tải tài liệu của bạn lên, hoặc thử với một bộ mẫu theo ngành:</span></div>
+            <div className="ws-packs">{Object.entries(SAMPLE_PACKS).map(([k, p]) => <button key={k} type="button" onClick={() => onSeed(k)} title={p.hint}><b>{p.label}</b><small>{p.hint}</small></button>)}
+              <button type="button" className="is-upload" onClick={() => fileRef.current?.click()}><Upload size={16} /><b>Tải tài liệu lên</b><small>PDF, Word, Excel, ảnh chụp</small></button></div></div>}
           {docs.length > 0 && <div className="ws-docs">
             <p>Tài liệu trong không gian <small>Bấm để hỏi về tài liệu</small></p>
             <div className="ws-docs-row">

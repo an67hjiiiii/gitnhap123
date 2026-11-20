@@ -51,6 +51,7 @@ import {
   getDocuments, 
   uploadDocument, 
   seedSampleDocs, 
+  SAMPLE_PACKS,
   clearDocuments, 
   deleteDocument,
   getTelemetry, 
@@ -287,18 +288,19 @@ function DashboardWorkspace({
     }
   };
 
-  const handleSeedDocs = async () => {
+  const handleSeedDocs = async (pack: string = 'software') => {
     setIsSeeding(true);
     setRobotState('working');
     robotSpeak('Đang nạp bộ tài liệu mẫu...');
     try {
-      await seedSampleDocs(currentWorkspaceId);
+      await seedSampleDocs(currentWorkspaceId, pack);
       await refreshState();
       setRobotState('happy');
-      robotSpeak('Đã nạp xong bộ tài liệu mẫu! Hãy chạy thử yêu cầu kiến trúc.');
+      robotSpeak('Đã nạp xong bộ tài liệu mẫu. Hãy hỏi thử một câu về tài liệu.');
     } catch (err: any) {
       setRobotState('error');
       robotSpeak(`Lỗi nạp mẫu: ${err.message}`);
+      setToast({ text: `Không nạp được bộ mẫu: ${err.message}`, tone: 'error' });
     } finally {
       setIsSeeding(false);
     }
@@ -434,7 +436,7 @@ function DashboardWorkspace({
           ['rating', 'Chấm mù', EyeOff], ...(user?.role === 'admin' ? [['users', 'Người dùng', Users], ['db_explorer', 'Cơ sở dữ liệu', Database]] : []),
         ] as [NavigationTab, string, Command['Icon']][]).map(([id, label, Icon]) => ({ id: `go-${id}`, label, group: 'Đi đến', Icon, run: () => setActiveTab(id) })),
         { id: 'new-chat', label: 'Cuộc trò chuyện mới', group: 'Thao tác', Icon: MessageSquarePlus, run: () => { setActiveConversationId(null); setActiveTab('orchestration'); } },
-        { id: 'seed', label: 'Nạp bộ tài liệu mẫu PayNhanh', group: 'Thao tác', Icon: Sparkles, run: () => { void handleSeedDocs(); } },
+        ...Object.entries(SAMPLE_PACKS).map(([k, p]) => ({ id: `seed-${k}`, label: `Nạp bộ tài liệu mẫu: ${p.label}`, group: 'Thao tác', Icon: Sparkles, run: () => { void handleSeedDocs(k); } })),
         ...conversations.slice(0, 12).map(c => ({ id: `conv-${c.conversation_id}`, label: c.title || 'Không tên', group: 'Cuộc trò chuyện gần đây', Icon: MessagesSquare,
           run: () => { setActiveConversationId(c.conversation_id); setActiveTab('orchestration'); } })),
       ]} />

@@ -802,7 +802,10 @@ def build_router(
         by_source: dict[str, list] = {}
         for c in store.chunks(None):
             by_source.setdefault(c.source_id, []).append(c)
-        return reading.library_quality(store.list_sources(), by_source)
+        sources = store.list_sources()
+        names = {x["source_id"]: x["source_name"] for x in sources}
+        pairs = replacement_pairs([(sid, names.get(sid, sid), "\n\n".join(c.text for c in cs)) for sid, cs in by_source.items()])
+        return reading.library_quality(sources, by_source, versions=pairs)
 
     @router.get("/admin/feedback")
     def admin_feedback(request: Request, limit: int = 200) -> dict:

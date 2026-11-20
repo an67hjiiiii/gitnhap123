@@ -216,7 +216,7 @@ export async function getDocuments(ws?: WorkspaceId): Promise<DocumentInfo[]> {
 // Loại tài liệu hệ thống tự nhận khi tải lên (backend ingestion/doc_type.py); người tải lên sửa được.
 export const DOC_TYPES: Record<string, string> = {
   contract: 'Hợp đồng', regulation: 'Quy chế', internal_rules: 'Nội quy', transcript: 'Bảng điểm',
-  legal_doc: 'Văn bản pháp quy', software_spec: 'Đặc tả phần mềm', lecture: 'Bài giảng', other: 'Khác',
+  legal_doc: 'Văn bản pháp quy', software_spec: 'Đặc tả phần mềm', lecture: 'Bài giảng', internal_policy: 'Chính sách, quy trình nội bộ', other: 'Khác',
 };
 export const setDocType = (sourceId: string, docType: string) =>
   call<{ source_id: string; doc_type: string }>(`/sources/${encodeURIComponent(sourceId)}/doc-type`, { method: 'PUT', body: JSON.stringify({ doc_type: docType }) });
@@ -239,17 +239,23 @@ export async function uploadDocument(file: File, ws?: WorkspaceId, publish?: { c
   return { filename: file.name, chunks_created: data.chunks_added ?? 0, status: 'ok', message: '', source_id: data.source_id };
 }
 
-// Bộ tài liệu mẫu của một cổng thanh toán giả định (PayNhanh): đủ để chạy thử mọi chức năng phân tích và bộ câu hỏi mẫu.
-const SAMPLES = ['01_Dac_ta_yeu_cau_PayNhanh.md', '02_Thiet_ke_CSDL_PayNhanh.md', '03_Dac_ta_API_PayNhanh.md', '04_Chinh_sach_bao_mat_PayNhanh.md',
-  '05_Quy_trinh_xu_ly_su_co_PayNhanh.md', '06_Kien_truc_va_trien_khai_PayNhanh.md', '07_So_tay_ky_su_moi_PayNhanh.md'];
-export async function seedSampleDocs(ws?: WorkspaceId): Promise<{ status: string; message: string }> {
+// Bộ tài liệu mẫu theo ngành (P2-1, 20/11). Tài liệu do nhóm tự soạn, ghi rõ là mẫu; không phải văn bản của tổ chức thật.
+export const SAMPLE_PACKS: Record<string, { label: string; hint: string; files: string[] }> = {
+  software: { label: 'Phần mềm', hint: 'Cổng thanh toán PayNhanh: đặc tả, CSDL, API, bảo mật, sự cố', files: ['01_Dac_ta_yeu_cau_PayNhanh.md', '02_Thiet_ke_CSDL_PayNhanh.md', '03_Dac_ta_API_PayNhanh.md',
+    '04_Chinh_sach_bao_mat_PayNhanh.md', '05_Quy_trinh_xu_ly_su_co_PayNhanh.md', '06_Kien_truc_va_trien_khai_PayNhanh.md', '07_So_tay_ky_su_moi_PayNhanh.md'] },
+  office: { label: 'Hành chính, nhân sự', hint: 'Quy chế làm việc bản 2024 và 2026, nội quy lao động', files: ['mau/Quy_che_lam_viec_2024_MAU.md', 'mau/Quy_che_lam_viec_2026_MAU.md', 'mau/Noi_quy_lao_dong_MAU.md'] },
+  education: { label: 'Giáo dục', hint: 'Quy chế học vụ (học bổng, cảnh báo, tốt nghiệp), bài giảng CSDL', files: ['mau/Quy_che_hoc_vu_MAU.md', 'mau/Bai_giang_CSDL_chuong2_MAU.md'] },
+  legal: { label: 'Pháp lý, hợp đồng', hint: 'Hợp đồng dịch vụ có điều khoản bất lợi để thử rà soát', files: ['mau/Hop_dong_dich_vu_MAU.md', 'mau/Quy_che_lam_viec_2026_MAU.md'] },
+};
+export async function seedSampleDocs(ws?: WorkspaceId, pack: string = 'software'): Promise<{ status: string; message: string }> {
   if (isOrgId(ws)) throw new Error('Bộ tài liệu mẫu chỉ nạp vào không gian cá nhân. Tài liệu tổ chức cần chọn mức mật khi tải lên.');
-  for (const name of SAMPLES) {
-    const text = await fetch(`/samples/${name}`).then(r => { if (!r.ok) throw new Error(`Thiếu tài liệu mẫu ${name}`); return r.text(); });
-    const r = await post<any>('/sources/text', { source_name: name, text });
+  const files = (SAMPLE_PACKS[pack] ?? SAMPLE_PACKS.software).files;
+  for (const path of files) {
+    const text = await fetch(`/samples/${path}`).then(r => { if (!r.ok) throw new Error(`Thiếu tài liệu mẫu ${path}`); return r.text(); });
+    const r = await post<any>('/sources/text', { source_name: path.split('/').pop(), text });
     if (r.source_id) await assignToWorkspace(ws ?? '', 'source', r.source_id);
   }
-  return { status: 'ok', message: `Đã nạp ${SAMPLES.length} tài liệu mẫu.` };
+  return { status: 'ok', message: `Đã nạp ${files.length} tài liệu mẫu.` };
 }
 
 export async function deleteDocument(docId: number | string): Promise<{ status: string; message: string }> {
