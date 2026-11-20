@@ -226,3 +226,6 @@
   .st-app .ws-next>span:first-child{display:none}
   .st-app .ws-next button{flex:none}
 }
+.st-app[data-theme="dark"] .ws-auto{background:transparent;color:var(--muted)}
+.st-app[data-theme="dark"] .cht-status.is-complete{background:rgba(47,174,116,.16);color:#7dd3a8}
+.st-app .cht-status.is-complete{background:var(--ok-soft,#e8f6ef);color:var(--ok-ink,#167a50)}
