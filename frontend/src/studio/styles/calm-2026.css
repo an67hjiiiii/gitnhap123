@@ -247,3 +247,8 @@
   .st-app .sb.is-rail .sb-kb2{width:44px;height:36px;margin:0 auto;padding:0;display:grid;place-items:center}
   .st-app .sb.is-rail .sb-kb2 i{grid-row:auto}
 }
+/* biểu tượng nét mảnh trắng trong ô màu, ô lớn hơn một chút (21/11) */
+.st-app .sb .sb-link .sb-ico{width:32px;height:32px;border-radius:10px}
+.st-app .sb .sb-link .sb-ico svg{width:18px;height:18px;color:#fff;stroke:#fff;filter:drop-shadow(0 1px 1px rgba(0,0,0,.18))}
+.st-app .sb .sb-link{gap:12px}
+@media (min-width:1024px){.st-app .sb.is-rail .sb-link .sb-ico{width:36px;height:36px;border-radius:11px}.st-app .sb.is-rail .sb-link .sb-ico svg{width:20px;height:20px}}
