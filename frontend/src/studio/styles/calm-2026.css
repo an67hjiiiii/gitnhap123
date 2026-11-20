@@ -216,3 +216,13 @@
 .st-app .tl-right .btn-dark,.st-app .tl-head .btn-dark{background:var(--accent)!important;background-image:none!important;color:#fff!important;box-shadow:0 6px 14px -8px rgba(29,102,201,.55)!important}
 .st-app .lib-tool-ico,.st-app .sav-maker svg,.st-app .tl-mark{background:var(--tile)!important;background-image:none!important;color:var(--glyph)!important;box-shadow:none!important}
 @media (min-width:1280px){.st-app .ws-shell.is-folded{padding-top:62px}.st-app .ws-shell.is-folded>.wc{margin-top:0}}
+/* điện thoại: nút dưới câu trả lời chỉ còn biểu tượng (tên vẫn có cho trình đọc màn hình), "Bước tiếp theo" cuộn ngang */
+@media (max-width:720px){
+  .st-app .ws-msg.is-bot footer{gap:4px}
+  .st-app .ws-msg.is-bot footer>button,.st-app .ws-msg.is-bot footer .ans-fb button{font-size:0;gap:0;min-width:36px;min-height:36px;padding:6px 9px;justify-content:center}
+  .st-app .ws-msg.is-bot footer>button svg{width:16px;height:16px}
+  .st-app .ws-msg.is-bot footer .ws-meta{flex-basis:100%}
+  .st-app .ws-next{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .st-app .ws-next>span:first-child{display:none}
+  .st-app .ws-next button{flex:none}
+}
