@@ -10,7 +10,6 @@ import { Activity, Network, Save, Upload, Layers, Cpu } from 'lucide-react';
 import '../styles/studio-shell.css';
 import { PortalSwitch } from './admin/AdminPortal';
 import { BrandLogo } from './BrandLogo';
-import { NAV_ICONS } from './NavIcons';
 import { ChevronLeft, ChevronRight, FileText, FolderOpen, Inbox } from 'lucide-react';
 
 export const MODES: Record<ExecutionMode, { key: string; title: string; badge: string; desc: string }> = {
@@ -207,7 +206,7 @@ export const Header: React.FC<SidebarProps> = ({
                 {group && <p className="sb-group">{group}</p>}
                 <button onClick={() => go(id)} aria-label={label} aria-current={current === id ? 'page' : undefined} className={`sb-link${current === id ? ' is-on' : ''}`}
                   onMouseEnter={showTip} onFocus={showTip} onMouseLeave={hideTip} onBlur={hideTip}>
-                  <span className="sb-ico" data-tone={id} aria-hidden="true">{NAV_ICONS[id] ?? <Icon size={16} strokeWidth={2.2} />}</span><span>{label}</span>
+                  <span className="sb-ico" data-tone={id} aria-hidden="true"><Icon size={18} strokeWidth={2} /></span><span>{label}</span>
                 </button>
               </React.Fragment>
             ))}
