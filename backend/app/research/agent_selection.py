@@ -9,7 +9,6 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
-from functools import lru_cache
 from typing import Callable
 
 from app.research.decomposer import _contains_hint
@@ -37,9 +36,21 @@ def _cos(a, b) -> float:
     return dot / (na * nb)
 
 
-@lru_cache(maxsize=64)
-def _cached(embed_id: int, text: str, embed: Callable[[str], tuple[float, ...]]):
-    return embed(text)
+_EMBED_CACHE: dict[tuple[str, str], tuple[float, ...]] = {}
+_EMBED_CACHE_MAX = 4096
+
+
+def _cached(_unused: int, text: str, embed: Callable[[str], tuple[float, ...]]):
+    """Vector của mô tả tác tử và câu ví dụ, nhớ theo (mô hình nhúng, chữ). Khóa cũ dùng id() của phương thức gắn với
+    đối tượng, mỗi lần truy cập một khác nên gần như luôn trượt (phát hiện 20/11 khi đo Đợt 8)."""
+    owner = getattr(embed, "__self__", None)
+    key = (str(getattr(owner, "version", None) or id(owner or embed)), text)
+    hit = _EMBED_CACHE.get(key)
+    if hit is None:
+        if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
+            _EMBED_CACHE.clear()  # shortcut: xóa cả bộ nhớ khi đầy; đủ cho vài nghìn câu ví dụ, đổi sang LRU nếu kho ví dụ lớn hơn
+        hit = _EMBED_CACHE[key] = embed(text)
+    return hit
 
 
 def keyword_hits(query: str) -> dict[str, int]:
@@ -48,18 +59,34 @@ def keyword_hits(query: str) -> dict[str, int]:
     return {a: sum(1 for h in hints[a] if _contains_hint(text, h)) for a in DESCRIPTIONS}
 
 
-def select_agents(query: str, embed: Callable[[str], tuple[float, ...]] | None = None) -> dict:
-    """Trả {"agents": [...chuyên môn..., "general"], "primary", "scores", "ambiguous", "method"}."""
+# Đợt 8 (P1-5): học từ người dùng. Ví dụ = câu hỏi người dùng đã chọn cách hiểu (bấm nút hỏi lại, chọn lại tác tử).
+# Câu mới giống một ví dụ (cosine ≥ EXAMPLE_SIM) được cộng điểm cho tác tử của ví dụ đó. Chỉ bộ "work" của ô chat
+# sản phẩm dùng; thực nghiệm A/B/C không đi qua bộ chọn này nên không đổi.
+EXAMPLE_SIM = 0.90  # đo 20/11: câu khác nhau trong agent-routing-v1 vẫn giống nhau 0,80–0,83; chỉ câu gần như hỏi lại mới tính
+EXAMPLE_BONUS = 0.08
+LEARNED_VERSION = "work-agent-selection-v2-examples"
+
+
+def select_agents(query: str, embed: Callable[[str], tuple[float, ...]] | None = None,
+                  examples: list[tuple[str, str]] | None = None) -> dict:
+    """Trả {"agents": [...chuyên môn..., "general"], "primary", "scores", "ambiguous", "method"}.
+    examples: [(câu hỏi, tác tử)] người dùng đã chọn; cần embed để so ý nghĩa, không có thì bỏ qua."""
     hits = keyword_hits(query)
     sem: dict[str, float] = {}
+    learned: dict[str, float] = {}
     if embed is not None:
         q = embed(query)
         sem = {a: _cos(q, _cached(id(embed), d, embed)) for a, d in DESCRIPTIONS.items()}
-    scores = {a: round(sem.get(a, 0.0) + KEYWORD_BONUS * min(2, hits[a]), 4) for a in DESCRIPTIONS}
+        for text, agent in examples or []:
+            if agent in DESCRIPTIONS:
+                sim = _cos(q, _cached(id(embed), text, embed))
+                if sim >= EXAMPLE_SIM and sim > learned.get(agent, 0.0):
+                    learned[agent] = round(sim, 4)
+    scores = {a: round(sem.get(a, 0.0) + KEYWORD_BONUS * min(2, hits[a]) + (EXAMPLE_BONUS if a in learned else 0.0), 4) for a in DESCRIPTIONS}
     ranked = sorted(scores, key=lambda a: (-scores[a], a))
     top, second = ranked[0], ranked[1]
     no_signal = not sem and not any(hits.values())
-    ambiguous = no_signal or (scores[top] - scores[second] < MIN_MARGIN and hits[top] == 0)
+    ambiguous = no_signal or (scores[top] - scores[second] < MIN_MARGIN and hits[top] == 0 and top not in learned)
     if ambiguous:
         chosen: list[str] = []
     else:
@@ -71,11 +98,12 @@ def select_agents(query: str, embed: Callable[[str], tuple[float, ...]] | None =
         "keyword_hits": hits,
         "ambiguous": ambiguous,
         "method": "semantic+keyword" if embed is not None else "keyword",
-        "version": SELECTION_VERSION,
+        "version": LEARNED_VERSION if learned else SELECTION_VERSION,
+        "learned_from": learned,  # tác tử → độ giống với ví dụ người dùng đã chọn (rỗng = không dùng ví dụ)
     }
 
 
-__all__ = ["CLARIFY_LABELS", "DESCRIPTIONS", "SELECTION_VERSION", "clarify_options", "forced_selection", "keyword_hits", "select_agents"]
+__all__ = ["EXAMPLE_BONUS", "EXAMPLE_SIM", "LEARNED_VERSION", "CLARIFY_LABELS", "DESCRIPTIONS", "SELECTION_VERSION", "clarify_options", "forced_selection", "keyword_hits", "select_agents"]
 
 
 # Hỏi lại khi mơ hồ (mục 3.4): hai cách hiểu sát nhau thì hỏi một câu ngắn kèm 2 nút thay vì đoán.

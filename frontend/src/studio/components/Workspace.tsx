@@ -30,6 +30,10 @@ const MODE_INFO: Record<Mode, { label: string; hint: string }> = {
   B: { label: 'Multi-Agent cơ bản', hint: 'Điều kiện B: chia việc, chưa tối ưu.' },
   C: { label: 'Điều phối đầy đủ', hint: 'Điều kiện C: lập kế hoạch có kiểm tra, chuẩn hóa, tối ưu ngữ cảnh.' },
 };
+const REASK = [
+  { agent: 'conditions', label: 'Xét điều kiện (ai được gì, đủ điều kiện không)' }, { agent: 'procedure', label: 'Các bước làm và cấp duyệt' },
+  { agent: 'terms', label: 'Điều khoản, quyền và nghĩa vụ' }, { agent: 'figures', label: 'Tính số liệu (bao nhiêu, tỷ lệ)' },
+];
 const STATUS_LABEL: Record<string, string> = { COMPLETE: 'Đủ bằng chứng', PARTIAL: 'Một phần', NO_EVIDENCE: 'Không có bằng chứng', FAILED: 'Thất bại' };
 // Viết dạng câu hỏi để CAP1 đi đường hỏi đáp trực tiếp (câu mệnh lệnh bị chuyển sang lập kế hoạch nhiều bước).
 const PRESETS = [
@@ -121,6 +125,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const [fullDoc, setFullDoc] = useState<{ id: string; name?: string } | null>(null);
   const [lastAsk, setLastAsk] = useState('');
   const [saved, setSaved] = useState<Record<string, string>>({});
+  // Đợt 8: chọn lại cách hiểu → gửi lại với tác tử đó; máy chủ lưu làm ví dụ cho lần sau (chỉ ô chat sản phẩm)
+  const [reask, setReask] = useState<string | null>(null);
   const [ratings, setRatings] = useState<Record<string, Rating>>({});
   const [groundOf, setGroundOf] = useState<string | null>(null);
   const [groundCache, setGroundCache] = useState<Record<string, GroundingResult | string>>({});
@@ -522,6 +528,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                       {canSaveReports() && <button type="button" onClick={() => saveAnswer(run.run_id, q, md, cites)} disabled={!!saved[run.run_id]}><Archive size={13} />{saved[run.run_id] ?? 'Lưu vào Kết quả'}</button>}
                       <button type="button" onClick={() => wordOf(run.run_id, q, md)}><FileDown size={13} />Xuất Word</button>
                       {cites.length > 0 && <button type="button" onClick={() => showChunk(cites[0])}><BookOpen size={13} />Mở nguồn</button>}
+                      {quick && <span className="ws-reask"><button type="button" aria-expanded={reask === run.run_id} onClick={() => setReask(reask === run.run_id ? null : run.run_id)}><RotateCcw size={13} />Hiểu sai? Chọn lại</button>
+                        {reask === run.run_id && <span className="ws-reask-menu" role="menu">{REASK.map(o => <button key={o.agent} role="menuitem" type="button" onClick={() => { setReask(null); void send(undefined, { text: q, agent: o.agent }); }}>{o.label}</button>)}</span>}</span>}
                     </div>;
                   })()}
                   {run && !failed && run.status !== 'NO_EVIDENCE' && groundOf === run.run_id && <GroundingPanel runId={run.run_id} cache={groundCache} setCache={setGroundCache} onShowChunk={showChunk} />}

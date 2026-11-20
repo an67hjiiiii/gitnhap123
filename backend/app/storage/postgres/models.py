@@ -672,3 +672,19 @@ class OrgRequestRecord(Base):
     history: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RoutingExampleRecord(Base):
+    """Học từ người dùng (Đợt 8, P1-5): câu hỏi và tác tử người dùng đã chọn (bấm nút hỏi lại, chọn lại tác tử).
+    Theo từng người và từng không gian; chỉ ô chat sản phẩm dùng làm ví dụ cho bộ chọn tác tử."""
+
+    __tablename__ = "routing_examples"
+    __table_args__ = (Index("ix_routing_examples_owner_space", "owner_user_id", "space_id", "created_at"),)
+
+    example_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    space_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    agent: Mapped[str] = mapped_column(String(32), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="clarify")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

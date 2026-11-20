@@ -158,6 +158,7 @@ class ResearchPipeline:
                   domain_pack: str | None = None, **kwargs) -> dict:
         """Chạy một lượt với bộ lĩnh vực của không gian; None = Phần mềm (hành vi và prompt như cũ)."""
         with use_pack(domain_pack):
+            examples = kwargs.pop("routing_examples", None)  # Đợt 8: chỉ bộ "work" (ô chat sản phẩm) dùng
             if active_pack_name() != WORK_PACK:
                 kwargs.pop("forced_agent", None)
                 return await self._run(query, condition, provider_name, **kwargs)
@@ -166,7 +167,7 @@ class ResearchPipeline:
             embedder = getattr(self.candidate_index, "embedder", None)
             forced = kwargs.pop("forced_agent", None)
             try:
-                selection = forced_selection(forced) if forced else select_agents(query, getattr(embedder, "embed", None))
+                selection = forced_selection(forced) if forced else select_agents(query, getattr(embedder, "embed", None), examples)
             except ValueError:
                 raise
             except Exception as exc:  # mô hình nhúng lỗi: chọn theo từ khóa, ghi lại lý do
