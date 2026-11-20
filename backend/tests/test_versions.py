@@ -61,3 +61,16 @@ def test_compare_endpoint_checks_scope_and_returns_names():
     assert r.status_code == 200 and r.json()["new"]["source_name"] == "Quy chế 2026" and r.json()["counts"]["ADDED"] == 1
     assert c.post("/api/studio/tools/compare", json={"old_source_id": old[0].source_id, "new_source_id": "src_cua_nguoi_khac"}).status_code == 404
     assert c.post("/api/studio/tools/compare", json={"old_source_id": old[0].source_id, "new_source_id": old[0].source_id}).status_code == 422
+
+
+def test_confirmed_versions_are_not_reported_as_duplicates():
+    from app.analysis.reading import library_quality
+    from app.analysis.watch import replacement_pairs
+    from app.retrieval.text import make_chunks
+    old, new = make_chunks("2024.md", OLD), make_chunks("2026.md", NEW)
+    by = {old[0].source_id: old, new[0].source_id: new}
+    sources = [{"source_id": k, "source_name": v[0].source_name} for k, v in by.items()]
+    plain = library_quality(sources, by, duplicate_at=0.5)
+    assert plain["duplicates"]  # hai bản rất giống: không có thông tin phiên bản thì báo trùng
+    pairs = replacement_pairs([(k, v[0].source_name, "\n\n".join(c.text for c in v)) for k, v in by.items()])
+    assert pairs and library_quality(sources, by, duplicate_at=0.5, versions=pairs)["duplicates"] == []

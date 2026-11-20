@@ -371,8 +371,10 @@ def _vector(chunks) -> Counter:
     return Counter(t for t in _content_tokens(_doc_text(chunks)) if len(t) > 2)
 
 
-def library_quality(sources: list[dict], chunks_by_source: dict[str, list], duplicate_at: float = 0.9) -> dict:
-    """Từng tài liệu: điểm chất lượng và vấn đề; cả kho: các cặp tài liệu gần như trùng nhau."""
+def library_quality(sources: list[dict], chunks_by_source: dict[str, list], duplicate_at: float = 0.9,
+                    versions: set[frozenset[str]] | frozenset = frozenset()) -> dict:
+    """Từng tài liệu: điểm chất lượng và vấn đề; cả kho: các cặp tài liệu gần như trùng nhau.
+    versions: cặp bản cũ/bản mới đã xác nhận (bản mới nêu "thay thế <số hiệu>"): giống nhau là đúng, không báo trùng."""
     names = {s["source_id"]: s["source_name"] for s in sources}
     vectors = {sid: _vector(ch) for sid, ch in chunks_by_source.items() if ch}
     norms = {sid: (sum(v * v for v in vec.values()) ** 0.5) or 1.0 for sid, vec in vectors.items()}
@@ -381,7 +383,7 @@ def library_quality(sources: list[dict], chunks_by_source: dict[str, list], dupl
     for i, a in enumerate(sids):
         for b in sids[i + 1:]:
             score = sum(vectors[a][t] * vectors[b][t] for t in set(vectors[a]) & set(vectors[b])) / (norms[a] * norms[b])
-            if score >= duplicate_at:
+            if score >= duplicate_at and frozenset((a, b)) not in versions:
                 pairs.append({"a": names.get(a, a), "b": names.get(b, b), "a_id": a, "b_id": b, "score": round(score, 3)})
     twin = {}
     for p in pairs:
@@ -394,7 +396,7 @@ def library_quality(sources: list[dict], chunks_by_source: dict[str, list], dupl
                          "issues": [{"level": "high", "code": "no_text", "message": "Không trích được chữ nào; có thể là bản scan (ảnh) hoặc tệp hỏng. Hệ thống chưa nhận dạng chữ trong ảnh."}]})
             continue
         # shortcut: so từng đoạn với mọi đoạn khác (bình phương số đoạn); kho vài nghìn đoạn thì cần chỉ mục MinHash
-        others = [c for oid, och in chunks_by_source.items() if oid != sid for c in och]
+        others = [c for oid, och in chunks_by_source.items() if oid != sid and frozenset((sid, oid)) not in versions for c in och]
         q = quality_report(chunks, others)
         if sid in twin:
             q["issues"].insert(0, {"level": "high", "code": "duplicate_doc", "message": "Gần như trùng hoàn toàn với: " + ", ".join(sorted(twin[sid]))})

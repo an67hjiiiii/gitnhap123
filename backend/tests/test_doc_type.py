@@ -114,3 +114,28 @@ def test_old_documents_get_labelled_once_when_listed(factory):
     assert store.list_sources()[0]["doc_type"] == "software_spec"
     with factory() as s:
         assert s.get(KnowledgeSourceRecord, sid).display_metadata["doc_type_by"] == "auto"
+
+
+def test_internal_policy_not_mistaken_for_legal_doc():
+    """P2-2 (20/11): chính sách, quy trình, sổ tay nội bộ của công ty không phải văn bản pháp quy của Nhà nước."""
+    policy = "# CHÍNH SÁCH BẢO MẬT THÔNG TIN – CÔNG TY X\nSố: 03/2025/QĐ-X. Quyết định có hiệu lực từ ngày 01/01/2025, thay thế bản cũ.\nMật khẩu tối thiểu 12 ký tự."
+    assert classify_document("04_Chinh_sach_bao_mat.md", policy) == "internal_policy"
+    assert classify_document("so_tay_nhan_vien.md", "# SỔ TAY NHÂN VIÊN MỚI\nTuần đầu: nhận máy, đọc quy chuẩn.") == "internal_policy"
+    assert classify_document("quy_trinh_su_co.md", "# QUY TRÌNH XỬ LÝ SỰ CỐ\n1. Phát hiện\n2. Khoanh vùng") == "internal_policy"
+    state = "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM\nNGHỊ ĐỊNH\nCăn cứ Luật Tổ chức Chính phủ; Số: 13/2023/NĐ-CP. Có hiệu lực từ ngày 01/07/2023."
+    assert classify_document("nd_13_2023.pdf", state) == "legal_doc"
+    assert classify_document("kien_truc.md", "# KIẾN TRÚC HỆ THỐNG VÀ HẠ TẦNG\nCác dịch vụ chạy trên Kubernetes.") == "software_spec"
+
+
+def test_stale_auto_labels_are_relabelled_but_user_labels_kept(factory):
+    """Đổi luật phân loại (P2-2): nhãn máy gán theo bản cũ được phân loại lại một lần; nhãn người dùng sửa thì giữ."""
+    store = PostgresSourceStore(factory, "an")
+    policy = "# CHÍNH SÁCH BẢO MẬT\nMật khẩu tối thiểu 12 ký tự, đổi định kỳ."
+    old = store.import_text("chinh_sach.md", policy)["source_id"]
+    mine = store.import_text("hd.docx", CONTRACT)["source_id"]
+    store.set_doc_type(mine, "other")
+    with factory.begin() as s:  # giả lập nhãn gán theo luật cũ (chưa có phiên bản)
+        src = s.get(KnowledgeSourceRecord, old)
+        src.display_metadata = {**{k: v for k, v in src.display_metadata.items() if k != "doc_type_v"}, "doc_type": "legal_doc", "doc_type_by": "auto"}
+    labels = {r["source_id"]: r["doc_type"] for r in store.list_sources()}
+    assert labels[old] == "internal_policy" and labels[mine] == "other"

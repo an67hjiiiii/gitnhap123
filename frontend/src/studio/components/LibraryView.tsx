@@ -2,7 +2,7 @@
 // lối vào Hồ sơ tài liệu, Kiểm tra cả kho và Kiểm tra mâu thuẫn (trước là trang riêng trên thanh bên).
 import React, { useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, FileSearch, FileText, Filter, GitCompareArrows, Library, Search, Upload } from 'lucide-react';
-import { DOC_TYPES, setDocType } from '../services/api';
+import { DOC_TYPES, setDocType , libraryQuality, LibraryQuality, documentValidity, DocValidity } from '../services/api';
 import type { DocumentInfo } from '../types';
 import { ToolHeader } from './analysis/shared';
 import '../styles/pages-2b.css';
@@ -28,6 +28,20 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [drag, setDrag] = useState(false);
+  // Sức khỏe kho (Đợt 7): số thật từ máy chủ (kiểm tra chất lượng, luật hiệu lực văn bản), không ước tính
+  const [health, setHealth] = useState<LibraryQuality | null>(null);
+  const [validity, setValidity] = useState<Record<string, DocValidity>>({});
+  const idsKey = docs.map(d => String(d.id)).join(',');
+  React.useEffect(() => {
+    if (!docs.length) { setHealth(null); setValidity({}); return; }
+    let alive = true;
+    libraryQuality().then(q => alive && setHealth(q)).catch(() => alive && setHealth(null));
+    documentValidity(docs.slice(0, 60).map(d => String(d.id))).then(r => alive && setValidity(Object.fromEntries(r.documents.map(x => [x.source_id, x])))).catch(() => undefined);
+    return () => { alive = false; };
+  }, [idsKey]);
+  const failed = docs.filter(d => d.status === 'failed').length;
+  const replaced = Object.values(validity).filter(v => v.status === 'REPLACED').length;
+  const issues = (health?.docs ?? []).flatMap(d => d.issues.filter(i => i.level !== 'low').map(i => ({ name: d.source_name, id: d.source_id, msg: i.message })));
   const upload = async (f?: File) => {
     if (!f) return; setUploading(true); setError('');
     try { await onUploadFile(f); } catch (err: any) { setError(err.message || 'Không tải được tệp.'); } finally { setUploading(false); }
@@ -88,6 +102,21 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
             <span className="lib-tool-ico"><GitCompareArrows size={18} /></span><span><b>Kiểm tra mâu thuẫn</b><small>Cặp câu cùng chủ đề khác con số hoặc ngược nghĩa giữa các tài liệu</small></span><ArrowUpRight size={16} /></button>
         </section>
 
+        {docs.length > 0 && <section className="dz-card lib-health" aria-label="Sức khỏe kho tài liệu">
+          <header><b>Sức khỏe kho</b><small>Cập nhật khi danh sách tài liệu thay đổi</small></header>
+          <div className="lib-health-stats">
+            <span className={issues.length ? 'is-warn' : 'is-ok'}><b>{health ? issues.length : '…'}</b>vấn đề chất lượng</span>
+            <span className={health?.duplicates.length ? 'is-warn' : 'is-ok'}><b>{health ? health.duplicates.length : '…'}</b>cặp có thể trùng</span>
+            <span className={failed ? 'is-bad' : 'is-ok'}><b>{failed}</b>lỗi lập chỉ mục</span>
+            <span className={counts.none || counts.other ? 'is-warn' : 'is-ok'}><b>{(counts.none || 0) + (counts.other || 0)}</b>chưa rõ loại</span>
+            <span className={replaced ? 'is-info' : 'is-ok'}><b>{replaced}</b>bản đã bị thay thế</span>
+          </div>
+          {(issues.length > 0 || (health?.duplicates.length ?? 0) > 0) && <ul className="lib-health-list">
+            {health!.duplicates.slice(0, 3).map(d => <li key={d.a_id + d.b_id}><span className="is-warn">Trùng</span>{d.a} và {d.b} giống nhau {Math.round(d.score * 100)}%</li>)}
+            {issues.slice(0, 4).map((i, k) => <li key={k}><span className="is-warn">Chất lượng</span><button type="button" className="dp-link" onClick={() => onOpenProfile(i.id)}>{i.name}</button>: {i.msg}</li>)}
+          </ul>}
+        </section>}
+
         <section className={`dz-card lib-table-card${drag ? ' is-drag' : ''}`} {...dropProps}>
           <div className="lib-bar">
             <label className="lib-find"><Search size={15} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm theo tên tài liệu" aria-label="Tìm theo tên tài liệu" /></label>
@@ -116,6 +145,9 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
                       </select></label>
                   : <span className="lib-type is-ro">{DOC_TYPES[t] ?? 'Chưa phân loại'}</span>}
                 {d.classification && <span className={`lib-cls is-${d.classification.toLowerCase()}`}>{CLS[d.classification] ?? d.classification}</span>}
+                {d.status === 'failed' && <span className="lib-flag is-bad" title="Tài liệu chưa lập chỉ mục được; tải lại tệp hoặc xem Hồ sơ">Lỗi lập chỉ mục</span>}
+                {validity[String(d.id)]?.status === 'REPLACED' && <span className="lib-flag is-old" title={validity[String(d.id)].status_note}>Bản cũ</span>}
+                {(validity[String(d.id)]?.replaces.length ?? 0) > 0 && validity[String(d.id)]?.status !== 'REPLACED' && <span className="lib-flag is-new" title={`Thay thế ${validity[String(d.id)].replaces.join(', ')}`}>Bản mới</span>}
                 <span className="lib-acts">
                   <button type="button" className="btn btn-ghost is-sm" onClick={() => onOpenProfile(String(d.id))}>Hồ sơ</button>
                   <button type="button" className="btn btn-ghost is-sm" onClick={() => onAsk(String(d.id), d.source_file)}>Hỏi</button>

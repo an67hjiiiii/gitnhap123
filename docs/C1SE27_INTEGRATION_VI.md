@@ -365,6 +365,14 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Kiểm tra: backend 365 đạt (`test_sole_approver_cannot_submit_to_own_level_and_is_warned`); frontend 15 kiểm thử, build đạt.
 - Giới hạn: chưa có người duyệt thay thế khi vắng, chưa gửi thông báo qua email; Excel cho câu trả lời chưa có (chỉ Word); "Cần xem xét" chưa có mục "kết quả cần người duyệt lại".
 
+### Đợt 7: Tài liệu
+- P2-2: thêm loại "Chính sách, quy trình nội bộ" (`internal_policy`) cho tiêu đề có "chính sách / quy trình / sổ tay / quy định nội bộ"; điểm "văn bản pháp quy" giảm một nửa khi không có quốc hiệu hoặc "Căn cứ"; tiêu đề "kiến trúc / thiết kế hệ thống" là đặc tả phần mềm. Bộ PayNhanh: "Chính sách bảo mật", "Quy trình xử lý sự cố", "Sổ tay kỹ sư mới" nay là chính sách/quy trình nội bộ, "Kiến trúc" là đặc tả. Nhãn máy gán theo luật cũ được phân loại lại một lần khi liệt kê (`DOC_TYPE_VERSION`), nhãn người dùng đã sửa giữ nguyên. Kiểm thử phân loại mở rộng (9 trường hợp).
+- P2-1: bộ mẫu theo ngành `SAMPLE_PACKS`: Phần mềm (7 tài liệu PayNhanh), Hành chính nhân sự (quy chế làm việc 2024 và 2026, nội quy lao động), Giáo dục (quy chế học vụ, bài giảng CSDL chương 2), Pháp lý (hợp đồng dịch vụ có điều khoản bất lợi, quy chế 2026). Tài liệu do nhóm tự soạn, mỗi tệp ghi "TÀI LIỆU MẪU", công ty/trường giả định. Màn trống của Không gian làm việc cho chọn bộ mẫu; bảng lệnh Ctrl K có lệnh nạp từng bộ. Chạy thật mỗi bộ bằng một tài khoản mới: nạp đủ, loại tài liệu nhận đúng (đặc tả, chính sách nội bộ, nội quy, quy chế, bài giảng, hợp đồng).
+- Trang Tài liệu: thẻ "Sức khỏe kho" (vấn đề chất lượng, cặp có thể trùng, lỗi lập chỉ mục, chưa rõ loại, bản đã bị thay thế; số từ máy chủ) và danh sách vấn đề bấm mở Hồ sơ; mỗi dòng tài liệu có nhãn "Lỗi lập chỉ mục", "Bản cũ", "Bản mới".
+- Lỗi tìm ra khi chạy thật và đã sửa: hai phiên bản quy chế bị báo "trùng 96%" → cặp đã xác nhận thay thế không tính là trùng (`reading.library_quality(versions=…)`, kiểm thử trong `test_versions.py`).
+- Kiểm tra: backend 368 đạt; frontend 16 kiểm thử (`samplePacks.test.mjs` kiểm mọi tệp mẫu tồn tại và ghi rõ là mẫu), build đạt.
+- Giới hạn: Hồ sơ tài liệu chưa có mục lục dạng cây; bộ mẫu ngắn (vài trang), chưa thay được tài liệu thật của khách.
+
 ## Chưa có hoặc chưa làm
 
 - Lượt chạy thực nghiệm (trang Thực nghiệm) chưa lọc theo không gian; chỉ tài liệu và cuộc trò chuyện được gán không gian.

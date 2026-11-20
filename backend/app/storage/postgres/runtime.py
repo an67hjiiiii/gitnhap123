@@ -33,7 +33,7 @@ from app.auth.store import (
 )
 from app.core.access import REDACTED_ANSWER, redact_run, referenced_source_ids, visible_source_ids
 from app.core.types import SourceChunk
-from app.ingestion.doc_type import DOC_TYPES, classify_document
+from app.ingestion.doc_type import DOC_TYPES, classify_document, DOC_TYPE_VERSION
 from app.retrieval.text import make_chunks, normalize_text
 from app.storage.postgres.models import (
     ConversationMessageRecord,
@@ -468,7 +468,7 @@ class PostgresSourceStore:
             "source_hash": hashlib.sha256(clean_text.encode("utf-8")).hexdigest(),
             "source_version": source_id,
         }
-        metadata = {**source_provenance, "doc_type": classify_document(str(source_name), clean_text), "doc_type_by": "auto"}
+        metadata = {**source_provenance, "doc_type": classify_document(str(source_name), clean_text), "doc_type_by": "auto", "doc_type_v": DOC_TYPE_VERSION}
         now = _now()
         with self.session_factory.begin() as db:
             source = db.get(KnowledgeSourceRecord, source_id)
@@ -637,8 +637,11 @@ class PostgresSourceStore:
                 .group_by(KnowledgeSourceRecord.source_id)
                 .order_by(KnowledgeSourceRecord.source_name, KnowledgeSourceRecord.source_id)
             ).all()
-            labels = {source.source_id: (source.display_metadata or {}).get("doc_type") for source, _ in rows}
-        missing = [sid for sid, label in labels.items() if not label]
+            metas = {source.source_id: (source.display_metadata or {}) for source, _ in rows}
+            labels = {sid: m.get("doc_type") for sid, m in metas.items()}
+        # chưa có nhãn, hoặc nhãn máy gán theo luật cũ (P2-2): phân loại lại; nhãn người dùng đã sửa thì giữ
+        missing = [sid for sid, m in metas.items()
+                   if not m.get("doc_type") or (m.get("doc_type_by") != "user" and m.get("doc_type_v") != DOC_TYPE_VERSION)]
         if missing:
             labels.update(self._label_unlabelled(missing))
         return [{"source_id": source.source_id, "source_name": source.source_name,
@@ -656,7 +659,7 @@ class PostgresSourceStore:
                 if not text:
                     continue
                 out[source.source_id] = classify_document(source.source_name, text)
-                source.display_metadata = {**(source.display_metadata or {}), "doc_type": out[source.source_id], "doc_type_by": "auto"}
+                source.display_metadata = {**(source.display_metadata or {}), "doc_type": out[source.source_id], "doc_type_by": "auto", "doc_type_v": DOC_TYPE_VERSION}
         return out
 
     def set_doc_type(self, source_id: str, doc_type: str) -> dict[str, Any]:
