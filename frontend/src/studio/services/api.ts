@@ -256,10 +256,33 @@ export async function uploadDocument(file: File, ws?: WorkspaceId, publish?: { c
 }
 
 // Ảnh dán vào ô chat: máy chủ nhận dạng chữ (Tesseract) để đưa vào câu hỏi; ảnh không lưu vào kho.
+// Máy chủ chưa cài Tesseract (22/11): đọc ngay trong trình duyệt bằng tesseract.js. Bộ máy và dữ liệu tiếng Việt
+// (public/tessdata/vie.traineddata.gz, lấy từ Tesseract 5.4) nằm sẵn trong dự án: không cần cài, không cần mạng, ảnh không rời máy.
+let browserOcr: Promise<import('tesseract.js').Worker> | null = null;
+async function ocrInBrowser(file: Blob): Promise<string> {
+  browserOcr ??= (async () => {
+    const [{ createWorker }, worker, core] = await Promise.all([
+      import('tesseract.js'), import('tesseract.js/dist/worker.min.js?url'), import('tesseract.js-core/tesseract-core-simd-lstm.wasm.js?url')]);
+    return createWorker('vie', 1, { workerPath: worker.default, corePath: core.default, langPath: '/tessdata', gzip: true });
+  })();
+  try {
+    return (await (await browserOcr).recognize(file)).data.text;
+  } catch (err) {
+    browserOcr = null;  // lần sau khởi tạo lại
+    throw err;
+  }
+}
+
 export async function ocrImage(file: Blob): Promise<string> {
   const form = new FormData();
   form.append('file', file, 'anh-dan.png');
-  return (await call<{ text: string }>('/ocr-image', { method: 'POST', body: form })).text;
+  try {
+    return (await call<{ text: string }>('/ocr-image', { method: 'POST', body: form })).text;
+  } catch (err: any) {
+    // máy chủ chưa cài / đọc lỗi (thông báo đã dịch ở viError) hoặc backend cũ chưa có /ocr-image: đọc trong trình duyệt
+    if (!/Chưa nhận dạng được chữ|Nhận dạng chữ không thành công|HTTP 404|Not Found/i.test(String(err?.message))) throw err;
+    return ocrInBrowser(file);
+  }
 }
 
 // Bộ tài liệu mẫu theo ngành (P2-1, 20/11). Tài liệu do nhóm tự soạn, ghi rõ là mẫu; không phải văn bản của tổ chức thật.
