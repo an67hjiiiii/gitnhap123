@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, MessageSquarePlus, Pencil, Pin, PinOff, Search, Trash2, X } from 'lucide-react';
+import { Check, MessageSquare, MessageSquarePlus, Pencil, Pin, PinOff, Search, Trash2, X } from 'lucide-react';
 import { Conversation, updateConversation } from '../services/api';
 import { serverDate } from '../utils/time';
 
@@ -77,14 +77,12 @@ export const ConversationHistory: React.FC<Props> = React.memo(function Conversa
   };
 
   return (
-    <section className="hist" aria-labelledby="hist-title">
-      <div className="hist-head">
-        <h2 id="hist-title">Cuộc trò chuyện</h2>
-        {conversations.length > 0 && <span className="kb-count">{conversations.length}</span>}
-        <button type="button" className="icon-btn is-sm hist-new" onClick={onNew} aria-label="Cuộc trò chuyện mới" title="Cuộc trò chuyện mới"><MessageSquarePlus size={15} /></button>
-      </div>
-      {conversations.length > 5 && <label className="kb-search"><Search size={14} /><span className="sr">Tìm cuộc trò chuyện</span>
-        <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm cuộc trò chuyện" /></label>}
+    <section className="hist hx" aria-label="Cuộc trò chuyện">
+      {/* 21/11: nút tạo mới nổi bật, ô tìm lớn luôn hiện, danh sách cao hết ngăn kéo */}
+      <button type="button" className="hx-new" onClick={onNew}><span className="hx-new-ico"><MessageSquarePlus size={18} /></span><b>Cuộc trò chuyện mới</b></button>
+      <label className="hx-search"><Search size={17} /><span className="sr">Tìm cuộc trò chuyện</span>
+        <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder={conversations.length ? `Tìm trong ${conversations.length} cuộc trò chuyện…` : 'Tìm cuộc trò chuyện…'} />
+        {q && <button type="button" className="hx-clear" onClick={() => setQ('')} aria-label="Xóa ô tìm"><X size={14} /></button>}</label>
       {removed && <div className="hist-undo" role="status">
         <span>Đã xóa “{removed.title}”</span><button type="button" onClick={undo}>Hoàn tác</button>
       </div>}
@@ -93,7 +91,7 @@ export const ConversationHistory: React.FC<Props> = React.memo(function Conversa
         {conversations.length === 0 ? <p className="kb-none">Chưa có cuộc trò chuyện nào.</p>
           : shown.length === 0 ? <p className="kb-none">Không có kết quả.</p>
           : groups.map(([g, list]) => <section key={g} className="hist-group" aria-label={g}>
-            <p className="hist-group-t">{g === 'Đã ghim' && <Pin size={11} />}{g}</p>
+            <p className="hist-group-t">{g === 'Đã ghim' && <Pin size={11} />}{g}<span>{list.length}</span></p>
             <ul>{list.map(c => {
               const on = activeId === c.conversation_id;
               if (editing?.id === c.conversation_id) return <li key={c.conversation_id}>
@@ -107,6 +105,7 @@ export const ConversationHistory: React.FC<Props> = React.memo(function Conversa
               </li>;
               return <li key={c.conversation_id} className={`hist-item${on ? ' is-on' : ''}`}>
                 <button className={`hist-row${on ? ' is-on' : ''}`} onClick={() => onOpen(c.conversation_id)} aria-current={on ? 'true' : undefined} title={c.title}>
+                  <span className="hx-ico" aria-hidden="true">{c.pinned ? <Pin size={14} /> : <MessageSquare size={14} />}</span>
                   <span className="hist-q">{c.title || 'Không tên'}</span>
                   <time className="hist-t">{label(c)}</time>
                 </button>

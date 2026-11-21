@@ -31,6 +31,7 @@ from app.auth.store import (
     _parse_iso,
     _token_hash,
 )
+from app.research.planning_retrieval import planning_source_ids
 from app.core.access import REDACTED_ANSWER, redact_run, referenced_source_ids, visible_source_ids
 from app.core.types import SourceChunk
 from app.ingestion.doc_type import DOC_TYPES, classify_document, DOC_TYPE_VERSION
@@ -803,7 +804,7 @@ class PostgresRunStore:
                 return None
             data = dict(row.extra_data)
             if self.space_id is not None and not (
-                referenced_source_ids(data) <= visible_source_ids(db, self.owner_user_id, self.space_id)
+                referenced_source_ids(data) - planning_source_ids() <= visible_source_ids(db, self.owner_user_id, self.space_id)
             ):
                 return redact_run(data)  # mất quyền với tài liệu gốc thì câu trả lời cũ bị ẩn
             return data
@@ -964,4 +965,4 @@ class PostgresConversationStore:
             return set()
         visible = visible_source_ids(db, self.owner_user_id, self.space_id)
         rows = db.execute(select(RunRecord.run_id, RunRecord.extra_data).where(RunRecord.run_id.in_(run_ids))).all()
-        return {run_id for run_id, data in rows if not referenced_source_ids(data or {}) <= visible}
+        return {run_id for run_id, data in rows if not referenced_source_ids(data or {}) - planning_source_ids() <= visible}

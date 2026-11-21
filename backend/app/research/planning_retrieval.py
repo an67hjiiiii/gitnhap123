@@ -1,4 +1,5 @@
 from __future__ import annotations
+from functools import lru_cache
 from app.core.types import SourceChunk
 from app.retrieval.text import make_chunks, retrieve, terms
 
@@ -8,6 +9,16 @@ from app.research.registry import _SOFTWARE_ANCHORS, _SOFTWARE_PATTERNS, active_
 DEFAULT_PATTERNS = _SOFTWARE_PATTERNS
 PLANNING_ANCHORS = _SOFTWARE_ANCHORS
 PLANNING_SCORER_VERSION = "planning-lexical-intent-v2"
+
+
+@lru_cache(maxsize=1)
+def planning_source_ids() -> frozenset[str]:
+    """Mã src_… của kho mẫu lập kế hoạch (mọi bộ lĩnh vực). Đây là mẫu của hệ thống, không phải tài liệu của người dùng,
+    nên bộ kiểm tra quyền bỏ qua (21/11: câu nhiều bước trong tổ chức bị ẩn nhầm vì các mã này)."""
+    from app.research.registry import PACKS
+    return frozenset(c.source_id for pack in PACKS.values() for pattern, text in pack.get("patterns") or ()
+                     for c in make_chunks(pattern, text, max_chars=1000))
+
 
 class PlanningRetriever:
     def __init__(self, min_score: float = 0.0):

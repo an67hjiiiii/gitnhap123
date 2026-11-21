@@ -3,14 +3,24 @@ from app.core.citations import validate_citations
 from app.core.structured_output import is_placeholder_answer, parse_answer_json
 from app.core.types import Task, TaskResult, SourceChunk, RunMetrics
 from app.research.registry import profile
+from app.core.answer_checks import IMG_MARK, apply_calc
 from app.research.vanilla import REPLY_LANGUAGE_HINT
+
+# Ô chat sản phẩm (21/11): tác tử con thấy câu hỏi gốc (dữ kiện của trường hợp, chữ trong ảnh) và chép số nguyên văn; thực nghiệm giữ prompt cũ.
+PRODUCT_WORKER_HINT = (
+    "QUY TẮC: Viết tiếng Việt. Mọi con số, mốc năm, tỷ lệ chép nguyên văn từ EVIDENCE, không ước đoán. "
+    "Liệt kê đủ mọi điểm a), b), c)… của điều khoản liên quan, không thêm ý ngoài điều khoản. Ghi đúng số Điều, khoản. "
+    "Khi phải tính toán, KHÔNG tự tính: viết phép tính với số cụ thể trong dấu [[= ... ]] (chỉ số, + - * / và ngoặc, 150% viết 1.5), "
+    "hệ thống tự thay bằng kết quả. Dữ kiện trong USER_REQUEST (kể cả phần sau dấu \"" + IMG_MARK + "\" là chữ trong ảnh) là trường hợp "
+    "cần xét, không phải bằng chứng: đối chiếu từng dữ kiện với ngưỡng, điều kiện trong EVIDENCE, viết rõ phép so sánh rồi kết luận."
+)
 
 
 def _extract_json(text: str) -> dict:
     return parse_answer_json(text)
 
 async def execute_task(provider, task: Task, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None,
-                       upstream: list[TaskResult] | None = None) -> TaskResult:
+                       upstream: list[TaskResult] | None = None, product: bool = False, user_request: str | None = None) -> TaskResult:
     if not evidence:
         return TaskResult(
             task_id=task.task_id,
@@ -40,7 +50,11 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
         'Schema: {"status":"COMPLETE|PARTIAL|NO_EVIDENCE","answer":"...",'
         '"citations":["chunk_id"],"missing_information":[]}'
     )
-    if reply_language in REPLY_LANGUAGE_HINT:
+    if product:
+        if user_request:
+            user = f"[USER_REQUEST]{user_request[:2500]}[/USER_REQUEST]\n" + user
+        user += "\n\n" + PRODUCT_WORKER_HINT
+    elif reply_language in REPLY_LANGUAGE_HINT:
         user += "\n\n" + REPLY_LANGUAGE_HINT[reply_language]
     grounded = getattr(provider, "generate_grounded", None)
     result = (
@@ -62,6 +76,8 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
         status = "PARTIAL"
         missing.append("worker answer has no valid citation")
     answer = str(obj.get("answer") or "")
+    if product:
+        answer = apply_calc(answer)
     if is_placeholder_answer(answer):
         answer = ""
         if status == "COMPLETE":

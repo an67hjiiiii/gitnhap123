@@ -89,6 +89,8 @@ class RosterRule(BaseModel):
     op: Op
     value: float = Field(allow_inf_nan=False)
     column: int = Field(ge=0, lt=domain_tools.MAX_TABLE_COLS)
+    year_min: int | None = Field(default=None, ge=1, le=10)  # ngưỡng chỉ áp cho năm học trong khoảng này
+    year_max: int | None = Field(default=None, ge=1, le=10)
 
 
 class RosterBody(BaseModel):
@@ -96,6 +98,8 @@ class RosterBody(BaseModel):
     columns: list[str] = Field(min_length=1, max_length=domain_tools.MAX_TABLE_COLS)
     rows: list[list[str]] = Field(min_length=1, max_length=domain_tools.MAX_TABLE_ROWS)
     id_column: int | None = Field(default=None, ge=0, lt=domain_tools.MAX_TABLE_COLS)
+    mode: Literal["all", "any"] = "all"  # any: cảnh báo / buộc thôi học (thỏa một ngưỡng là bị)
+    year_column: int | None = Field(default=None, ge=0, lt=domain_tools.MAX_TABLE_COLS)
 
 
 _QUIZ_ASK = re.compile(r"^\W*(hay\s+|giup\s+(toi|minh)\s+)?(tao|soan|lap|viet|ra)\s+(\d+\s+)?(cau hoi|bo cau hoi|de|cau)?\s*(trac nghiem)?\s*(on tap|kiem tra)?\s*(ve|cho|theo|tu)?\s*")
@@ -464,7 +468,8 @@ def build_router(
     def tool_roster(body: RosterBody, request: Request) -> dict:
         current_user(request)
         try:
-            return domain_tools.evaluate_roster([r.model_dump() for r in body.rules], body.columns, body.rows, body.id_column)
+            return domain_tools.evaluate_roster([r.model_dump() for r in body.rules], body.columns, body.rows, body.id_column,
+                                                body.mode, body.year_column)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 

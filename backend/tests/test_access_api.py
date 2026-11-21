@@ -215,3 +215,24 @@ def test_admin_table_masks_org_content():
         assert masked in select_sql and f'{masked}) AS "{column}"' in select_sql
         assert f'"{column}" AS TEXT) ILIKE' not in select_sql.replace(masked, "")  # tìm kiếm cũng không dò được
         assert masked in count_sql
+
+
+def test_planning_pattern_ids_do_not_hide_answer(world):
+    """21/11: mã src_… của kho mẫu lập kế hoạch không phải tài liệu; có trong lượt chạy cũng không được ẩn câu trả lời.
+    Mã tài liệu thật không được phép thì vẫn ẩn như cũ."""
+    from app.research.planning_retrieval import planning_source_ids
+    factory, ids = world
+    pattern_id = sorted(planning_source_ids())[0]
+    store = PostgresRunStore(factory, "chi", space_id=SP)
+    run = _run("r_plan", ids["bang_gia"])
+    run["events"] = [{"stage": "planning_retrieval", "selected": [f"{pattern_id}_c0000"]}]
+    store.save(run)
+    assert store.get("r_plan")["answer"] == "câu trả lời có nội dung tài liệu"
+    binh = PostgresRunStore(factory, "binh", space_id=SP)
+    run2 = _run("r_plan_secret", ids["bang_gia"], ids["bao_cao_chi"])
+    run2["events"] = [{"stage": "planning_retrieval", "selected": [f"{pattern_id}_c0000"]}]
+    binh.save(run2)
+    assert binh.get("r_plan_secret")["answer"] != REDACTED_ANSWER
+    with factory.begin() as s:  # mất quyền với tài liệu thật thì vẫn ẩn
+        s.get(OrgMemberRecord, (SP, "binh")).level = "STAFF"
+    assert binh.get("r_plan_secret")["answer"] == REDACTED_ANSWER

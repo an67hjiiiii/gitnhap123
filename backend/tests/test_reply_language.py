@@ -14,13 +14,19 @@ class CapturingProvider:
         return SimpleNamespace(text='{"status":"COMPLETE","answer":"ok","citations":["c1"],"missing_information":[]}', usage=None)
 
 
-def _run(reply_language):
+def _run(reply_language, product=False):
     provider = CapturingProvider()
     chunk = SourceChunk(chunk_id="c1", source_id="s1", source_name="doc.md", text="Idempotency keys are kept for 24 hours.", index=0)
     metrics = RunMetrics()
     metrics.add_usage = lambda usage: None
-    asyncio.run(answer_vanilla(provider, "Khóa giữ bao lâu?", [chunk], metrics, reply_language=reply_language))
+    asyncio.run(answer_vanilla(provider, "Khóa giữ bao lâu?", [chunk], metrics, reply_language=reply_language, product=product))
     return provider.user
+
+
+def test_product_chat_asks_for_structured_markdown_but_research_keeps_150_words():
+    product, research = _run("vi", product=True), _run("vi")
+    assert "bảng Markdown" in product and "150 từ" not in product
+    assert "150 từ" in research and "bảng Markdown" not in research
 
 
 def test_product_mode_adds_vietnamese_hint_at_end():

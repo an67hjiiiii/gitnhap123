@@ -1,15 +1,15 @@
 """Kết nối nguồn: thư mục chung trên máy chủ (đợt 10). Quản trị đặt SHARED_FOLDER_PATH; người dùng bấm đồng bộ để nạp tệp mới.
 
-Chỉ đọc trong thư mục đã cấu hình (không theo liên kết ra ngoài), chỉ định dạng đã hỗ trợ, tối đa 2 MB mỗi tệp như khi tải lên.
+Chỉ đọc trong thư mục đã cấu hình (không theo liên kết ra ngoài), chỉ định dạng đã hỗ trợ, tối đa 20 MB mỗi tệp như khi tải lên.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from app.ingestion.documents import SUPPORTED_DOCUMENT_EXTENSIONS
+from app.ingestion.documents import MAX_DOCUMENT_BYTES, SUPPORTED_DOCUMENT_EXTENSIONS
 
-MAX_BYTES = 2_000_000
+MAX_BYTES = MAX_DOCUMENT_BYTES
 MAX_FILES = 300
 
 
@@ -34,7 +34,7 @@ def list_shared_files(root: Path) -> tuple[list[Path], list[dict]]:
         elif path.suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS:
             skipped.append({"name": rel, "reason": "định dạng chưa hỗ trợ"})
         elif path.stat().st_size > MAX_BYTES:
-            skipped.append({"name": rel, "reason": "lớn hơn 2 MB"})
+            skipped.append({"name": rel, "reason": f"lớn hơn {MAX_BYTES // 1_000_000} MB"})
         elif len(files) >= MAX_FILES:
             skipped.append({"name": rel, "reason": f"quá {MAX_FILES} tệp mỗi lần"})
         else:

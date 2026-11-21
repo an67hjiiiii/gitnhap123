@@ -15,7 +15,7 @@ from collections import Counter
 
 from app.core.types import SourceChunk
 
-HYBRID_VERSION = "product-hybrid-bm25-rrf-v2"
+HYBRID_VERSION = "product-hybrid-bm25-rrf-v3"
 RRF_K = 60           # hằng số chuẩn của Reciprocal Rank Fusion
 HEADING_WEIGHT = 1.0  # điểm cộng tối đa cho tiêu đề mục, tính bằng đơn vị 1/RRF_K
 TITLE_WEIGHT = 0.5    # từ của câu hỏi có trong tên tài liệu ("CSDL" ↔ "02_Thiet_ke_CSDL...")
@@ -23,6 +23,8 @@ LIST_WEIGHT = 0.5     # câu hỏi liệt kê ("gồm những … nào") ưu ti�
 _LIST_Q = re.compile(r"\b(gom|bao gom|liet ke|danh sach|co nhung|nhung .* nao|cac .* nao)\b")
 _LIST_H = re.compile(r"\b(danh sach|gom|bao gom)")
 BM25_K1, BM25_B = 1.4, 0.75
+STRONG_BM25 = 2       # số đoạn khớp từ khóa mạnh luôn được giữ (v3)
+STRONG_RATIO = 0.6    # "mạnh" = điểm BM25 >= 60% điểm cao nhất
 POOL = 3              # lấy vector và BM25 mỗi bên top_k * POOL ứng viên trước khi gộp
 
 # từ chức năng tiếng Việt và tiếng Anh (đã bỏ dấu); không mang nội dung để so khớp
@@ -106,6 +108,34 @@ def fuse(query: str, chunks: list[SourceChunk], vector_ranked: list[str], top_k:
             bonus += LIST_WEIGHT
         score[cid] += bonus / RRF_K
     ranked = sorted(score, key=lambda cid: (-score[cid], cid))[:top_k]
+    # Đoạn khớp từ khóa rất mạnh nhưng vector bỏ qua thì RRF xếp dưới đoạn "vừa vừa" ở cả hai danh sách (bỏ sót Nội quy
+    # "gửi đơn trước 03 ngày", 21/11): giữ chắc tối đa STRONG_BM25 đoạn có điểm >= STRONG_RATIO * điểm BM25 cao nhất.
+    if bm_ranked:
+        strong = [cid for cid in bm_ranked[:STRONG_BM25] if bm[cid] >= STRONG_RATIO * bm[bm_ranked[0]] and cid not in ranked]
+        for cid in strong:
+            ranked = ranked[:top_k - 1] + [cid] if len(ranked) >= top_k else ranked + [cid]
+        ranked = sorted(ranked, key=lambda cid: (-score[cid], cid))
     trace = {"version": HYBRID_VERSION, "vector_candidates": len(vec), "bm25_candidates": len(bm_ranked),
              "from_bm25_only": [cid for cid in ranked if cid not in vec]}
     return [SourceChunk(**{**by_id[cid].__dict__, "score": round(score[cid], 6)}) for cid in ranked], trace
+
+
+_ARTICLE = re.compile(r"(?m)^\s*(?:Điều|ĐIỀU|Article)\s+\d+[.:]")
+ARTICLE_TAIL = 400  # Điều bắt đầu trong 400 ký tự cuối đoạn thì phần thân Điều nằm ở đoạn sau
+
+
+def continue_articles(found: list[SourceChunk], chunks: list[SourceChunk]) -> list[SourceChunk]:
+    """Đoạn được chọn kết thúc ngay sau tiêu đề "Điều N." (thân Điều bị cắt sang đoạn sau) thì lấy kèm đoạn liền sau,
+    đặt ngay sau đoạn đó. 21/11: "Điều 14. Công nhận tốt nghiệp" nằm cuối đoạn 24, các điều kiện a) b) c) ở đoạn 25,
+    mô hình chỉ thấy tiêu đề nên đoán bừa. Chỉ chế độ sản phẩm (gọi trong nhánh hybrid)."""
+    by_pos = {(c.source_id, c.index): c for c in chunks}
+    have = {c.chunk_id for c in found}
+    out: list[SourceChunk] = []
+    for c in found:
+        out.append(c)
+        heads = list(_ARTICLE.finditer(c.text))
+        nxt = by_pos.get((c.source_id, c.index + 1))
+        if heads and len(c.text) - heads[-1].start() <= ARTICLE_TAIL and nxt and nxt.chunk_id not in have:
+            out.append(SourceChunk(**{**nxt.__dict__, "score": c.score}))
+            have.add(nxt.chunk_id)
+    return out

@@ -1,4 +1,4 @@
-"""Đợt 10: OCR bằng Tesseract cục bộ — báo rõ khi chưa cài/thiếu tiếng Việt; gọi đúng ngôn ngữ vie+eng."""
+"""Đợt 10: OCR bằng Tesseract cục bộ — báo rõ khi chưa cài/thiếu tiếng Việt; gọi đúng ngôn ngữ vie."""
 import subprocess
 from types import SimpleNamespace
 
@@ -28,7 +28,7 @@ def test_image_ocr_calls_tesseract_with_vietnamese(monkeypatch):
     monkeypatch.setattr(ocr, "tesseract_cmd", lambda: "tesseract")
     monkeypatch.setattr(ocr.subprocess, "run", fake_run)
     assert ocr.ocr_image(b"\x89PNG", ".png") == "QUYẾT ĐỊNH\nĐiều 1."
-    assert calls[0][0] == "tesseract" and calls[0][2:] == ["stdout", "-l", "vie+eng"]
+    assert calls[0][0] == "tesseract" and calls[0][2:] == ["stdout", "-l", "vie"]
 
 
 def test_failed_ocr_raises(monkeypatch):

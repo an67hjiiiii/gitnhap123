@@ -1,7 +1,8 @@
 // So sánh phiên bản (Đợt 4): chọn hai tài liệu, đối chiếu theo Chương/Điều/Khoản bằng mã, lọc loại thay đổi,
 // xem song song có tô chỗ khác, mở nguồn, xuất Word/Excel, lưu vào Kết quả. Không gọi mô hình; quyền kiểm ở máy chủ.
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRight, Archive, BookOpen, CheckCircle2, FileDown, FileSpreadsheet, GitCompareArrows, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Archive, BookOpen, CheckCircle2, ChevronDown, FileDown, FilePlus2, FileSpreadsheet, Filter, GitCompareArrows, Info, Sparkles } from 'lucide-react';
+import { FileIcon } from './FileIcon';
 import { canSaveReports, compareVersions, documentValidity, DocValidity, exportDocx, saveReport, VersionCompare, VersionItem } from '../services/api';
 import { ToolHeader } from './analysis/shared';
 import { saveBlob } from './analysis/exporters';
@@ -76,10 +77,19 @@ export const CompareView: React.FC<{ docs: Doc[]; workspaceId?: number | string;
         {error && <p className="note is-error" role="alert">{error}</p>}
 
         <section className="dz-card cv-pick" aria-label="Chọn hai phiên bản">
-          <label><span>Bản cũ</span><select value={oldId} onChange={e => setOldId(e.target.value)}><option value="">Chọn tài liệu…</option>{docs.map(d => <option key={String(d.id)} value={String(d.id)}>{d.source_file}</option>)}</select></label>
-          <span className="cv-arrow" aria-hidden="true"><ArrowRight size={18} /></span>
-          <label><span>Bản mới</span><select value={newId} onChange={e => setNewId(e.target.value)}><option value="">Chọn tài liệu…</option>{docs.map(d => <option key={String(d.id)} value={String(d.id)}>{d.source_file}</option>)}</select></label>
-          <button className="btn btn-dark" onClick={() => run()} disabled={busy || !oldId || !newId}>{busy ? <><span className="spin" />Đang đối chiếu…</> : <><GitCompareArrows size={15} />So sánh</>}</button>
+          {(['old', 'new'] as const).map((side, k) => { const id = side === 'old' ? oldId : newId; const set = side === 'old' ? setOldId : setNewId;
+            return <React.Fragment key={side}>
+              {k === 1 && <button type="button" className="cv-swap" onClick={() => { setOldId(newId); setNewId(oldId); }} disabled={!oldId && !newId} aria-label="Đổi chỗ bản cũ và bản mới" title="Đổi chỗ"><ArrowLeftRight size={16} /></button>}
+              <label className={`cv-slot is-${side}${id ? ' is-set' : ''}`}>
+                <span className="cv-slot-tag">{side === 'old' ? 'Bản cũ' : 'Bản mới'}</span>
+                <span className="cv-slot-box">
+                  <span className="cv-slot-ico" aria-hidden="true">{id ? <FileIcon name={nameOf(id)} size={26} /> : <FilePlus2 size={18} />}</span>
+                  <select value={id} onChange={e => set(e.target.value)} aria-label={side === 'old' ? 'Chọn bản cũ' : 'Chọn bản mới'}>
+                    <option value="">{docs.length ? 'Chọn tài liệu…' : 'Chưa có tài liệu'}</option>{docs.map(d => <option key={String(d.id)} value={String(d.id)}>{d.source_file}</option>)}</select>
+                  <ChevronDown size={16} className="cv-slot-car" aria-hidden="true" />
+                </span>
+              </label></React.Fragment>; })}
+          <button className="btn cv-go" onClick={() => run()} disabled={busy || !oldId || !newId}>{busy ? <><span className="spin" />Đang đối chiếu…</> : <><GitCompareArrows size={16} />So sánh</>}</button>
           {pairs.length > 0 && <div className="cv-pairs"><Sparkles size={14} /><span>Gợi ý từ theo dõi tài liệu thay thế:</span>
             {pairs.map(p => <button key={p.old.source_id + p.new.source_id} type="button" onClick={() => { setOldId(p.old.source_id); setNewId(p.new.source_id); void run(p.old.source_id, p.new.source_id); }}>
               {p.new.number || p.new.source_name} thay thế {p.old.number || p.old.source_name}</button>)}</div>}
@@ -114,8 +124,20 @@ export const CompareView: React.FC<{ docs: Doc[]; workspaceId?: number | string;
         </>}
         {!result && !busy && <section className="dz-card cv-intro">
           <h3>Cách dùng</h3>
-          <ol><li>Chọn bản cũ và bản mới (hoặc bấm một cặp gợi ý).</li><li>Bấm So sánh: mỗi Điều được ghép theo số và tiêu đề.</li><li>Bấm các ô số để lọc Thêm, Sửa, Bỏ, Giữ, Di chuyển; chỗ khác nhau được tô màu.</li><li>Xuất Word hoặc Excel, hoặc lưu vào Kết quả để mở lại.</li></ol>
-          <p>Văn bản không có "Điều N" thì so theo tiêu đề mục. Chưa hỗ trợ bảng biểu và văn bản scan chưa nhận dạng chữ.</p>
+          <ol className="cv-steps">
+            {[
+              { Icon: FilePlus2, b: 'Chọn hai bản', t: 'Bản cũ và bản mới, hoặc bấm một cặp gợi ý.' },
+              { Icon: GitCompareArrows, b: 'Bấm So sánh', t: 'Mỗi Điều được ghép theo số và tiêu đề.' },
+              { Icon: Filter, b: 'Lọc thay đổi', t: 'Bấm các ô số để chỉ xem loại cần xem; chỗ khác được tô màu.' },
+              { Icon: FileDown, b: 'Xuất hoặc lưu', t: 'Tải Word, Excel hoặc lưu vào Kết quả để mở lại.' },
+            ].map(({ Icon, b, t }, i) => <li key={b}><span className="cv-step-n">{i + 1}</span><span className="cv-step-ico" aria-hidden="true"><Icon size={17} /></span><b>{b}</b><small>{t}</small></li>)}
+          </ol>
+          <div className="cv-legend" aria-label="Chú giải màu">
+            <span>Chú giải:</span>
+            {ORDER.filter(c => c !== 'MOVED_MODIFIED').map(c => <span key={c} className={`skc-badge is-${changeTone(c)}`}>{CHANGE_LABEL[c]}</span>)}
+            <span className="cv-legend-mk"><mark className="cv-del">chữ bị bỏ</mark><mark className="cv-add">chữ thêm mới</mark></span>
+          </div>
+          <p className="cv-note"><Info size={14} />Văn bản không có "Điều N" thì so theo tiêu đề mục. Chưa hỗ trợ bảng biểu và văn bản scan chưa nhận dạng chữ.</p>
         </section>}
       </div>
       {reader && <DocumentReader sourceId={reader.id} sourceName={reader.name} onClose={() => setReader(null)} />}

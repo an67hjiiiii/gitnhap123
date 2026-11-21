@@ -17,6 +17,7 @@ import '../styles/landing-2026.css';
 import '../styles/landing-paper.css';
 import { PaperStage, StorySky, storyFx, PAPER_CHAPTERS, PAPERS } from '../components/landing/PaperStory';
 import { sfx, setSound, soundPref } from '../components/landing/sound';
+import { armIntro } from '../components/StudioIntro';
 gsap.registerPlugin(useGSAP, ScrollTrigger, ScrollSmoother, SplitText);
 // Thanh địa chỉ trên điện thoại co giãn không làm ScrollTrigger đo lại toàn trang (gây giật).
 ScrollTrigger.config({ ignoreMobileResize: true, limitCallbacks: true });
@@ -672,7 +673,7 @@ export function LandingPage() {
           {soundOn ? <Volume2 size={18}/> : <VolumeX size={18}/>}
         </button>
         <Link to="/login" className="lp-login">Đăng nhập</Link>
-        <Link to="/studio" className="lp-btn">Mở Studio <ArrowUpRight size={16}/></Link>
+        <Link to="/studio" onClick={armIntro} className="lp-btn">Mở Studio <ArrowUpRight size={16}/></Link>
         <button className="lp-menu-btn" aria-label={menuOpen ? 'Đóng menu' : 'Mở menu'} aria-expanded={menuOpen} aria-controls="lp-mobile-nav" onClick={() => { sfx.tick(!menuOpen); setMenuOpen(!menuOpen); }}>{menuOpen ? <X size={22}/> : <Menu size={22}/>}</button>
       </div>
     </header>
@@ -696,7 +697,7 @@ export function LandingPage() {
           </p>
           <p className="lp-hero-sub">OrchestrIQ Studio chia một câu hỏi kỹ thuật cho ba tác tử chuyên môn. Mỗi tác tử chỉ đọc phần tài liệu nó cần, rồi kết quả được ghép thành một câu trả lời có thể kiểm tra lại. Tất cả chạy trên máy của bạn.</p>
           <div className="lp-hero-actions">
-            <Link to="/studio" className="lp-btn lp-btn-lg">Mở Studio <ArrowUpRight size={18}/></Link>
+            <Link to="/studio" onClick={armIntro} className="lp-btn lp-btn-lg">Mở Studio <ArrowUpRight size={18}/></Link>
             <button type="button" className="lp-link lp-play-link" onClick={() => { setVideoOpen(true); sfx.tick(); }}><span><Play size={14} fill="currentColor"/></span>Xem video 1 phút</button>
           </div>
           {systemReduced && !fullMotion && <p className="lp-motion-notice">Thiết bị đang bật giảm chuyển động. <button type="button" onClick={() => setFullMotion(true)}>Bật hiệu ứng cho trang này</button></p>}
@@ -910,7 +911,7 @@ export function LandingPage() {
         <div className="lp-wrap lp-cta-inner">
           <CtaTitle onRipple={ctaRipple}/>
           <p>Nạp tài liệu dự án, đặt một câu hỏi và xem ba tác tử phối hợp.</p>
-          <div className="lp-hero-actions"><Link to="/studio" className="lp-btn lp-btn-lg lp-btn-light" onPointerMove={magnet} onPointerLeave={unmagnet}>Mở Studio <ArrowUpRight size={18}/></Link><Link to="/login" className="lp-link" onPointerMove={magnet} onPointerLeave={unmagnet}>Đăng nhập <ArrowRight size={16}/></Link></div>
+          <div className="lp-hero-actions"><Link to="/studio" onClick={armIntro} className="lp-btn lp-btn-lg lp-btn-light" onPointerMove={magnet} onPointerLeave={unmagnet}>Mở Studio <ArrowUpRight size={18}/></Link><Link to="/login" className="lp-link" onPointerMove={magnet} onPointerLeave={unmagnet}>Đăng nhập <ArrowRight size={16}/></Link></div>
         </div>
       </section>
     </main>
@@ -920,7 +921,7 @@ export function LandingPage() {
       <div className="lp-wrap lp-footer-grid">
         <div className="lp-footer-brand"><BrandLogo theme="dark"/><p>Điều phối thích ứng cho hệ thống Multi-Agent LLM, chạy trọn trên máy của bạn.</p></div>
         <nav aria-label="Liên kết chân trang"><strong>Khám phá</strong>{NAV.map(([href, label]) => <a key={href} href={href} className="lp-flink">{label}</a>)}</nav>
-        <div><strong>Bắt đầu</strong><Link to="/studio" className="lp-flink">Không gian làm việc</Link><Link to="/login" className="lp-flink">Đăng nhập</Link>
+        <div><strong>Bắt đầu</strong><Link to="/studio" onClick={armIntro} className="lp-flink">Không gian làm việc</Link><Link to="/login" className="lp-flink">Đăng nhập</Link>
           <button type="button" className="lp-motion-setting" aria-pressed={fullMotion} onClick={() => setFullMotion(value => !value)}>{fullMotion ? 'Hiệu ứng: đầy đủ' : 'Hiệu ứng: theo thiết bị'}</button></div>
         <div><strong>Hỗ trợ</strong><a href="#hoi-dap" className="lp-flink">Câu hỏi thường gặp</a><Link to="/register" className="lp-flink">Tạo tài khoản</Link></div>
       </div>

@@ -1,3 +1,4 @@
+import { FileIcon } from './FileIcon';
 import React, { useRef, useState, useMemo } from 'react';
 import { Plus, MoreHorizontal, Search, Sparkles, Zap, Trash2, Eye, FileText, Database, FileSpreadsheet, FileCode, Lock, UploadCloud, Globe, UsersRound, ShieldCheck, ShieldAlert, FilePen, ChevronDown, Check } from 'lucide-react';
 import { DocumentInfo, User } from '../types';
@@ -47,14 +48,6 @@ function domainOf(doc: DocumentInfo): Exclude<Domain, 'all'> | null {
   return null;
 }
 
-function FileIcon({ doc }: { doc: DocumentInfo }) {
-  const ext = doc.source_file.split('.').pop()?.toLowerCase();
-  const type = doc.file_type.toLowerCase();
-  if (ext === 'sql' || type.includes('sql')) return <Database size={15} />;
-  if (ext === 'pdf' || type.includes('pdf')) return <FileSpreadsheet size={15} />;
-  if (ext === 'md' || type.includes('markdown')) return <FileText size={15} />;
-  return <FileCode size={15} />;
-}
 
 // Kho tri thức hiển thị như một mục trong thanh bên.
 export const LeftPanel: React.FC<LeftPanelProps> = ({
@@ -79,6 +72,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   React.useEffect(() => { setAud(null); if (spaceId) getAudience(spaceId).then(setAud).catch(() => setAud(null)); }, [spaceId, documents.length]);
   const blocked = (c: Classification) => aud?.counts[c] === null;
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [scopeDrop, setScopeDrop] = useState({ up: false, max: 360 });  // hướng mở và chiều cao theo chỗ trống trên màn hình
   const closeScope = React.useCallback(() => setScopeOpen(false), []);
   const scopeRef = useDismiss(scopeOpen, closeScope);  // mức cần đơn vị mà bạn không thuộc đơn vị nào
   const safeDefault = orgLevel === 'EXECUTIVE' && levels.includes('COMPANY') ? 'COMPANY' : 'DEPARTMENT';
@@ -87,16 +81,18 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   React.useEffect(() => { if (orgLevel) setLevel(safeDefault); }, [orgLevel, safeDefault]);
   React.useEffect(() => { if (blocked(level)) setLevel(levels.find(c => !blocked(c)) ?? 'PRIVATE'); }, [aud]);
 
-  const processFile = async (file: File) => {
-    try {
-      setStatus({ text: `Đang phân đoạn ${file.name}…`, tone: 'info' });
-      await onUpload(file, orgLevel ? { classification: level } : undefined);
-      setStatus({ text: `Đã thêm ${file.name}`, tone: 'ok' });
-      setTimeout(() => setStatus(null), 3000);
-    } catch (err: any) {
-      setStatus({ text: `Lỗi: ${err.message}`, tone: 'error' });
-      setTimeout(() => setStatus(null), 4000);
+  // nhiều tệp: nạp lần lượt (Ollama nhúng từng tệp), tệp lỗi không chặn tệp sau
+  const processFiles = async (list: FileList | File[]) => {
+    const files = Array.from(list); const errors: string[] = [];
+    for (const [i, file] of files.entries()) {
+      setStatus({ text: files.length > 1 ? `Đang nạp ${i + 1}/${files.length}: ${file.name}…` : `Đang phân đoạn ${file.name}…`, tone: 'info' });
+      try { await onUpload(file, orgLevel ? { classification: level } : undefined); }
+      catch (err: any) { errors.push(`${file.name}: ${err.message}`); }
     }
+    const ok = files.length - errors.length;
+    setStatus(errors.length ? { text: `${ok ? `Đã thêm ${ok}/${files.length} tệp. ` : ''}Lỗi: ${errors.join('; ')}`, tone: 'error' }
+      : { text: files.length > 1 ? `Đã thêm ${files.length} tệp` : `Đã thêm ${files[0]?.name}`, tone: 'ok' });
+    setTimeout(() => setStatus(null), errors.length ? 6000 : 3000);
   };
   const onDrag = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -105,21 +101,57 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
   };
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false);
-    if (e.dataTransfer.files?.[0]) await processFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files?.length) await processFiles(e.dataTransfer.files);
   };
+
+  // mở/thu kho trong thanh bên; nhớ theo trình duyệt (chỉ là tiện ích, lỗi bộ nhớ thì mặc định thu gọn)
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('studio-kb-open') === '1'; } catch { return false; } });
+  const toggle = (v: boolean) => { setOpen(v); try { localStorage.setItem('studio-kb-open', v ? '1' : '0'); } catch { /* bỏ qua */ } };
+  const failed = documents.filter(d => d.status === 'failed').length;
+  const busy = documents.filter(d => d.status === 'processing').length;
+  const ready = documents.length - failed - busy;
+  const state = isUploading || status?.tone === 'info' ? { tone: 'warn', text: 'Đang nạp tài liệu…' }
+    : failed ? { tone: 'bad', text: `${failed} tệp lỗi xử lý` }
+    : busy ? { tone: 'warn', text: `Đang xử lý ${busy} tệp` }
+    : documents.length ? { tone: 'ok', text: 'Sẵn sàng truy xuất' } : { tone: 'idle', text: 'Chưa có tài liệu' };
+  const upload = <button id="knowledge-upload-dropzone" className="icon-btn is-sm" onClick={() => fileInputRef.current?.click()} aria-label="Tải lên tài liệu" title="Thêm tài liệu (PDF, Word, Excel, Markdown, TXT, SQL)"><Plus size={16} /></button>;
+  const fileInput = <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff" multiple hidden onChange={async e => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; if (fs.length) await processFiles(fs); }} />;
 
   const docs = useMemo(() => documents.filter(doc =>
     (!softwareFilter || domain === 'all' || domainOf(doc) === domain || doc.domain_tags.some(t => t.toLowerCase().includes(domain))) &&
     doc.source_file.toLocaleLowerCase('vi').includes(searchTerm.trim().toLocaleLowerCase('vi'))
   ), [documents, domain, searchTerm]);
 
+  if (!open) return (
+    <div className={`kb is-folded${dragActive ? ' is-drag' : ''}`} onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}>
+      {fileInput}
+      <div className="kb-sum">
+        <button type="button" className="kb-sum-main" onClick={() => toggle(true)} aria-expanded="false" title="Mở danh sách tài liệu">
+          <span className="sb-ico" data-tone="kb" aria-hidden="true"><Database size={16} strokeWidth={2} /></span>
+          <span className="kb-sum-t"><b>Kho tri thức</b><small>{documents.length} tài liệu · {totalChunks} đoạn</small></span>
+          <span className="kb-bar" role="progressbar" aria-label="Tài liệu đã lập chỉ mục" aria-valuemin={0} aria-valuemax={documents.length} aria-valuenow={ready}>
+            <i style={{ width: documents.length ? `${(ready / documents.length) * 100}%` : '0%' }} /></span>
+          <span className={`kb-state is-${state.tone}`} role="status"><i aria-hidden="true" />{state.text}
+            {documents.length > 0 && <em title="Đã lập chỉ mục / tổng số">{ready}/{documents.length}</em>}
+            <ChevronDown size={15} className="kb-caret" aria-hidden="true" /></span>
+        </button>
+        {upload}
+      </div>
+      {status?.tone === 'error' && <p className="kb-status is-error" role="status">{status.text}</p>}
+      {dragActive && <div className="kb-drop" aria-hidden="true"><UploadCloud size={22} />Thả tệp để thêm vào kho</div>}
+    </div>
+  );
+
   return (
     <div className={`kb${dragActive ? ' is-drag' : ''}`} onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}>
-      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff" hidden onChange={async e => { if (e.target.files?.[0]) await processFile(e.target.files[0]); e.target.value = ''; }} />
+      {fileInput}
       <div className="kb-head">
-        <span className="kb-title">Kho tri thức</span>
-        <span className="kb-count" title={`${totalChunks} phân đoạn`}>{documents.length}</span>
-        <button id="knowledge-upload-dropzone" className="icon-btn is-sm" onClick={() => fileInputRef.current?.click()} aria-label="Tải lên tài liệu" title="Thêm tài liệu (PDF, Word, Excel, Markdown, TXT, SQL)"><Plus size={16} /></button>
+        <button type="button" className="kb-toggle" onClick={() => toggle(false)} aria-expanded="true" title="Thu gọn kho tri thức">
+          <ChevronDown size={15} className="kb-caret" aria-hidden="true" />
+          <span className="kb-title">Kho tri thức</span>
+          <span className="kb-count" title={`${totalChunks} phân đoạn`}>{documents.length}</span>
+        </button>
+        {upload}
         <div className="sb-pop" ref={menuRef}>
           <button className="icon-btn is-sm" onClick={() => setMenuOpen(!menuOpen)} aria-label="Thêm thao tác với kho tri thức" aria-expanded={menuOpen} aria-haspopup="menu"><MoreHorizontal size={16} /></button>
           {menuOpen && (
@@ -138,13 +170,17 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
         return <div className={`og-scope${scopeOpen ? ' is-open' : ''}`} ref={scopeRef}>
           <span className="og-scope-label" id="og-scope-label">Tài liệu tải lên sẽ hiện với</span>
           <button type="button" className={`og-scope-cur is-${level.toLowerCase()}`} aria-haspopup="listbox" aria-expanded={scopeOpen} aria-labelledby="og-scope-label og-scope-cur" id="og-scope-cur"
-            onClick={() => setScopeOpen(v => !v)}>
+            onClick={e => {
+              const r = e.currentTarget.getBoundingClientRect(), below = innerHeight - r.bottom - 16, above = r.top - 48;
+              const up = below < 300 && above > below;
+              setScopeDrop({ up, max: Math.max(140, up ? above : below) }); setScopeOpen(v => !v);
+            }}>
             <span className="og-scope-ico" aria-hidden="true"><Cur size={15} /></span>
             <span className="og-scope-txt"><b>{scopeTitle(t, level, aud?.unit_name)}</b>
               <small>{level === 'PRIVATE' ? 'Bản nháp, công bố sau' : typeof n === 'number' ? `${n} người xem được` : t.cls[level]}</small></span>
             <ChevronDown size={15} className="og-scope-caret" aria-hidden="true" />
           </button>
-          {scopeOpen && <div className="og-scope-list" role="listbox" aria-labelledby="og-scope-label">
+          {scopeOpen && <div className={`og-scope-list${scopeDrop.up ? ' is-up' : ''}`} style={{ maxHeight: scopeDrop.max }} role="listbox" aria-labelledby="og-scope-label">
             {levels.map(c => { const Icon = SCOPE_ICON[c]; const k = aud?.counts[c]; const off = blocked(c);
               return <button key={c} type="button" role="option" aria-selected={level === c} disabled={off}
                 className={`og-scope-opt is-${c.toLowerCase()}${level === c ? ' is-on' : ''}`} onClick={() => { setLevel(c); setScopeOpen(false); }}>
@@ -180,7 +216,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
           const d = domainOf(doc);
           return (
             <div key={doc.id || idx} className="kb-row" title={doc.owner ? `${doc.source_file}\nTải lên bởi: ${doc.mine ? 'bạn' : doc.owner}` : doc.source_file}>
-              <span className={`kb-ic is-${d ?? 'none'}`}><FileIcon doc={doc} /></span>
+              <span className="kb-ic is-file"><FileIcon name={doc.source_file} size={24} /></span>
               <span className="kb-name">{doc.source_file}</span>
               {doc.classification && <ClassBadge value={doc.classification} terms={t} />}
               <span className="kb-meta">{doc.status === 'processing' ? <i className="dot is-warn" title="Đang xử lý" /> : doc.status === 'failed' ? <i className="dot is-bad" title="Lỗi xử lý" /> : doc.chunks_count}</span>

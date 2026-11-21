@@ -45,7 +45,7 @@ from app.research.progress import emit
 from app.research.synthesizer import synthesize
 from app.research.vanilla import answer_vanilla
 from app.retrieval.text import retrieve, apply_token_budget, estimate_tokens, terms
-from app.retrieval.hybrid import POOL as HYBRID_POOL, fuse as hybrid_fuse
+from app.retrieval.hybrid import POOL as HYBRID_POOL, continue_articles, fuse as hybrid_fuse
 from app.retrieval.multilingual import build_query_variants, detect_language
 from app.storage.source_store import SourceStore
 from app.storage.run_store import RunStore
@@ -90,7 +90,8 @@ class ResearchPipeline:
         variants = build_query_variants(query)
         if hybrid:
             # chỉ chế độ sản phẩm (Đợt 3): vector + BM25 + tiêu đề mục; A/B/C không đi nhánh này
-            return self._retrieve_hybrid(query, variants, chunks, top_k=top_k, min_score=min_score, source_ids=source_ids, trace=fallback_trace)
+            found = self._retrieve_hybrid(query, variants, chunks, top_k=top_k, min_score=min_score, source_ids=source_ids, trace=fallback_trace)
+            return continue_articles(found, chunks)
         if self.candidate_index is None:
             merged: dict[str, SourceChunk] = {}
             for variant in variants:
@@ -409,7 +410,8 @@ class ResearchPipeline:
                     "\n\n".join((query, f"(Câu hỏi tiếp nối. Câu hỏi trước của người dùng: {follow_up})"))
                     if follow_up else query
                 )
-                result = await answer_vanilla(provider, answer_query, selected, metrics, reply_language=answer_language)
+                result = await answer_vanilla(provider, answer_query, selected, metrics, reply_language=answer_language,
+                                              product=product_mode, max_output_tokens=cfg.synthesis_max_output_tokens if product_mode else None)
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                 tasks, task_results = [task], [result]
                 answer = result.answer
@@ -696,6 +698,7 @@ class ResearchPipeline:
                 )
                 task_results = []
                 completed: dict[str, TaskResult] = {}
+                product_evidence: list[str] = []  # đoạn đã đưa cho tác tử: để hậu kiểm con số ở bước tổng hợp (chỉ sản phẩm)
                 per_task_budget = max(256, cfg.max_context_tokens // max(1, len(tasks)))
                 controller = ContextController(max_chars=per_task_budget * 3)
                 budget_plan = None
@@ -755,7 +758,9 @@ class ResearchPipeline:
                     )
                     g0 = time.perf_counter()
                     upstream = [completed[d] for d in task.depends_on if d in completed]
-                    result = await execute_task(provider, task, selected, metrics, reply_language=answer_language, upstream=upstream)
+                    result = await execute_task(provider, task, selected, metrics, reply_language=answer_language, upstream=upstream,
+                                                product=product_mode, user_request=query if product_mode else None)
+                    product_evidence.extend(c.text for c in selected)
                     metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                     completed[task.task_id] = result
                     task_results.append(result)
@@ -766,7 +771,8 @@ class ResearchPipeline:
                 g0 = time.perf_counter()
                 # Ô chat sản phẩm: nới giới hạn để câu trả lời nhiều ý không bị cắt; thực nghiệm giữ nguyên.
                 synth_limit = cfg.synthesis_max_output_tokens if product_mode else None
-                answer = await synthesize(provider, query, task_results, metrics, reply_language=answer_language, max_output_tokens=synth_limit)
+                answer = await synthesize(provider, query, task_results, metrics, reply_language=answer_language, max_output_tokens=synth_limit,
+                                          evidence_text="\n".join(product_evidence) if product_mode else None)
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
 
             status = "COMPLETE" if task_results and all(r.status == "COMPLETE" for r in task_results) else "PARTIAL"

@@ -3,9 +3,11 @@
 import React, { useEffect, useState } from 'react';
 import { BellRing, CheckCheck, ClipboardList, FilePlus2, Inbox, RefreshCw, Send, ShieldCheck, Undo2 } from 'lucide-react';
 import {
-  createRequest, decideRequest, requestApprovers, getNotifications, listRequests, markNotificationsRead, OrgNotification, OrgRequest, runSkill, withdrawRequest,
+  createRequest, decideRequest, requestApprovers, getNotifications, listRequests, markNotificationsRead, OrgNotification, OrgRequest, runSkill, withdrawRequest, checkConditions,
 } from '../services/api';
 import { suggestLevel } from '../utils/approverLevel';
+
+const LEAVE_QUESTION = 'Đơn nghỉ phép này có đủ điều kiện theo nội quy và quy định của đơn vị không: thời hạn gửi đơn trước bao nhiêu ngày, số ngày nghỉ, thâm niên, bàn giao công việc, mùa hạn chế nghỉ?';
 import { ToolHeader } from './analysis/shared';
 import '../styles/pages-2b.css';
 
@@ -51,7 +53,9 @@ export const TasksView: React.FC<Props> = ({ spaceId, spaceName, docIds, levelNa
       const ask = askText();
       const [approver, conditions] = await Promise.all([
         runSkill('approver', ask, docIds).catch(() => null),
-        form.kind === 'leave' ? runSkill('conditions', ask, docIds).catch(() => null) : Promise.resolve(null),
+        // câu hỏi nêu rõ điều cần xét, trường hợp là nội dung đơn + ngày gửi (cùng một chuỗi cho cả hai thì kỹ năng không biết xét gì)
+        form.kind === 'leave' ? checkConditions(LEAVE_QUESTION, `${ask}. Ngày gửi đơn: ${new Date().toLocaleDateString('vi-VN')}.`, docIds)
+          .then(data => ({ data })).catch(() => null) : Promise.resolve(null),
       ]);
       const a: any = approver?.data, c: any = conditions?.data;
       const result = {

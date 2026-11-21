@@ -214,12 +214,6 @@ export const Header: React.FC<SidebarProps> = ({
         </div>
         {rail && <span className="sb-tip" ref={tipRef} hidden aria-hidden="true" />}
 
-        {user && <button type="button" className="sb-kb2" onClick={() => go('library')} title={ollamaOk ? `Mô hình ${health?.ollama_model ?? ''} sẵn sàng` : 'Chưa kết nối mô hình: chạy Ollama (Ctrl+Shift+B)'}
-          aria-label={`Kho tri thức: ${docCount} tài liệu, ${chunkCount} đoạn, mô hình ${ollamaOk ? 'sẵn sàng' : 'chưa kết nối'}`}>
-          <i className={ollamaOk ? 'is-ok' : 'is-warn'} aria-hidden="true" />
-          <span><b>{docCount}</b> tài liệu · <b>{chunkCount}</b> đoạn</span>
-          <small>{ollamaOk ? (health?.ollama_model || 'mô hình sẵn sàng') : 'chưa có mô hình'}</small>
-        </button>}
         {bottom}
       </aside>
     </>

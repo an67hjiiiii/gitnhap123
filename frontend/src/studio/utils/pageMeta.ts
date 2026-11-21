@@ -13,6 +13,7 @@ export const PAGE_META: Record<NavigationTab, { title: string; desc: string }> =
   tasks: { title: 'Đơn từ', desc: 'Gửi đơn, kiểm tra theo quy định và duyệt theo cấp.' },
   overview: { title: 'Tổng quan', desc: 'Việc đang dở, cảnh báo kho tài liệu và đơn đang chờ.' },
   organization: { title: 'Tổ chức', desc: 'Thành viên, cấp bậc, đơn vị và mức mật tài liệu.' },
+  notifications: { title: 'Thông báo', desc: 'Lời mời, duyệt trong tổ chức và hoạt động gần đây của tài khoản.' },
   settings: { title: 'Cài đặt', desc: 'Hồ sơ, giao diện, nguồn tài liệu và thông tin hệ thống.' },
   evaluation: { title: 'Phòng đánh giá', desc: 'Chạy các điều kiện A, B, C trên cùng bộ câu hỏi.' },
   benchmarks: { title: 'Thực nghiệm', desc: 'Nhật ký lượt chạy và so sánh ba phương pháp.' },

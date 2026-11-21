@@ -1,5 +1,6 @@
 from __future__ import annotations
 import threading
+import time
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ from app.core.config import RuntimeConfig
 from app.ingestion.documents import (
     DOCUMENT_INGESTION_VERSION,
     DocumentTypeError,
+    MAX_DOCUMENT_BYTES,
     extract_document,
 )
 from app.providers.ollama import OllamaProvider
@@ -33,7 +35,7 @@ from app.research.run_queue import product_runs
 from app.core.secret_audit import log_secret_access, run_read_source_ids, source_ids_of_chunks
 from app.analysis.watch import notify_findings, watch_findings
 from app.ingestion.shared_folder import list_shared_files, shared_root
-from app.ingestion.ocr import IMAGE_EXTENSIONS, ocr_image, ocr_pdf, ocr_status
+from app.ingestion.ocr import IMAGE_EXTENSIONS, LANGS, ocr_image, ocr_pdf, ocr_status
 from app.research.registry import PACKS, WORK_PACK
 from app.research.conversation_context import build_conversation_context
 from app.storage.run_store import RunStore
@@ -283,11 +285,21 @@ def config():
     cfg = RuntimeConfig.from_env()
     return {**cfg.public_dict(), "allowed_conditions": cfg.allowed_conditions(), "config_hash": cfg.config_hash()}
 
+_MODEL_HEALTH: dict = {"at": 0.0, "value": None}
+
+
 @app.get("/api/local-model/health")
 async def local_model_health():
+    # Ollama mất ~0,7 giây để liệt kê mô hình, giao diện hỏi lại mỗi 15 giây và mỗi lần đổi trang: nhớ kết quả TỐT trong 10 giây.
+    # Kết quả lỗi không nhớ, để Ollama vừa bật lại là thấy ngay.
+    if _MODEL_HEALTH["value"] is not None and time.monotonic() - _MODEL_HEALTH["at"] < 10:
+        return _MODEL_HEALTH["value"]
     try:
-        return await OllamaProvider().health()
+        value = await OllamaProvider().health()
+        _MODEL_HEALTH.update(at=time.monotonic(), value=value)
+        return value
     except Exception as exc:
+        _MODEL_HEALTH["value"] = None
         return {"ok": False, "error": str(exc), "configured_model": os.getenv("LOCAL_LLM_MODEL", "qwen3:4b")}
 
 @app.get("/api/sources")
@@ -362,8 +374,8 @@ async def import_file(request: Request, file: UploadFile = File(...)):
     if request.query_params.get("space_id"):  # nộp tài liệu vào tổ chức (kèm mức mật) làm ở đợt sau
         raise HTTPException(400, "Chưa hỗ trợ tải tài liệu trực tiếp vào không gian tổ chức.")
     data = await file.read()
-    if len(data) > 2_000_000:
-        raise HTTPException(413, "Files must be no larger than 2 MB")
+    if len(data) > MAX_DOCUMENT_BYTES:
+        raise HTTPException(413, "Files must be no larger than 20 MB")
 
     source_name = file.filename or "upload.txt"
     request.state.audit_target = source_name
@@ -419,7 +431,7 @@ def _import_ocr(user: dict, source_name: str, run_ocr) -> dict:
     if not text.strip():
         raise HTTPException(422, "OCR_NO_TEXT")
     store = owner_source_store(user)
-    imported = store.import_text(source_name, text, provenance={"origin": "upload", "ocr": "tesseract", "ocr_langs": "vie+eng"})
+    imported = store.import_text(source_name, text, provenance={"origin": "upload", "ocr": "tesseract", "ocr_langs": LANGS})
     return _watch_new_source(user, store, _index_imported_source(user, store, imported))
 
 
@@ -427,6 +439,25 @@ def _import_ocr(user: dict, source_name: str, run_ocr) -> dict:
 def ocr_status_endpoint(request: Request):
     current_user(request)
     return ocr_status()
+
+
+@app.post("/api/ocr-image")  # ảnh dán vào ô chat: chỉ đọc chữ để hỏi, không lưu vào kho
+async def ocr_image_endpoint(request: Request, file: UploadFile = File(...)):
+    current_user(request)
+    data = await file.read()
+    if len(data) > 10_000_000:
+        raise HTTPException(413, "Ảnh vượt quá 10 MB.")
+    suffix = os.path.splitext(file.filename or "")[1].lower()
+    if suffix not in IMAGE_EXTENSIONS:
+        raise HTTPException(415, "UNSUPPORTED_DOCUMENT_TYPE")
+    status = ocr_status()
+    if not status["available"]:
+        raise HTTPException(422, f"OCR_UNAVAILABLE: {status['reason']}")
+    try:
+        text = ocr_image(data, suffix)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        raise HTTPException(422, f"OCR_FAILED: {type(exc).__name__}") from exc
+    return {"text": text.strip()}
 
 
 @app.get("/api/shared-folder")  # không đặt dưới /api/sources/ để khỏi trùng /api/sources/{source_id}

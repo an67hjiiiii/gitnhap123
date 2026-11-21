@@ -169,7 +169,10 @@ def test_contract_risks_need_verbatim_quote():
     ]}
     with use_pack("legal_admin"):
         out = run(dt.contract_risks(Provider(payload), [CONTRACT]))
-    assert [r["level"] for r in out["risks"]] == ["HIGH", "MEDIUM"] and out["removed"] == 1
+    # 21/11: phạt 20% > 8% (Luật Thương mại Điều 301) nên luật cố định nâng mức MEDIUM của mô hình lên HIGH
+    assert [r["level"] for r in out["risks"]] == ["HIGH", "HIGH"] and out["removed"] == 1
+    assert any("8%" in r["reason"] for r in out["risks"])
+    assert not any(r["reason"].startswith("Mức phạt cao") for r in out["risks"])  # lý do nhẹ của mô hình được thay, không nối
     assert len(dt.CONTRACT_CRITERIA) == 9 and sum(1 for c in dt.CONTRACT_CRITERIA if c[2] == "Điều 398 BLDS 2015") == 7
 
 
@@ -353,3 +356,69 @@ def test_approver_by_days_colon_and_must_be_approved_forms():
     assert dt.approver_by_days("Nghỉ 3 ngày", "3. Nghỉ từ 3 ngày liên tiếp trở lên phải được Giám đốc phê duyệt.") == "Giám đốc"
     assert dt.approver_by_days("Nghỉ 6 ngày", "Nghỉ phép từ 5 ngày trở lên do Giám đốc duyệt; dưới 5 ngày do Trưởng phòng duyệt.") == "Giám đốc"
     assert dt.approver_by_days("Xin nghỉ phép", rule) is None
+
+
+def test_validity_reads_number_before_het_hieu_luc():
+    """21/11: Luật GDĐT 2023 viết "Luật … số\n51/2005/QH11\nhết hiệu lực kể từ ngày Luật này có hiệu lực" (số hiệu đứng trước, ngắt dòng)."""
+    from datetime import date
+    from app.analysis.domain_tools import document_validity
+    old = ("src_old", "luat2005.docx", "QUỐC HỘI\nSố: 51/2005/QH11\nLUẬT GIAO DỊCH ĐIỆN TỬ\nLuật này có hiệu lực thi hành từ ngày 01 tháng 3 năm 2006.")
+    new = ("src_new", "luat2023.docx", "QUỐC HỘI\nLuật số:\n20/2023/QH15\nLUẬT GIAO DỊCH ĐIỆN TỬ\nĐiều 52. Hiệu lực thi hành\n"
+           "1. Luật này có hiệu lực thi hành từ ngày 01 tháng 7 năm 2024.\n2. Luật Giao dịch điện tử số\n51/2005/QH11\n"
+           "hết hiệu lực kể từ ngày Luật này có hiệu lực thi hành, trừ trường hợp quy định tại Điều 53 của Luật này.\n"
+           "Điều 53. Giao dịch được tiếp tục thực hiện theo Luật Giao dịch điện tử số 51/2005/QH11.")
+    out = {d["source_id"]: d for d in document_validity([old, new], today=date(2026, 11, 21))["documents"]}
+    assert out["src_old"]["status"] == "REPLACED" and "20/2023/QH15" in out["src_old"]["status_note"]
+    assert out["src_new"]["status"] == "IN_FORCE"
+
+
+def test_roster_warning_mode_is_any_and_respects_year():
+    """21/11: xét cảnh báo = thỏa BẤT KỲ ngưỡng của đúng năm học; trước đó 20/20 sinh viên đều 'Không đạt'."""
+    from app.analysis.domain_tools import evaluate_roster
+    rules = [  # Thông tư 08 Điều 11: ĐTB tích lũy theo năm; ĐTB học kỳ < 1,0 (các học kỳ sau học kỳ đầu)
+        {"label": "ĐTB tích lũy", "op": "<", "value": 1.2, "column": 2, "year_min": 1, "year_max": 1},
+        {"label": "ĐTB tích lũy", "op": "<", "value": 1.4, "column": 2, "year_min": 2, "year_max": 2},
+        {"label": "ĐTB tích lũy", "op": "<", "value": 1.8, "column": 2, "year_min": 4, "year_max": None},
+        {"label": "ĐTB học kỳ", "op": "<", "value": 1.0, "column": 3},
+    ]
+    rows = [["SV1", "2", "1,10", "0,72"],   # Nguyễn Văn An: năm 2, 1,10 < 1,4 và 0,72 < 1,0 → bị cảnh báo
+            ["SV2", "1", "1,50", "2,10"],   # năm 1: 1,50 không dưới 1,2 → không bị (dù < 1,8 của năm 4)
+            ["SV3", "4", "1,70", "2,00"],   # năm 4: 1,70 < 1,8 → bị
+            ["SV4", "", "1,30", "2,00"]]    # thiếu năm học → thiếu số liệu
+    out = evaluate_roster(rules, ["Mã", "Năm", "TL", "HK"], rows, 0, mode="any", year_column=1)
+    assert [r["status"] for r in out["results"]] == ["HIT", "CLEAR", "HIT", "MISSING"]
+    assert out["results"][1]["checks"][2]["state"] == "skip"
+    assert out["summary"] == {"total": 4, "HIT": 2, "CLEAR": 1, "MISSING": 1}
+    assert evaluate_roster(rules[3:], ["Mã", "Năm", "TL", "HK"], rows, 0)["summary"]["PASS"] == 1  # chế độ cũ giữ nguyên: chỉ SV1 có HK < 1,0
+
+
+def test_contract_rule_risks_catch_typical_unfair_clauses():
+    """21/11: mô hình 4B bỏ sót phạt 30%, giới hạn bồi thường kể cả cố ý, dùng dữ liệu huấn luyện AI; luật cố định phải bắt được."""
+    from app.core.types import SourceChunk
+    from app.analysis.domain_tools import rule_risks
+    text = ("Bên A vi phạm bất kỳ nghĩa vụ nào phải chịu phạt 30% tổng giá trị hợp đồng. "
+            "Phạt chậm giao hàng 5% giá trị phần chậm giao. "
+            "Tổng trách nhiệm bồi thường của Bên B không vượt quá 5.000.000 đồng, kể cả khi lỗi do Bên B cố ý gây ra. "
+            "Bên B được sử dụng dữ liệu của Bên A để huấn luyện các mô hình trí tuệ nhân tạo của Bên B. "
+            "Hợp đồng tự động gia hạn thêm 03 năm. Hai bên giao hàng tại kho Bên A.")
+    got = rule_risks([SourceChunk(chunk_id="c1", source_id="s", source_name="hd", text=text, index=0)])
+    quotes = " | ".join(r["quote"] for r in got)
+    assert "phạt 30%" in quotes and "5%" not in quotes          # chỉ báo mức phạt vượt 8%
+    assert "cố ý" in quotes and "huấn luyện" in quotes and "tự động gia hạn" in quotes
+    assert "giao hàng tại kho" not in quotes                     # câu bình thường không bị báo
+    assert all(r["citation"] == "c1" and r["rule"] for r in got)
+
+
+def test_warning_rules_drop_continue_conditions_and_keep_year():
+    from app.analysis.domain_tools import warning_rules
+    R = lambda l, o, v, a=None, b=None: {"label": l, "op": o, "value": v, "year_min": a, "year_max": b}
+    got = warning_rules([R("ĐTB tích lũy", ">=", 1.2, 1, 1), R("ĐTB tích lũy", "<", 1.2), R("ĐTB tích lũy", "<", 1.8, 4),
+                         R("ĐTB tích lũy", "<", 1.8), R("Nợ đọng", "<=", 16), R("Không đạt", ">", 50), R("Kỷ luật", ">=", 1)])
+    assert [(r["op"], r["value"], r["year_min"]) for r in got] == [("<", 1.2, 1), ("<", 1.8, 4), (">", 50, None)]
+
+
+def test_warning_rules_drop_yearless_twin_with_other_label_wording():
+    from app.analysis.domain_tools import warning_rules
+    got = warning_rules([{"label": "ĐTB tích lũy", "op": "<", "value": 1.2, "year_min": 1, "year_max": 1},
+                         {"label": "Điểm trung bình tích lũy đạt dưới 1,2", "op": "<", "value": 1.2}])
+    assert [(r["value"], r.get("year_min")) for r in got] == [(1.2, 1)]

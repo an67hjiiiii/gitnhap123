@@ -40,7 +40,8 @@ class OllamaProvider(Provider):
         )
 
     async def generate_grounded(
-        self, *, system: str, user: str, evidence_ids: list[str], on_text: Callable[[str], None] | None = None
+        self, *, system: str, user: str, evidence_ids: list[str], on_text: Callable[[str], None] | None = None,
+        max_output_tokens: int | None = None,
     ) -> ProviderResult:
         # grounded-output-v1: IDs come from selected canonical chunks, not model text.
         schema = {
@@ -57,7 +58,7 @@ class OllamaProvider(Provider):
             "required": ["status", "answer", "citations", "missing_information"],
             "additionalProperties": False,
         }
-        return await self._generate(system=system, user=user, response_schema=schema, on_text=on_text)
+        return await self._generate(system=system, user=user, response_schema=schema, max_output_tokens=max_output_tokens, on_text=on_text)
 
     async def _generate(
         self,
