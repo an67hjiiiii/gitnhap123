@@ -425,3 +425,8 @@ Quyết định thay nhóm (chủ dự án ủy quyền 20/11): khi phải chọ
 - Câu trả lời của mô hình đôi khi là JSON bị cụt; Studio lấy phần trả lời đọc được và ghi chú "bị cắt", không sửa nội dung.
 - Dữ liệu 60 lượt pilot R4 của C1SE.27 **không mang sang**: đo trên backend cũ, không tái lập trên pipeline CAP1.
 - Chưa có kết luận chất lượng nào. Mọi số là số mô tả kỹ thuật.
+
+### Dán ảnh hỏi không cần cài Tesseract (22/11)
+- Ảnh dán vào ô chat (Ctrl+V): máy chủ có Tesseract thì đọc ở máy chủ như cũ; chưa có thì tự đọc ngay trong trình duyệt bằng `tesseract.js` 6.0.1 (bộ máy Tesseract dạng WebAssembly). Bộ máy (`tesseract.js-core`) và dữ liệu tiếng Việt `frontend/public/tessdata/vie.traineddata.gz` (3,8 MB, lấy từ Tesseract 5.4) nằm sẵn trong dự án: thành viên chỉ cần `npm install`, không cài thêm, không cần mạng, ảnh không rời máy.
+- Đo 22/11 trên 5 ảnh mẫu (đã phóng 2 lần như ô chat): giống bản máy chủ 89–99% ký tự, phần khác chủ yếu là dấu và bản trình duyệt thường đúng dấu hơn ("rồi hỏi" thay vì "rôi hoi"). Lần đầu khoảng 2,2 giây (nạp bộ máy), các lần sau khoảng 0,7 giây.
+- Giới hạn: tải tài liệu ảnh/PDF scan vào kho vẫn cần Tesseract trên máy chủ (hoặc chạy bằng Docker, ảnh Docker đã có sẵn).
