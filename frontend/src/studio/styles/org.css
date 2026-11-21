@@ -342,7 +342,9 @@
 .og-scope.is-open .og-scope-cur{border-color:var(--accent)}
 .og-scope-caret{margin-left:auto;flex:none;color:var(--muted);transition:transform .15s}
 .og-scope.is-open .og-scope-caret{transform:rotate(180deg)}
-.og-scope-list{position:absolute;left:0;right:0;top:100%;z-index:40;margin-top:6px;padding:6px;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:14px;background:var(--surface,#fff);box-shadow:0 18px 40px -16px rgba(15,27,43,.4)}
+.og-scope-list{position:absolute;left:0;right:0;top:100%;z-index:40;margin-top:6px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:6px;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:14px;background:var(--surface,#fff);box-shadow:0 18px 40px -16px rgba(15,27,43,.4)}
+.og-scope-list.is-up{top:auto;bottom:100%;margin:0 0 6px}
+/* 22/11: danh sách tự mở lên trên khi phía dưới không đủ chỗ (khung Kho tri thức ở cuối thanh bên cắt mất các mức dưới) và cuộn được */
 .og-scope-opt{border-color:transparent;background:none}
 .og-scope-opt:hover:not(:disabled){background:var(--accent-soft)}
 .og-scope-opt.is-on{background:var(--accent-soft)}

@@ -3,7 +3,7 @@ import asyncio
 from types import SimpleNamespace
 
 from app.core.types import SourceChunk
-from app.retrieval.hybrid import bm25_scores, fuse, heading_match, headings, tokens
+from app.retrieval.hybrid import bm25_scores, continue_articles, fuse, heading_match, headings, tokens
 
 
 def _c(i: int, text: str, src: str = "src_a") -> SourceChunk:
@@ -94,3 +94,22 @@ def test_pipeline_passes_hybrid_only_in_product_mode(monkeypatch):
     src = open(pl.__file__, encoding="utf8").read()
     # mọi lời gọi truy xuất trong pipeline đều gắn với product_mode, không bật cứng
     assert src.count("hybrid=product_mode") == 3 and "hybrid=True" not in src
+
+
+def test_strong_keyword_match_kept_when_vector_misses_it():
+    """v3 (21/11): đoạn khớp từ khóa rất mạnh mà vector bỏ qua vẫn được giữ, không bị RRF đẩy ra khỏi top_k."""
+    rule = _c(9, "Điều 5. Nghỉ hằng năm\nNgười lao động gửi đơn nghỉ phép trên hệ thống trước ít nhất 03 ngày làm việc.", "src_nq")
+    noise = [_c(i, f"Điều {i}. Nội dung chung về lao động, đơn vị số {i} và ngày làm việc.", "src_x") for i in range(10)]
+    vector_order = [c.chunk_id for c in noise]  # vector chỉ thấy các đoạn nhiễu
+    out, trace = fuse("Nhân viên phải gửi đơn nghỉ phép năm trước ít nhất bao nhiêu ngày?", noise + [rule], vector_order, top_k=4)
+    assert rule.chunk_id in [c.chunk_id for c in out] and len(out) == 4
+    assert trace["version"].endswith("v3")
+
+
+def test_article_cut_at_chunk_end_pulls_next_chunk():
+    head = _c(24, "Điều 13. Nội dung cũ rất dài. " + "x" * 600 + "\nĐiều 14. Công nhận tốt nghiệp\n1. Sinh viên được xét khi có đủ các điều kiện sau:", "src_t")
+    body = _c(25, "a) Tích lũy đủ học phần; b) Điểm trung bình tích lũy từ trung bình trở lên; c) Không bị truy cứu trách nhiệm hình sự.", "src_t")
+    other = _c(3, "Điều 3. Phương thức đào tạo.", "src_t")
+    out = continue_articles([head, other], [other, head, body])
+    assert [c.chunk_id for c in out] == [head.chunk_id, body.chunk_id, other.chunk_id]
+    assert [c.chunk_id for c in continue_articles([other], [other, head, body])] == [other.chunk_id]

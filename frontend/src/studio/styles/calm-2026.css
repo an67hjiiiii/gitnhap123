@@ -252,3 +252,46 @@
 .st-app .sb .sb-link .sb-ico svg{width:18px;height:18px;color:#fff;stroke:#fff;filter:drop-shadow(0 1px 1px rgba(0,0,0,.18))}
 .st-app .sb .sb-link{gap:12px}
 @media (min-width:1024px){.st-app .sb.is-rail .sb-link .sb-ico{width:36px;height:36px;border-radius:11px}.st-app .sb.is-rail .sb-link .sb-ico svg{width:20px;height:20px}}
+
+/* ---- khung chat đồng bộ (21/11): một màu nhấn, nút cùng cỡ 34px, mở rộng có vệt sáng chạy viền ---- */
+/* lớp kính giống thanh bên và cụm góc phải; mở ra không bật viền xanh đậm, chỉ sáng nhẹ hơn */
+.st-app .mn.ws .ws-composer{background:var(--glass-strong);border:1px solid var(--glass-edge);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);
+  box-shadow:0 0 0 1px rgba(15,27,43,.06),0 2px 4px rgba(15,27,43,.04),0 22px 48px -26px rgba(15,40,80,.38),inset 0 1px 0 rgba(255,255,255,.9);animation:none}
+.st-app .mn.ws .ws-composer.is-open{border-radius:22px}
+.st-app .mn.ws .ws-thread .ws-composer{border-radius:20px}
+.st-app .mn.ws .ws-composer:focus-within{border-color:var(--glass-edge);box-shadow:0 0 0 1px rgba(29,102,201,.22),0 2px 4px rgba(15,27,43,.04),0 26px 54px -26px rgba(29,80,160,.42),inset 0 1px 0 rgba(255,255,255,.9)}
+.st-app .mn.ws .ws-launch{color:var(--muted)}
+.st-app .mn.ws .ws-composer textarea{padding:14px 18px 4px;font-size:15px}
+.st-app .mn.ws .ws-composer textarea::placeholder{color:var(--muted)}
+.st-app .mn.ws .ws-bar{gap:6px;padding:6px 10px 10px}
+.st-app .mn.ws .ws-bar .ws-mic{width:34px;height:34px;border:0;background:transparent;color:var(--glyph)}
+.st-app .mn.ws .ws-bar .ws-mic:hover:not(:disabled){background:var(--tile);color:var(--ink)}
+.st-app .mn.ws .ws-bar .ws-mic.is-on{background:#be123c;color:#fff}
+.st-app .mn.ws .ws-skillbtn{height:34px;padding:0 12px;border:1px solid rgba(15,27,43,.06);background:rgba(255,255,255,.7);color:var(--ink);font-weight:600}
+.st-app .mn.ws .ws-skillbtn svg{color:var(--accent)}
+.st-app .mn.ws .ws-skillbtn:hover{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.st-app .mn.ws .ws-auto{margin-left:4px;padding:0;font-weight:500;cursor:help}
+.st-app .mn.ws .send{width:34px;height:34px;transform:none}
+.st-app .mn.ws .send:disabled{background:rgba(15,27,43,.06)!important;color:var(--glyph2);box-shadow:none!important}
+.st-app .mn.ws .send:not(:disabled):hover{transform:translateY(-1px)}
+.st-app .mn.ws .ws-only{background:var(--accent-soft);color:var(--accent-strong)}
+.st-app[data-theme="dark"] .mn.ws .ws-composer{box-shadow:0 0 0 1px rgba(255,255,255,.06),0 22px 48px -24px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.05)}
+.st-app[data-theme="dark"] .mn.ws .ws-skillbtn{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.06)}
+.st-app[data-theme="dark"] .mn.ws .send:disabled{background:rgba(255,255,255,.07)!important}
+/* hiệu ứng mở: khung giãn ra (JS + width), vệt sáng xanh chạy một vòng trên viền, nội dung hiện lần lượt */
+.st-app .mn.ws.is-fresh .ws-composer.is-open::after{display:block!important;content:'';position:absolute;inset:-1px;z-index:1;border-radius:inherit;padding:1.5px;pointer-events:none;filter:none;opacity:0;
+  background:linear-gradient(90deg,transparent 0 35%,var(--accent) 50%,transparent 65% 100%) 0 0/300% 100% no-repeat;
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+  animation:ws-sweep 1.3s cubic-bezier(.45,0,.2,1) .35s both}
+@keyframes ws-sweep{0%{opacity:0;background-position:100% 0}15%{opacity:1}80%{opacity:1}100%{opacity:0;background-position:0 0}}
+.st-app .mn.ws.is-fresh .ws-composer.is-open .ws-bar>*{animation:ws-rise .4s var(--ease) both}
+.st-app .mn.ws.is-fresh .ws-composer.is-open .ws-bar>:nth-child(1){animation-delay:.22s}
+.st-app .mn.ws.is-fresh .ws-composer.is-open .ws-bar>:nth-child(2){animation-delay:.27s}
+.st-app .mn.ws.is-fresh .ws-composer.is-open .ws-bar>:nth-child(3){animation-delay:.32s}
+.st-app .mn.ws.is-fresh .ws-composer.is-open .ws-bar>:nth-child(4){animation-delay:.37s}
+.st-app .mn.ws.is-fresh .ws-composer.is-open .ws-bar>:nth-child(5){animation-delay:.42s}
+.st-app[data-motion="reduced"] .mn.ws .ws-composer.is-open::after,.st-app[data-motion="reduced"] .mn.ws .ws-bar>*{animation:none!important;opacity:0}
+.st-app[data-motion="reduced"] .mn.ws .ws-bar>*{opacity:1}
+@media (prefers-reduced-motion:reduce){.st-app .mn.ws .ws-composer.is-open::after{display:none!important}.st-app .mn.ws .ws-bar>*{animation:none!important}}
+/* bỏ khối "Hoặc thử bộ mẫu" và lưới tài liệu ở khung giữa (21/11): nút tải lên đứng một mình */
+.st-app .mn.ws .ws-start{margin-top:2px}

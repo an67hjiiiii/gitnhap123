@@ -7,6 +7,7 @@ sinh ra nó, định nghĩa có sẵn trong tài liệu được lấy nguyên v
 
 from __future__ import annotations
 
+from functools import lru_cache
 import difflib
 import re
 from collections import Counter
@@ -143,6 +144,18 @@ def related_documents(source_id: str, chunks_by_source: dict[str, list], names: 
     return sorted(out, key=lambda r: -r["score"])[:limit]
 
 
+# Kiểm tra kho so mỗi tài liệu với mọi đoạn của tài liệu khác: nhớ kết quả tách từ theo nội dung đoạn để không tách lại
+# (22/11: trước đây mỗi đoạn bị tách lại một lần cho mỗi tài liệu; kết quả không đổi vì chỉ phụ thuộc nội dung đoạn).
+@lru_cache(maxsize=4096)
+def _tokens(text: str) -> tuple[str, ...]:
+    return tuple(_content_tokens(text))
+
+
+@lru_cache(maxsize=4096)
+def _token_set(text: str) -> frozenset[str]:
+    return frozenset(_tokens(text))
+
+
 def quality_report(chunks, other_chunks) -> dict:
     """Vấn đề làm hệ thống trả lời kém: tài liệu quá ngắn, ký tự lỗi, đoạn trùng, trùng với tài liệu khác, thiếu đề mục."""
     text = _doc_text(chunks)
@@ -156,14 +169,14 @@ def quality_report(chunks, other_chunks) -> dict:
     letters = sum(ch.isalpha() for ch in text)
     if text and letters / len(text) < 0.5:
         issues.append({"level": "medium", "code": "low_text", "message": "Tỷ lệ chữ thấp (nhiều ký hiệu, số hoặc bảng); có thể là bản scan hoặc dữ liệu thô."})
-    sigs = Counter(" ".join(_content_tokens(c.text)) for c in chunks)
+    sigs = Counter(" ".join(_tokens(c.text)) for c in chunks)
     dup = sum(n - 1 for s, n in sigs.items() if s and n > 1)
     if dup:
         issues.append({"level": "medium", "code": "duplicate_chunks", "message": f"{dup} đoạn trùng nội dung trong cùng tài liệu."})
-    own = [set(_content_tokens(c.text)) for c in chunks]
+    own = [_token_set(c.text) for c in chunks]
     near = set()
     for oc in other_chunks:
-        ot = set(_content_tokens(oc.text))
+        ot = _token_set(oc.text)
         if len(ot) >= 15 and any(len(ot & t) / len(ot | t) >= 0.8 for t in own if t):
             near.add(oc.source_name)
     if near:

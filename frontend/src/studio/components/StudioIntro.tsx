@@ -7,12 +7,20 @@ import { AssistantRobot } from './robot/AssistantRobot';
 import { motionAllowed } from '../utils/motion';
 
 const INTRO_KEY = 'oq-intro-played';
+const ARM_KEY = 'oq-intro-arm';
+
+/** Gọi khi người dùng chủ động vào Studio (bấm Mở Studio, đăng nhập, đăng ký): lần vào đó chạy màn mở đầu. */
+export function armIntro() {
+  try { sessionStorage.setItem(ARM_KEY, '1'); } catch { /* chặn lưu trữ: bỏ qua */ }
+}
 
 export function shouldPlayIntro() {
-  // chỉ chạy lần đầu trong phiên trình duyệt (tải lại trang không chạy lại)
+  // chạy khi vừa bấm Mở Studio / đăng nhập, hoặc lần đầu mở /studio trong phiên; tải lại trang không chạy lại.
+  // 22/11: trước đây chỉ chạy một lần mỗi tab nên đăng nhập lại, bấm Mở Studio lần sau không thấy màn mở đầu nữa.
   try {
-    if (sessionStorage.getItem(INTRO_KEY)) return false;
-    sessionStorage.setItem(INTRO_KEY, '1');
+    const armed = sessionStorage.getItem(ARM_KEY), played = sessionStorage.getItem(INTRO_KEY);
+    sessionStorage.removeItem(ARM_KEY); sessionStorage.setItem(INTRO_KEY, '1');
+    if (!armed && played) return false;
   } catch { /* chặn lưu trữ: vẫn chạy như cũ */ }
   return motionAllowed();
 }

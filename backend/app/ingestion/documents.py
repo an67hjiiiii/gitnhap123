@@ -13,7 +13,7 @@ from app.retrieval.text import normalize_text
 
 
 DOCUMENT_INGESTION_VERSION = "s2-document-ingestion-v1"
-MAX_DOCUMENT_BYTES = 2_000_000
+MAX_DOCUMENT_BYTES = 20_000_000  # 21/11: nâng từ 2 MB theo yêu cầu chủ dự án; giới hạn giải nén Office giữ 40 MB
 SUPPORTED_TEXT_EXTENSIONS = {
     ".txt": "text/plain",
     ".md": "text/markdown",

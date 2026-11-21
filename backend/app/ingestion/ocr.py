@@ -14,7 +14,7 @@ from pathlib import Path
 
 IMAGE_EXTENSIONS = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".tif": "image/tiff", ".tiff": "image/tiff"}
 _WINDOWS_DEFAULT = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
-LANGS = "vie+eng"
+LANGS = "vie"  # 21/11: "vie+eng" làm rơi dấu cả dòng khi Tesseract đoán nhầm tiếng Anh; gói vie đã có đủ chữ Latin
 
 
 def tesseract_cmd() -> str | None:

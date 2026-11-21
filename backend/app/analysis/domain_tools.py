@@ -106,14 +106,20 @@ async def extract_thresholds(provider, topic: str, evidence: list[SourceChunk]) 
         f"THRESHOLD_EXTRACTOR. Role={agent['name']}. From the EVIDENCE list every numeric condition used to decide the "
         "REVIEW, as label (what is measured, in the document's words), op (>=, >, <=, < or =), value (the number exactly as "
         "written) and unit. Cite the chunk that states it. Only eligibility conditions: skip amounts, benefits and "
-        "conditions without a number. Do not invent. "
+        "conditions without a number. Do not invent. applies_to = the group the threshold is for, in the document's words "
+        "(e.g. năm thứ nhất, các năm tiếp theo), empty if it applies to everyone. "
         "Write labels in the same language as the REVIEW. " + _language_rule(topic) + " Return JSON only."
     )
     schema = {"type": "object", "properties": {"rules": {"type": "array", "items": {"type": "object", "properties": {
         "label": {"type": "string"}, "op": {"type": "string", "enum": list(OPS)}, "value": {"type": "string"},
-        "unit": {"type": "string"}, "citation": {"type": "string", "enum": ids}},
-        "required": ["label", "op", "value", "unit", "citation"], "additionalProperties": False}}},
+        "unit": {"type": "string"}, "applies_to": {"type": "string"}, "citation": {"type": "string", "enum": ids}},
+        "required": ["label", "op", "value", "unit", "applies_to", "citation"], "additionalProperties": False}}},
         "required": ["rules"], "additionalProperties": False}
+    warning = bool(_WARNING_REVIEW.search(_fold(topic)))
+    if warning:  # cảnh báo / buộc thôi học: chỉ lấy điều kiện KÍCH HOẠT ("dưới …", "vượt quá …"), không lấy điều kiện được học tiếp
+        system = system.replace(" Return JSON only.", " This REVIEW flags a person when ANY triggering condition holds: list only the "
+                                "triggering conditions (e.g. average BELOW a value, failed credits ABOVE a value), never the conditions "
+                                "for continuing normally. Return JSON only.")
     response = await _ask(provider, system, f"EVIDENCE:\n{_evidence_block(evidence)}\n\nREVIEW: {topic}", schema)
     by_id = {c.chunk_id: c for c in evidence}
     rules, removed, seen = [], 0, set()
@@ -130,12 +136,43 @@ async def extract_thresholds(provider, topic: str, evidence: list[SourceChunk]) 
                 removed += 1  # con số không có trong tài liệu: không dùng
                 continue
             cite = fix.chunk_id
-        key = (label.casefold(), op, value)
+        y_min, y_max = year_scope(str(raw.get("applies_to") or "") + " " + label)
+        key = (label.casefold(), op, value, y_min, y_max)
         if key in seen:
             continue
         seen.add(key)
-        rules.append({"label": label, "op": op, "value": value, "unit": _text(raw.get("unit"), 40), "citation": cite})
+        rules.append({"label": label, "op": op, "value": value, "unit": _text(raw.get("unit"), 40), "citation": cite,
+                      "year_min": y_min, "year_max": y_max, "applies_to": _text(raw.get("applies_to"), 80)})
+    if warning:
+        rules = warning_rules(rules)
     return {**base, **_usage(response), "rules": rules, "removed": removed, "latency_ms": _ms(started)}
+
+
+_WARNING_REVIEW = re.compile(r"canh bao|thoi hoc|dinh chi")
+
+
+def warning_rules(rules: list[dict]) -> list[dict]:
+    """Xét cảnh báo (thỏa BẤT KỲ ngưỡng là bị): mô hình hay lẫn điều kiện "được học tiếp" (>= 1,2 năm thứ nhất; nợ <= 16).
+    Cùng tiêu chí, cùng giá trị có bản ">= (năm X)" và bản "<" thì gộp thành "< (năm X)"; còn lại bỏ ngưỡng >= / <=
+    (trong văn bản pháp quy, điều kiện kích hoạt viết "dưới …", "vượt quá …"). 21/11: trước đó 20/20 sinh viên bị cảnh báo."""
+    lows = [r for r in rules if r["op"] in ("<", ">")]
+    for hi in (r for r in rules if r["op"] in (">=", "<=") and r.get("year_min")):
+        twin = next((r for r in lows if r["label"].casefold() == hi["label"].casefold() and r["value"] == hi["value"]
+                     and r["op"] == {">=": "<", "<=": ">"}[hi["op"]]), None)
+        if twin is not None and not twin.get("year_min"):
+            twin["year_min"], twin["year_max"], twin["applies_to"] = hi["year_min"], hi["year_max"], hi.get("applies_to", "")
+        elif twin is None:  # chỉ có bản ">= 1,2 (năm X)": đảo thành "< 1,2 (năm X)"
+            lows.append({**hi, "op": {">=": "<", "<=": ">"}[hi["op"]]})
+    out, seen = [], set()
+    for r in lows:
+        key = (r["label"].casefold(), r["op"], r["value"], r.get("year_min"), r.get("year_max"))
+        if key not in seen:
+            seen.add(key)
+            out.append(r)
+    # bản "< 1,2" không có năm trùng với bản "< 1,2 (năm thứ nhất)" thì bỏ bản không có năm
+    # (so theo phép so sánh + giá trị: mô hình đặt nhãn hai bản hơi khác nhau, vd "ĐTB tích lũy" / "ĐTB tích lũy đạt dưới …")
+    scoped = {(r["op"], r["value"]) for r in out if r.get("year_min")}
+    return [r for r in out if r.get("year_min") or (r["op"], r["value"]) not in scoped]
 
 
 def _compare(actual: float, op: str, target: float) -> bool:
@@ -143,25 +180,60 @@ def _compare(actual: float, op: str, target: float) -> bool:
             "<": actual < target - 1e-9, "=": abs(actual - target) < 1e-9}[op]
 
 
-def evaluate_roster(rules: list[dict], columns: list[str], rows: list[list[str]], id_column: int | None = None) -> dict:
-    """Xét từng hàng theo các ngưỡng đã gán cột. PASS: đạt mọi ngưỡng; FAIL: trượt ít nhất một; MISSING: thiếu số liệu."""
+_YEAR_WORD = {"nhat": 1, "mot": 1, "hai": 2, "ba": 3, "tu": 4, "nam": 5}
+
+
+def year_scope(text: str) -> tuple[int | None, int | None]:
+    """"năm thứ nhất" → (1, 1); "năm thứ 3" → (3, 3); "các năm tiếp theo" / "từ năm thứ tư" → (4, None); không nêu → (None, None).
+    Thông tư 08 Điều 11: ngưỡng ĐTB tích lũy khác nhau theo trình độ năm học (21/11: áp cả 4 ngưỡng cho mọi sinh viên là sai)."""
+    t = unicodedata.normalize("NFD", (text or "").replace("đ", "d").replace("Đ", "D")).encode("ascii", "ignore").decode().lower()
+    if re.search(r"\b(cac nam tiep theo|nam tiep theo|tu nam thu (tu|4) tro (di|len))\b", t):
+        return 4, None
+    m = re.search(r"\bnam thu (nhat|mot|hai|ba|tu|nam|\d)\b", t)
+    if m:
+        n = int(m.group(1)) if m.group(1).isdigit() else _YEAR_WORD[m.group(1)]
+        return n, n
+    return None, None
+
+
+def evaluate_roster(rules: list[dict], columns: list[str], rows: list[list[str]], id_column: int | None = None,
+                    mode: str = "all", year_column: int | None = None) -> dict:
+    """Xét từng hàng theo các ngưỡng đã gán cột (so bằng mã, không dùng mô hình).
+    mode "all" (học bổng, tốt nghiệp): PASS đạt mọi ngưỡng; FAIL trượt ít nhất một; MISSING thiếu số liệu.
+    mode "any" (cảnh báo, buộc thôi học): HIT thỏa ít nhất một ngưỡng áp dụng cho hàng đó; CLEAR không thỏa ngưỡng nào; MISSING thiếu số liệu.
+    Ngưỡng có year_min/year_max chỉ áp cho hàng có năm học (cột year_column) trong khoảng đó; hàng khác ghi "skip"."""
     for r in rules:
         if r["op"] not in OPS or not (0 <= int(r["column"]) < len(columns)):
             raise ValueError("Ngưỡng có phép so sánh hoặc cột không hợp lệ.")
+    if mode not in ("all", "any"):
+        raise ValueError("Chế độ xét không hợp lệ.")
     results = []
     for index, row in enumerate(rows):
+        year = _number(row[year_column]) if year_column is not None and year_column < len(row) else None
         checks = []
         for r in rules:
             cell = row[int(r["column"])] if int(r["column"]) < len(row) else ""
+            lo, hi = r.get("year_min"), r.get("year_max")
+            if (lo is not None or hi is not None) and year_column is not None:
+                if year is None:
+                    checks.append({"label": r["label"], "value": cell, "state": "missing"})
+                    continue
+                if (lo is not None and year < lo) or (hi is not None and year > hi):
+                    checks.append({"label": r["label"], "value": cell, "state": "skip"})
+                    continue
             actual = _number(cell)
             state = "missing" if actual is None else ("pass" if _compare(actual, r["op"], float(r["value"])) else "fail")
             checks.append({"label": r["label"], "value": cell, "state": state})
         states = {c["state"] for c in checks}
-        status = "FAIL" if "fail" in states else "MISSING" if "missing" in states else "PASS"
+        if mode == "any":
+            status = "HIT" if "pass" in states else "MISSING" if "missing" in states else "CLEAR"
+        else:
+            status = "FAIL" if "fail" in states else "MISSING" if "missing" in states else "PASS"
         name = row[id_column] if id_column is not None and id_column < len(row) else f"Hàng {index + 2}"
         results.append({"row": index, "name": name, "status": status, "checks": checks})
-    count = {s: sum(1 for x in results if x["status"] == s) for s in ("PASS", "FAIL", "MISSING")}
-    return {"results": results, "summary": {"total": len(results), **count}}
+    keys = ("HIT", "CLEAR", "MISSING") if mode == "any" else ("PASS", "FAIL", "MISSING")
+    count = {k: sum(1 for x in results if x["status"] == k) for k in keys}
+    return {"mode": mode, "results": results, "summary": {"total": len(results), **count}}
 
 
 # ------------------------------------------------------------------ sinh câu hỏi ôn tập (Giáo dục) / hỏi đáp chính sách (Nhân sự)
@@ -200,7 +272,10 @@ def _check_item(kind: str, raw: object, evidence: list[SourceChunk], by_id: dict
             return None  # đáp án không nằm trong đoạn trích: câu đoán
         return {"question": question, "options": options, "answer": answer, "explanation": _text(raw.get("explanation"), 400), "citation": cite}
     answer_text = _text(raw.get("answer"), 800)
-    if not answer_text or _numbers(_rule_text(answer_text)) - _numbers(_rule_text(source)):
+    # 21/11: chỉ so với đúng đoạn được trích thì bỏ gần hết câu (mô hình hay dẫn đoạn bên cạnh, hay ghi "(Điều 6)");
+    # so với mọi đoạn đã đưa cho mô hình, không tính số Điều. Câu có con số ngoài các đoạn đó vẫn bị bỏ.
+    allowed = _numbers(_rule_text(" ".join(c.text for c in evidence)))
+    if not answer_text or _numbers(_rule_text(re.sub(r"Điều\s+\d+(?:\.\d+)?", " ", answer_text))) - allowed:
         return None
     return {"question": question, "answer": answer_text, "citation": cite}
 
@@ -499,6 +574,43 @@ def _fold(text: str) -> str:
     return re.sub(r"\s+", " ", "".join(c for c in text if unicodedata.category(c) != "Mn").replace("đ", "d")).strip()
 
 
+# Luật kiểm cố định (21/11): mô hình 4B bỏ sót các rủi ro điển hình nhất (phạt 30%, giới hạn bồi thường kể cả cố ý,
+# dùng dữ liệu để huấn luyện AI, tự gia hạn…). Mỗi luật: (mẫu trên câu đã bỏ dấu, mức, lý do, hàm kiểm thêm hoặc None).
+def _penalty_over_8(sentence: str) -> bool:
+    return any(float(x.replace(",", ".")) > 8 for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*%", sentence))
+
+
+CONTRACT_RULES = [
+    (r"\bphat\b", "HIGH", "Mức phạt vi phạm trên 8%: Luật Thương mại 2005 (Điều 301) giới hạn mức phạt không quá 8% giá trị phần nghĩa vụ bị vi phạm.", _penalty_over_8),
+    (r"(khong vuot qua|toi da).{0,80}(ke ca|ca khi).{0,40}co y", "HIGH", "Giới hạn hoặc miễn trách nhiệm bồi thường kể cả khi có lỗi cố ý: điều khoản như vậy rất bất lợi và dễ bị coi là không có hiệu lực; cần đàm phán lại.", None),
+    (r"(huan luyen|dao tao).{0,60}(mo hinh|tri tue nhan tao|\bai\b)|(mo hinh|tri tue nhan tao).{0,60}(huan luyen)", "HIGH", "Bên kia được dùng dữ liệu (có thể gồm dữ liệu cá nhân) để huấn luyện AI: cần sự đồng ý của chủ thể dữ liệu theo Nghị định 13/2023; nên cấm hoặc giới hạn rõ.", None),
+    (r"tu dong gia han", "MEDIUM", "Tự động gia hạn: dễ bị ràng buộc thêm nhiều năm nếu quên thông báo; kiểm tra thời hạn báo trước và đơn giá khi gia hạn.", None),
+    (r"(khong (can|phai) (thong bao|bao truoc)|khong duoc phan doi|theo chinh sach gia cua ben)", "HIGH", "Một bên được tự thay đổi giá hoặc phạm vi mà bên kia không được phản đối hoặc không cần báo trước.", None),
+    (r"(don phuong cham dut).{0,80}(bat ky luc nao|khong phai boi thuong)", "HIGH", "Quyền đơn phương chấm dứt không cần lý do, không bồi thường, chỉ dành cho một bên.", None),
+    (r"(trong tai|toa an).{0,60}(singapore|siac|nuoc ngoai|quoc te)|ngon ngu trong tai la tieng anh", "MEDIUM", "Giải quyết tranh chấp ở nước ngoài, bằng tiếng nước ngoài: chi phí và rủi ro tố tụng cao cho bên Việt Nam.", None),
+    (r"luu giu du lieu.{0,60}\d+\s*nam|tu quyet dinh viec xoa", "MEDIUM", "Bên kia giữ dữ liệu lâu sau khi chấm dứt hợp đồng hoặc tự quyết việc xóa: trái nguyên tắc xóa dữ liệu khi hết mục đích.", None),
+    (r"khong duoc thue ben thu ba kiem tra bao mat|kiem thu xam nhap", "LOW", "Hạn chế quyền tự kiểm tra bảo mật hệ thống đang lưu dữ liệu của mình.", None),
+    (r"lai cham tra\s*\d+(?:[.,]\d+)?\s*%\s*/\s*ngay", "MEDIUM", "Lãi chậm trả tính theo ngày ở mức cao (0,5%/ngày ≈ 180%/năm): cần đối chiếu mức lãi pháp luật cho phép.", None),
+]
+
+
+def _sentences(text: str) -> list[str]:
+    return [x.strip() for x in re.split(r"(?<=[.;])\s+|\n+", text or "") if len(x.strip()) >= 12]
+
+
+def rule_risks(evidence: list[SourceChunk]) -> list[dict]:
+    """Rủi ro bắt bằng luật cố định, trích nguyên văn đúng câu trong hợp đồng (không gọi mô hình)."""
+    out, seen = [], set()
+    for c in evidence:
+        for sent in _sentences(c.text):
+            folded = _fold(sent)
+            for pattern, level, reason, extra in CONTRACT_RULES:
+                if re.search(pattern, folded) and (extra is None or extra(sent)) and (pattern, sent) not in seen:
+                    seen.add((pattern, sent))
+                    out.append({"quote": sent[:500], "level": level, "reason": reason + " (luật kiểm cố định)", "citation": c.chunk_id, "rule": True})
+    return out
+
+
 async def contract_risks(provider, evidence: list[SourceChunk]) -> dict:
     """Điều khoản bất lợi hoặc rủi ro; trích nguyên văn phải có trong đoạn được dẫn, nếu không thì bỏ."""
     started = time.perf_counter()
@@ -534,6 +646,16 @@ async def contract_risks(provider, evidence: list[SourceChunk]) -> dict:
             continue
         risks.append({"quote": quote, "level": level, "reason": _text(raw.get("reason"), 400), "citation": cite})
     order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    # gộp luật cố định: câu mô hình đã nêu thì nâng mức và ghi thêm lý do của luật; câu mô hình bỏ sót thì thêm vào
+    for rr in rule_risks(evidence):
+        same = next((r for r in risks if _fold(r["quote"])[:60] in _fold(rr["quote"]) or _fold(rr["quote"])[:60] in _fold(r["quote"])), None)
+        if same is None:
+            risks.append(rr)
+        elif order[rr["level"]] < order[same["level"]]:  # luật chấm nặng hơn mô hình: lấy mức và lý do của luật (không nối hai lý do trái nhau)
+            same["level"], same["reason"] = rr["level"], rr["reason"]
+        elif rr["reason"] not in same["reason"]:
+            same["reason"] = (same["reason"] + " " if same["reason"] else "") + rr["reason"]
+    order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     return {**base, **_usage(response), "risks": sorted(risks, key=lambda r: order[r["level"]]), "removed": removed, "latency_ms": _ms(started)}
 
 
@@ -546,6 +668,8 @@ _REPLACES = re.compile(r"(?:thay thế|bãi bỏ|hết hiệu lực|sửa đổi
 # "bãi bỏ Điều 5 của …", "sửa đổi khoản 2 …": chỉ một phần văn bản, văn bản đó vẫn còn hiệu lực
 _PARTIAL = re.compile(r"(?:sửa đổi|bổ sung|\b(?:điều|khoản|điểm|chương|mục)\s+(?:\d+[a-zđ]?|[a-zđ])(?!\w))", re.IGNORECASE)
 _OWN_NO = re.compile(r"Số\s*[:.]?\s*(\d{1,4}/\d{4}/[A-ZĐ][A-ZĐ0-9\-]*)")
+# "Luật … số 51/2005/QH11 hết hiệu lực kể từ …" (số hiệu đứng TRƯỚC chữ "hết hiệu lực"; 21/11: Luật GDĐT 2023 Điều 52)
+_EXPIRES_AFTER = re.compile(r"(\d{1,4}/\d{4}/[A-ZĐ][A-ZĐ0-9\-]*)[^.;]{0,60}?\bhết hiệu lực\b", re.IGNORECASE)
 
 
 def _date(m: re.Match | None) -> date | None:
@@ -571,7 +695,11 @@ def document_validity(docs: list[tuple[str, str, str]], today: date | None = Non
         effective = _date(_EFFECTIVE.search(text))
         issued = _date(re.search(_VN_DATE, head, re.IGNORECASE))
         replaces, amends = set(), set()
-        for clause in _REPLACES.findall(text):
+        flat = re.sub(r"\s+", " ", text)  # số hiệu hay bị ngắt sang dòng riêng
+        for n in _EXPIRES_AFTER.findall(flat):
+            if n != number:
+                replaces.add(n)
+        for clause in _REPLACES.findall(flat):
             for n in _DOC_NO.findall(clause):
                 if n == number:
                     continue

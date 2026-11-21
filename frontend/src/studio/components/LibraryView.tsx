@@ -1,7 +1,8 @@
 // Thư viện tài liệu (đợt 6, mục 2b): xem, lọc, sắp xếp mọi tài liệu; loại tài liệu AI nhận ra (sửa được); mức mật;
 // lối vào Hồ sơ tài liệu, Kiểm tra cả kho và Kiểm tra mâu thuẫn (trước là trang riêng trên thanh bên).
+import { FileIcon } from './FileIcon';
 import React, { useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, FileSearch, FileText, Filter, GitCompareArrows, Library, Search, Upload } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUpRight, CheckCircle2, Copy, FileSearch, HelpCircle, History, XCircle, FileText, Filter, GitCompareArrows, Library, Search, Upload } from 'lucide-react';
 import { DOC_TYPES, setDocType , libraryQuality, LibraryQuality, documentValidity, DocValidity } from '../services/api';
 import type { DocumentInfo } from '../types';
 import { ToolHeader } from './analysis/shared';
@@ -42,14 +43,17 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
   const failed = docs.filter(d => d.status === 'failed').length;
   const replaced = Object.values(validity).filter(v => v.status === 'REPLACED').length;
   const issues = (health?.docs ?? []).flatMap(d => d.issues.filter(i => i.level !== 'low').map(i => ({ name: d.source_name, id: d.source_id, msg: i.message })));
-  const upload = async (f?: File) => {
-    if (!f) return; setUploading(true); setError('');
-    try { await onUploadFile(f); } catch (err: any) { setError(err.message || 'Không tải được tệp.'); } finally { setUploading(false); }
+  const upload = async (list?: FileList | File[] | null) => {
+    const files = Array.from(list ?? []); if (!files.length) return; setUploading(true); setError('');
+    const errors: string[] = [];
+    for (const f of files) { try { await onUploadFile(f); } catch (err: any) { errors.push(`${f.name}: ${err.message || 'Không tải được tệp.'}`); } }
+    if (errors.length) setError(errors.join(' · '));
+    setUploading(false);
   };
   const dropProps = {
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDrag(true); },
     onDragLeave: () => setDrag(false),
-    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDrag(false); void upload(e.dataTransfer.files?.[0]); },
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); setDrag(false); void upload(e.dataTransfer.files); },
   };
   const typeOf = (d: DocumentInfo) => edits[String(d.id)] ?? d.doc_type ?? '';
   const counts = useMemo(() => docs.reduce<Record<string, number>>((m, d) => {
@@ -83,8 +87,8 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
         <ToolHeader Icon={Library} title="Thư viện tài liệu"
           desc="Mọi tài liệu của không gian đang mở: loại tài liệu hệ thống tự nhận (bấm để sửa nếu sai), mức mật, số đoạn. Mở hồ sơ, kiểm tra cả kho hoặc tìm mâu thuẫn từ đây."
           right={<>
-            <input ref={fileRef} type="file" hidden accept=".pdf,.docx,.xlsx,.md,.txt,.sql,.png,.jpg,.jpeg,.tif,.tiff"
-              onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; void upload(f); }} />
+            <input ref={fileRef} type="file" hidden multiple accept=".pdf,.docx,.xlsx,.md,.txt,.sql,.png,.jpg,.jpeg,.tif,.tiff"
+              onChange={e => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; void upload(fs); }} />
             <button className="btn btn-dark" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? <span className="spin" /> : <Upload size={15} />}Thêm tài liệu</button></>} />
 
         {docs.length > 0 && <section className="lib-kpis" aria-label="Lọc theo loại tài liệu">
@@ -102,20 +106,51 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
             <span className="lib-tool-ico"><GitCompareArrows size={18} /></span><span><b>Kiểm tra mâu thuẫn</b><small>Cặp câu cùng chủ đề khác con số hoặc ngược nghĩa giữa các tài liệu</small></span><ArrowUpRight size={16} /></button>
         </section>
 
-        {docs.length > 0 && <section className="dz-card lib-health" aria-label="Sức khỏe kho tài liệu">
-          <header><b>Sức khỏe kho</b><small>Cập nhật khi danh sách tài liệu thay đổi</small></header>
-          <div className="lib-health-stats">
-            <span className={issues.length ? 'is-warn' : 'is-ok'}><b>{health ? issues.length : '…'}</b>vấn đề chất lượng</span>
-            <span className={health?.duplicates.length ? 'is-warn' : 'is-ok'}><b>{health ? health.duplicates.length : '…'}</b>cặp có thể trùng</span>
-            <span className={failed ? 'is-bad' : 'is-ok'}><b>{failed}</b>lỗi lập chỉ mục</span>
-            <span className={counts.none || counts.other ? 'is-warn' : 'is-ok'}><b>{(counts.none || 0) + (counts.other || 0)}</b>chưa rõ loại</span>
-            <span className={replaced ? 'is-info' : 'is-ok'}><b>{replaced}</b>bản đã bị thay thế</span>
-          </div>
-          {(issues.length > 0 || (health?.duplicates.length ?? 0) > 0) && <ul className="lib-health-list">
-            {health!.duplicates.slice(0, 3).map(d => <li key={d.a_id + d.b_id}><span className="is-warn">Trùng</span>{d.a} và {d.b} giống nhau {Math.round(d.score * 100)}%</li>)}
-            {issues.slice(0, 4).map((i, k) => <li key={k}><span className="is-warn">Chất lượng</span><button type="button" className="dp-link" onClick={() => onOpenProfile(i.id)}>{i.name}</button>: {i.msg}</li>)}
-          </ul>}
-        </section>}
+        {docs.length > 0 && (() => {
+          const dups = health?.duplicates ?? [];
+          const unknown = (counts.none || 0) + (counts.other || 0);
+          const total = health ? issues.length + dups.length + failed + unknown : null;
+          const stats = [
+            { n: health ? issues.length : null, label: 'Vấn đề chất lượng', tone: issues.length ? 'warn' : 'ok', Icon: AlertTriangle },
+            { n: health ? dups.length : null, label: 'Cặp có thể trùng', tone: dups.length ? 'warn' : 'ok', Icon: Copy },
+            { n: failed, label: 'Lỗi lập chỉ mục', tone: failed ? 'bad' : 'ok', Icon: XCircle },
+            { n: unknown, label: 'Chưa rõ loại', tone: unknown ? 'warn' : 'ok', Icon: HelpCircle },
+            { n: replaced, label: 'Bản đã bị thay thế', tone: replaced ? 'info' : 'ok', Icon: History },
+          ];
+          return <section className="dz-card lib-health hx2" aria-label="Sức khỏe kho tài liệu">
+            <header className="hx2-head">
+              <span className="hx2-ico" aria-hidden="true"><Activity size={18} /></span>
+              <span className="hx2-title"><b>Sức khỏe kho</b><small>Kiểm tra trên {docs.length} tài liệu · cập nhật khi danh sách thay đổi</small></span>
+              <span className={`hx2-pill is-${total === null ? 'idle' : total ? 'warn' : 'ok'}`}>
+                {total === null ? 'Đang kiểm tra…' : total ? `${total} mục cần xem` : <><CheckCircle2 size={14} />Ổn định</>}</span>
+            </header>
+            <div className="hx2-stats">
+              {stats.map(({ n, label, tone, Icon }) => <div key={label} className={`hx2-stat is-${n === null ? 'idle' : tone}`}>
+                <span className="hx2-stat-ico" aria-hidden="true">{n === 0 ? <CheckCircle2 size={15} /> : <Icon size={15} />}</span>
+                <b>{n === null ? '…' : n}</b><small>{label}</small></div>)}
+            </div>
+            {(issues.length > 0 || dups.length > 0) && <ul className="hx2-list">
+              {dups.slice(0, 3).map(d => <li key={d.a_id + d.b_id} className="hx2-row">
+                <span className="hx2-tag is-dup"><Copy size={13} />Trùng</span>
+                <div className="hx2-body">
+                  <div className="hx2-pair"><span className="hx2-doc"><FileIcon name={d.a} size={18} /><span>{d.a}</span></span>
+                    <span className="hx2-vs" aria-hidden="true">≈</span>
+                    <span className="hx2-doc"><FileIcon name={d.b} size={18} /><span>{d.b}</span></span></div>
+                  <small>Nội dung giống nhau {Math.round(d.score * 100)}%. Nên giữ một bản hoặc đánh dấu bản cũ đã bị thay thế.</small>
+                </div>
+                <span className="hx2-meter" title={`Giống nhau ${Math.round(d.score * 100)}%`}><i style={{ width: `${Math.round(d.score * 100)}%` }} /><em>{Math.round(d.score * 100)}%</em></span>
+              </li>)}
+              {issues.slice(0, 4).map((i, k) => <li key={k} className="hx2-row">
+                <span className="hx2-tag is-q"><AlertTriangle size={13} />Chất lượng</span>
+                <div className="hx2-body">
+                  <span className="hx2-doc"><FileIcon name={i.name} size={18} /><span>{i.name}</span></span>
+                  <small>{i.msg}</small>
+                </div>
+                <button type="button" className="hx2-go" onClick={() => onOpenProfile(i.id)}>Xem hồ sơ<ArrowUpRight size={14} /></button>
+              </li>)}
+            </ul>}
+          </section>;
+        })()}
 
         <section className={`dz-card lib-table-card${drag ? ' is-drag' : ''}`} {...dropProps}>
           <div className="lib-bar">
@@ -135,7 +170,7 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
             : <ul className="lib-list">{shown.map(d => {
               const t = typeOf(d);
               return <li key={String(d.id)}>
-                <span className={`lib-ext is-${extOf(d.source_file)}`} aria-hidden="true">{extOf(d.source_file).toUpperCase() || <FileText size={16} />}</span>
+                <span className="lib-ext is-file" aria-hidden="true"><FileIcon name={d.source_file} size={30} /></span>
                 <div className="lib-name"><b title={d.source_file}>{d.source_file}</b><small>{[`${d.chunks_count} đoạn`, d.file_size_kb ? `${d.file_size_kb < 1024 ? `${Math.round(d.file_size_kb)} KB` : `${(d.file_size_kb / 1024).toFixed(1)} MB`}` : '', d.created_at ? new Date(d.created_at).toLocaleDateString('vi-VN') : '', d.owner && !d.mine ? `của ${d.owner}` : ''].filter(Boolean).join(' · ')}{d.status === 'failed' && <em className="lib-fail"> · nạp lỗi</em>}</small></div>
                 {canEdit(d)
                   ? <label className="lib-type"><span className="sr">Loại tài liệu của {d.source_file}</span>

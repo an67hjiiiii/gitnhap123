@@ -1,3 +1,4 @@
+import { FileIcon } from './FileIcon';
 import React, { useState, useEffect, useMemo } from 'react';
 import { FileText, Database, FileSpreadsheet, FileCode, Copy, Check, Search, Zap, AlertCircle } from 'lucide-react';
 import { DocumentInfo, ChunkInfo } from '../types';
@@ -42,13 +43,12 @@ export const DocumentChunksModal: React.FC<DocumentChunksModalProps> = ({ docume
 
   if (!isOpen || !document) return null;
   const ext = document.source_file.split('.').pop()?.toLowerCase();
-  const Icon = ext === 'sql' ? Database : ext === 'pdf' ? FileSpreadsheet : ext === 'md' ? FileText : FileCode;
   const copy = (text: string, id: number) => { navigator.clipboard.writeText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); };
 
   return (
     <StudioModal
       labelId="chunks-title"
-      icon={<Icon size={18} />}
+      icon={<FileIcon name={document.source_file} size={20} />}
       title={document.source_file}
       subtitle={<>{document.file_type}{document.file_size_kb ? ` · ${document.file_size_kb} KB` : ''} · {chunks.length} phân đoạn · {chunks.some(c => c.token_count != null) ? `${totalTokens.toLocaleString('vi-VN')} token` : 'chưa đếm token'}</>}
       onClose={onClose}

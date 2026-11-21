@@ -129,6 +129,10 @@ export const Topbar: React.FC<TopbarProps> = ({
     try { await answerInvite(invite, decision); setAnswered(a => ({ ...a, [invite]: decision === 'accept' ? 'Đã tham gia' : 'Đã từ chối' })); onOrgChanged?.(); }
     catch (e: any) { setAnswered(a => ({ ...a, [invite]: e.message })); }
   };
+  useEffect(() => {
+    const read = () => { setOrgUnread(0); try { setSeenAt(localStorage.getItem('orchestriq-notif-seen') || ''); } catch { /* chế độ riêng tư */ } };
+    window.addEventListener('oq-notif-read', read); return () => window.removeEventListener('oq-notif-read', read);
+  }, []);
   const unread = notes.filter(n => !seenAt || n.created_at > seenAt).length + orgUnread;
   const openNotif = () => {
     const next = menu === 'notif' ? null : 'notif';
@@ -196,8 +200,6 @@ export const Topbar: React.FC<TopbarProps> = ({
                 </div>
                 {onCreateWorkspace && <button className="wsp-new" onClick={() => { setMenu(null); setCreateOpen(true); }}>
                   <span className="wsp-new-ico"><Plus size={16} strokeWidth={2.4} /></span><span className="wsp-info"><b>Tạo không gian mới</b><small>Kho tài liệu và lịch sử trò chuyện riêng</small></span></button>}
-                <button className="wsp-new" onClick={() => go('organization')}>
-                  <span className="wsp-new-ico"><Building2 size={16} strokeWidth={2.2} /></span><span className="wsp-info"><b>Tạo hoặc tham gia tổ chức</b><small>Chia sẻ tài liệu theo cấp bậc, mức mật</small></span></button>
               </div>;
             })()}
           </div>}
@@ -243,37 +245,18 @@ export const Topbar: React.FC<TopbarProps> = ({
                 </div>
                 {onCreateWorkspace && <button className="wsp-new" onClick={() => { setMenu(null); setCreateOpen(true); }}>
                   <span className="wsp-new-ico"><Plus size={16} strokeWidth={2.4} /></span><span className="wsp-info"><b>Tạo không gian mới</b><small>Kho tài liệu và lịch sử trò chuyện riêng</small></span></button>}
-                <button className="wsp-new" onClick={() => go('organization')}>
-                  <span className="wsp-new-ico"><Building2 size={16} strokeWidth={2.2} /></span><span className="wsp-info"><b>Tạo hoặc tham gia tổ chức</b><small>Chia sẻ tài liệu theo cấp bậc, mức mật</small></span></button>
               </div>;
             })()}
           </div>}
 
+          <span className="tb-sep" aria-hidden="true" />
           {user && history && <button ref={histBtn} className={`tb-btn${historyOpen ? ' is-on' : ''}`} onClick={() => onHistoryOpen(!historyOpen)} aria-expanded={historyOpen} aria-controls="tb-history" aria-label="Lịch sử trò chuyện" title="Lịch sử trò chuyện">
             <History size={18} /><span className="tb-btn-t">Lịch sử</span></button>}
 
-          {user && <div className="tb-pop" ref={notifRef}>
-            <button type="button" className="tb-btn" onClick={openNotif} aria-expanded={menu === 'notif'} aria-haspopup="dialog" aria-label={unread ? `Thông báo, ${unread} mục mới` : 'Thông báo'} title="Thông báo">
-              <Bell size={18} />{unread > 0 && <i className="sb-badge">{unread > 9 ? '9+' : unread}</i>}
-            </button>
-            {menu === 'notif' && <div className="pop tb-drop sb-notif" role="dialog" aria-label="Hoạt động gần đây">
-              {orgNotes.length > 0 && <><div className="sb-notif-head"><b>Tổ chức</b><button type="button" className="dp-link" onClick={() => go('organization')}>Mở trang Tổ chức</button></div>
-              <ul className="og-notes">{orgNotes.map(n => <li key={n.notification_id} className={n.read ? '' : 'is-unread'}>
-                <span className="sb-notif-ico"><Building2 size={15} /></span>
-                <span className="sb-notif-t"><b>{orgNoteText(n, orgTerms(workspaces.find(w => w.id === n.space_id)))}</b>
-                  {n.kind === 'invite' && n.payload.invite_id && (answered[n.payload.invite_id] || !openInvites.has(n.payload.invite_id)
-                    ? <small>{answered[n.payload.invite_id] ?? 'Đã xử lý'}</small>
-                    : <span className="og-note-acts"><button type="button" className="btn btn-dark is-sm" onClick={() => answer(n.payload.invite_id, 'accept')}>Tham gia</button>
-                      <button type="button" className="btn btn-ghost is-sm" onClick={() => answer(n.payload.invite_id, 'decline')}>Từ chối</button></span>)}</span>
-                <time>{ago(n.created_at)}</time></li>)}</ul></>}
-              <div className="sb-notif-head"><b>Hoạt động gần đây</b><button type="button" className="dp-link" onClick={() => go('overview')}>Xem tất cả</button></div>
-              {notes.length === 0 ? <p className="sb-notif-empty">Chưa có hoạt động nào.</p> : <ul>{notes.map((n, i) => {
-                const I = noteIcon(n.action);
-                return <li key={i} className={n.status >= 400 ? 'is-bad' : ''}><span className="sb-notif-ico"><I size={15} /></span>
-                  <span className="sb-notif-t"><b>{n.action}</b>{n.target && !/^(usr|sp|src|inv|shr|dep|rs|rpt|ws)_[A-Za-z0-9_-]+$/.test(n.target) && <small>{n.target}</small>}</span><time>{ago(n.created_at)}</time></li>;
-              })}</ul>}
-            </div>}
-          </div>}
+          {user && <button type="button" className={`tb-btn${activeTab === 'notifications' ? ' is-on' : ''}`} onClick={() => { setMenu(null); onTabChange('notifications'); }}
+            aria-current={activeTab === 'notifications' ? 'page' : undefined} aria-label={unread ? `Thông báo, ${unread} mục mới` : 'Thông báo'} title="Thông báo">
+            <Bell size={18} />{unread > 0 && <i className="sb-badge">{unread > 9 ? '9+' : unread}</i>}
+          </button>}
 
           <div className="tb-pop tb-help-wrap" ref={helpRef}>
             <button type="button" className="tb-btn" onClick={() => setMenu(menu === 'help' ? null : 'help')} aria-expanded={menu === 'help'} aria-haspopup="dialog" aria-label="Trợ giúp" title="Trợ giúp"><CircleHelp size={18} /></button>
@@ -287,6 +270,16 @@ export const Topbar: React.FC<TopbarProps> = ({
               {onOpenPalette && <button type="button" className="btn btn-ghost is-sm" onClick={() => { setMenu(null); onOpenPalette(); }}><Search size={14} />Mở tìm nhanh</button>}
             </div>}
           </div>
+
+          {onThemeChange && <button type="button" className={`tb-btn tb-sky is-${theme}`} onClick={e => onThemeChange(theme === 'dark' ? 'light' : 'dark', { x: e.clientX, y: e.clientY })}
+            aria-label={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'} title={theme === 'dark' ? 'Ban ngày' : 'Ban đêm'}>
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <mask id="tb-sky-mask"><rect width="24" height="24" fill="#fff" /><circle className="tb-sky-bite" cx="24" cy="2" r="7" fill="#000" /></mask>
+              <circle className="tb-sky-core" cx="12" cy="12" r="5" mask="url(#tb-sky-mask)" />
+              <g className="tb-sky-rays">{[0, 45, 90, 135, 180, 225, 270, 315].map(d => <line key={d} x1="12" y1="2.2" x2="12" y2="4.6" transform={`rotate(${d} 12 12)`} />)}</g>
+              <g className="tb-sky-stars"><circle cx="19.5" cy="5" r=".9" /><circle cx="17" cy="9.5" r=".6" /><circle cx="21" cy="11" r=".5" /></g>
+            </svg></button>}
+          <span className="tb-sep" aria-hidden="true" />
 
           {user ? <div className="tb-pop" ref={profileRef}>
             <button className="tb-user" onClick={() => setMenu(menu === 'profile' ? null : 'profile')} aria-expanded={menu === 'profile'} aria-haspopup="menu" aria-label={`Tài khoản ${user.full_name}`}>

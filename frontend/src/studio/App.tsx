@@ -7,7 +7,7 @@ import './styles/studio-glass.css';
 import './styles/studio-system.css';
 import { StudioBackdrop, useStudioMotion } from './components/StudioMotion';
 import { Command, CommandPalette } from './components/CommandPalette';
-import { shouldPlayIntro, StudioIntro } from './components/StudioIntro';
+import { armIntro, shouldPlayIntro, StudioIntro } from './components/StudioIntro';
 import { PageGuide } from './components/PageGuide';
 import gsap from 'gsap';
 import { Users, BarChart3, ClipboardCheck, Database, EyeOff, FileSearch, FlaskConical, GitCompareArrows, MessageSquarePlus, MessagesSquare, Sparkles } from 'lucide-react';
@@ -37,6 +37,7 @@ import { SavedResultsView } from './components/SavedResultsView';
 import { TasksView } from './components/TasksView';
 import { SettingsView } from './components/SettingsView';
 import { CompareView } from './components/CompareView';
+import { NotificationsView } from './components/NotificationsView';
 import { ResultsHub, HubTab } from './components/ResultsHub';
 import { OverviewActions } from './components/OverviewActions';
 import { orgNoteText } from './components/Header';
@@ -47,6 +48,10 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { RobotProvider, useRobotAssistant } from './components/robot/RobotContext';
 import './styles/shell-2026.css';  // khung mới (Đợt 1–2): nạp sau CSS của các thành phần
 import './styles/calm-2026.css';   // bảng màu tiết chế (20/11): nạp cuối cùng
+import './styles/topbar-2026.css'; // cụm góc phải, ngày/đêm, trang Thông báo (21/11)
+import './styles/context-2026.css'; // cột ngữ cảnh bên phải (21/11)
+import './styles/pages-2026.css'; // Sức khỏe kho, So sánh phiên bản (21/11)
+import './styles/chat-2026.css';    // ô chat: quá trình xử lý, bảng, nguồn, ảnh dán (21/11)
 import { 
   analyzeQuery, 
   getReport,
@@ -465,6 +470,9 @@ function DashboardWorkspace({
         onOpenAdmin={user?.role === 'admin' ? () => switchPortal('admin') : undefined}
         docCount={documents.length}
         chunkCount={totalChunks}
+        bottom={user ? <div className="sb-kbx"><LeftPanel documents={documents} onUpload={handleUpload} onClear={handleClearDocs} onSeedDocs={handleSeedDocs} onInspectDocument={handleInspectDocument}
+            onOpenPlayground={() => handleOpenPlayground()} onDeleteDocument={handleDeleteSingleDoc} isUploading={isUploading} totalChunks={totalChunks} user={user}
+            orgLevel={inOrg ? currentWs?.level : undefined} terms={inOrg ? orgTerms(currentWs) : undefined} softwareFilter={isSoftware} spaceId={inOrg ? String(currentWorkspaceId) : undefined} /></div> : undefined}
       />
 
       <div className="st-main">
@@ -483,10 +491,7 @@ function DashboardWorkspace({
         {activeTab === 'orchestration' && <WorkspaceView workspaceId={currentWorkspaceId} conversationId={activeConversationId} onConversation={setActiveConversationId} onChanged={refreshConversations} userName={user?.full_name}
           docCount={documents.length} chunkCount={totalChunks} modelOk={health?.ollama_status === 'CONNECTED'}
           workspaceName={workspaces.find(w => w.id === currentWorkspaceId)?.name} recent={conversations}
-          onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} prefill={prefill} freshDoc={freshDoc} onOpenToolkit={() => setActiveTab('toolkit')}
-          manage={<LeftPanel documents={documents} onUpload={handleUpload} onClear={handleClearDocs} onSeedDocs={handleSeedDocs} onInspectDocument={handleInspectDocument}
-            onOpenPlayground={() => handleOpenPlayground()} onDeleteDocument={handleDeleteSingleDoc} isUploading={isUploading} totalChunks={totalChunks} user={user}
-            orgLevel={inOrg ? currentWs?.level : undefined} terms={inOrg ? orgTerms(currentWs) : undefined} softwareFilter={isSoftware} spaceId={inOrg ? String(currentWorkspaceId) : undefined} />} />}
+          onSeed={handleSeedDocs} onUploadFile={handleUpload} docs={documents} prefill={prefill} freshDoc={freshDoc} onOpenToolkit={() => setActiveTab('toolkit')} />}
         {activeTab === 'organization' && <OrgView workspaceId={currentWorkspaceId} docs={documents} onOpenSpace={id => { void openSpace(id); }} onChanged={refreshState} onAsk={() => setActiveTab('orchestration')} />}
         {activeTab === 'overview' && <OverviewView health={health} userName={user?.full_name} actions={overviewActions} />}
         {activeTab === 'documents' && <DocumentProfileView key={`doc-${currentWorkspaceId}-${profileSource}`} docs={documents} initialSourceId={profileSource || undefined}
@@ -510,6 +515,7 @@ function DashboardWorkspace({
         {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
           onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} onChanged={refreshState} health={health} docCount={documents.length} />}
         {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} initialTool={toolTarget} />}
+        {activeTab === 'notifications' && user && <NotificationsView workspaces={workspaces} onGo={setActiveTab} onOrgChanged={() => { void refreshState(); }} />}
         {activeTab === 'compare' && <CompareView key={`cmp-${currentWorkspaceId}`} docs={documents} workspaceId={currentWorkspaceId} initial={comparePair} />}
         {activeTab === 'consistency' && <ConsistencyView key={`cons-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'rating' && <BlindRatingView />}
@@ -574,6 +580,7 @@ function AppContent() {
   }, []);
 
   const handleLoginSuccess = (loggedUser: User) => {
+    armIntro();
     setUser(loggedUser);
     setRobotState('happy');
     robotSpeak(`Xin chào ${loggedUser.full_name}! Chạm vào khung bên dưới để bắt đầu nhé.`);

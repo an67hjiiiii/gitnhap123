@@ -221,3 +221,20 @@ def test_numeric_verdict_skips_negated_conditions_and_facts():
     from app.analysis.casework import numeric_verdict
     assert numeric_verdict("Sinh viên có học phần dưới 5,0 trong học kỳ không được xét học bổng.", "Không có học phần dưới 5.") is None
     assert numeric_verdict("Học phần đạt khi điểm từ 4,0 trở lên", "Chưa có điểm học phần") is None
+
+
+def test_analysis_calls_get_at_least_1400_output_tokens():
+    """21/11: giới hạn 700 mặc định cắt giữa JSON (ngưỡng, quy trình, điều kiện) → công cụ trả rỗng."""
+    import asyncio
+    from app.analysis.casework import _ask
+
+    class P:
+        supports_per_call_output_tokens = True
+        seen = None
+        async def generate_structured(self, **kw):
+            P.seen = kw.get("max_output_tokens")
+            return type("R", (), {"text": "{}", "usage": None})()
+    asyncio.run(_ask(P(), "s", "u", {}))
+    assert P.seen == 1400
+    asyncio.run(_ask(P(), "s", "u", {}, max_tokens=2400))
+    assert P.seen == 2400

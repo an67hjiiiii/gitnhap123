@@ -62,7 +62,7 @@ const VI_ERRORS: Record<string, string> = {
   'message is required': 'Vui lòng nhập câu hỏi.',
   'text is empty': 'Nội dung trống.',
   'file is empty': 'Tệp rỗng, không có nội dung để nạp.',
-  'Files must be no larger than 2 MB': 'Tệp vượt quá 2 MB.',
+  'Files must be no larger than 20 MB': 'Tệp vượt quá 20 MB.',
   UNSUPPORTED_DOCUMENT_TYPE: 'Định dạng chưa hỗ trợ. Dùng PDF, Word (.docx), Excel (.xlsx), Markdown, TXT hoặc SQL.',
   OFFICE_EXTRACTION_FAILED: 'Không đọc được tệp Word/Excel này (tệp hỏng, trống hoặc quá lớn khi giải nén). Bản .doc/.xls cũ cần lưu lại thành .docx/.xlsx.',
   PDF_NO_TEXT: 'PDF không có lớp chữ (bản scan) nên chưa đọc được.',
@@ -229,14 +229,37 @@ export async function getDocumentChunks(docId: number | string): Promise<ChunkIn
   })) as unknown as ChunkInfo[];
 }
 
+// Ảnh chụp nhỏ: phóng 2 lần trước khi máy chủ đọc chữ (Tesseract đọc sai dấu ở chữ nhỏ: "chi trước" → "chỉ trước", 21/11).
+// TIFF trình duyệt không giải mã được thì gửi nguyên.
+async function sharpenForOcr(file: File): Promise<File> {
+  if (!/^image\/(png|jpe?g|webp|bmp)$/i.test(file.type)) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    if (bmp.width >= 1600) return file;
+    const c = document.createElement('canvas'); c.width = bmp.width * 2; c.height = bmp.height * 2;
+    const g = c.getContext('2d')!; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise<Blob | null>(ok => c.toBlob(ok, 'image/png'));
+    return blob ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.png', { type: 'image/png' }) : file;
+  } catch { return file; }
+}
+export const MAX_UPLOAD_MB = 20;  // khớp MAX_DOCUMENT_BYTES ở backend
 export async function uploadDocument(file: File, ws?: WorkspaceId, publish?: { classification: Classification; department_id?: string | null }): Promise<{ filename: string; chunks_created: number; status: string; message: string; source_id?: string }> {
+  if (file.size > MAX_UPLOAD_MB * 1_000_000) throw new Error(`Tệp vượt quá ${MAX_UPLOAD_MB} MB.`);
   const form = new FormData();
-  form.append('file', file);
+  form.append('file', await sharpenForOcr(file));
   const data = await call<any>('/sources/file', { method: 'POST', body: form });
   // trong không gian tổ chức: nộp ngay với mức mật đã chọn trước khi tải (tài liệu Mật không lộ dù một khoảnh khắc)
   if (data.source_id && isOrgId(ws)) await publishSource(ws, data.source_id, publish ?? { classification: 'DEPARTMENT' });
   else if (data.source_id) await assignToWorkspace(ws ?? '', 'source', data.source_id);
   return { filename: file.name, chunks_created: data.chunks_added ?? 0, status: 'ok', message: '', source_id: data.source_id };
+}
+
+// Ảnh dán vào ô chat: máy chủ nhận dạng chữ (Tesseract) để đưa vào câu hỏi; ảnh không lưu vào kho.
+export async function ocrImage(file: Blob): Promise<string> {
+  const form = new FormData();
+  form.append('file', file, 'anh-dan.png');
+  return (await call<{ text: string }>('/ocr-image', { method: 'POST', body: form })).text;
 }
 
 // Bộ tài liệu mẫu theo ngành (P2-1, 20/11). Tài liệu do nhóm tự soạn, ghi rõ là mẫu; không phải văn bản của tổ chức thật.
@@ -816,8 +839,9 @@ export const SETTABLE: Record<MemberLevel, Classification[]> = {
 const pk = () => domainPack ?? undefined;
 export type Op = '>=' | '>' | '<=' | '<' | '=';
 export interface Table { columns: string[]; rows: string[][]; truncated: boolean }
-export interface Threshold { label: string; op: Op; value: number; unit: string; citation: string }
-export interface RosterResult { results: { row: number; name: string; status: 'PASS' | 'FAIL' | 'MISSING'; checks: { label: string; value: string; state: 'pass' | 'fail' | 'missing' }[] }[]; summary: { total: number; PASS: number; FAIL: number; MISSING: number } }
+export interface Threshold { label: string; op: Op; value: number; unit: string; citation: string; year_min?: number | null; year_max?: number | null; applies_to?: string }
+export type RosterStatus = 'PASS' | 'FAIL' | 'MISSING' | 'HIT' | 'CLEAR';
+export interface RosterResult { mode?: 'all' | 'any'; results: { row: number; name: string; status: RosterStatus; checks: { label: string; value: string; state: 'pass' | 'fail' | 'missing' | 'skip' }[] }[]; summary: { total: number } & Partial<Record<RosterStatus, number>> }
 interface ToolMeasured { agent: string; agent_name: string; removed?: number; input_tokens: number; output_tokens: number; latency_ms: number; evidence?: { chunk_id: string; source_name: string; score: number }[] }
 export interface QuizItem { question: string; options: string[]; answer: number; explanation: string; citation: string }
 export interface FaqItem { question: string; answer: string; citation: string }
@@ -831,8 +855,9 @@ export async function parseTable(file: File): Promise<Table> {
   return call<Table>('/studio/tools/table', { method: 'POST', body: form });
 }
 export const extractThresholds = (topic: string, sourceIds: string[]) => post<ToolMeasured & { rules: Threshold[] }>('/studio/tools/thresholds', { topic, source_ids: sourceIds, domain_pack: pk() });
-export const evaluateRoster = (rules: { label: string; op: Op; value: number; column: number }[], columns: string[], rows: string[][], idColumn: number | null) =>
-  post<RosterResult>('/studio/tools/roster/evaluate', { rules, columns, rows, id_column: idColumn });
+export const evaluateRoster = (rules: { label: string; op: Op; value: number; column: number; year_min?: number | null; year_max?: number | null }[], columns: string[], rows: string[][], idColumn: number | null,
+  mode: 'all' | 'any' = 'all', yearColumn: number | null = null) =>
+  post<RosterResult>('/studio/tools/roster/evaluate', { rules, columns, rows, id_column: idColumn, mode, year_column: yearColumn });
 export const generateItems = <T extends QuizItem | FaqItem>(kind: 'quiz' | 'faq', sourceIds: string[], count: number, topic?: string) =>
   post<ToolMeasured & { items: T[] }>('/studio/tools/generate', { kind, source_ids: sourceIds.slice(0, 20), count, domain_pack: pk(), topic });
 /** Số câu trong yêu cầu ("tạo 7 câu…"), mặc định 5, tối đa 10 để một lượt chạy trong thời gian chờ chấp nhận được. */

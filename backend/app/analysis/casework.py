@@ -61,11 +61,26 @@ def _evidence_meta(evidence: list[SourceChunk]) -> list[dict]:
     return [{"chunk_id": c.chunk_id, "source_name": c.source_name, "score": round(float(c.score or 0), 4)} for c in evidence]
 
 
+# 21/11: danh sách điều kiện dài vượt 700 token mặc định → JSON bị cắt, kết quả rỗng ("Chưa trích được điều kiện")
+COND_MAX_TOKENS = 1400
+
+
+def _lang(text: str) -> str:
+    """Câu hỏi tiếng Việt thì mọi ô viết tiếng Việt (mô hình 4B hay viết phần giải thích bằng tiếng Anh)."""
+    from app.research.pipeline import reply_language_of  # nhập muộn tránh vòng import
+    return ("Write every text field (condition, case_fact, reason, note, action, actor) in Vietnamese."
+            if reply_language_of(text) == "vi" else "Write every text field in English.")
+
+
 async def _ask(provider, system: str, user: str, schema: dict, max_tokens: int | None = None):
     structured = getattr(provider, "generate_structured", None)
     if not callable(structured):
         return await provider.generate(system=system, user=user)
-    extra = {"max_output_tokens": max_tokens} if max_tokens else {}  # danh sách dài: nới giới hạn để JSON không bị cắt
+    # 21/11: mặc định 700 token cắt giữa JSON (ngưỡng, quy trình, điều kiện) → kết quả rỗng; công cụ phân tích dùng tối thiểu 1.400
+    if getattr(provider, "supports_per_call_output_tokens", False):
+        extra = {"max_output_tokens": max(max_tokens or 0, COND_MAX_TOKENS)}
+    else:
+        extra = {"max_output_tokens": max_tokens} if max_tokens else {}
     return await structured(system=system, user=user, response_schema=schema, **extra)
 
 
@@ -172,7 +187,8 @@ async def check_conditions(provider, question: str, case: str, evidence: list[So
         "MET if the case clearly satisfies it, NOT_MET if the case clearly violates it, UNKNOWN if the case does not say. "
         "case_fact must quote what the CASE says about that condition, or be empty. Conditions are rules written in the "
         "RULE EVIDENCE; never turn facts from the CASE into conditions. Do not invent facts or conditions. "
-        "Write in the same language as the QUESTION. Return JSON only."
+        "List at most 6 conditions, only rules that directly decide the QUESTION (skip unrelated rules such as discipline or sales targets). "
+        + _lang(question) + " Return JSON only."
     )
     # quy định đứng trước tình huống: mô hình nhỏ ít chép dữ kiện thành điều kiện hơn
     user = f"RULE EVIDENCE:\n{_evidence_block(evidence)}\n\nQUESTION: {question}\n\nCASE:\n{case}"
@@ -271,8 +287,8 @@ async def extract_procedure(provider, topic: str, evidence: list[SourceChunk]) -
         "who performs or approves it, the time limit and the papers or outputs, exactly as the evidence states; leave a "
         "field empty when the evidence does not say. Cite the chunk for every step. Also list only the papers the "
         "evidence says must be submitted for THIS procedure, each with a citation (empty if none), and any fees or charges "
-        "exactly as stated, each with a citation (empty if none). Do not invent steps. Write in the same language as the "
-        "PROCEDURE. Return JSON only."
+        "exactly as stated, each with a citation (empty if none). Do not invent steps. Keep every field short (under 25 words, a paper is its name only); at most 8 steps and 10 papers. "
+        + _lang(topic) + " Return JSON only."
     )
     user = f"PROCEDURE: {topic}\n\nEVIDENCE:\n{_evidence_block(evidence)}"
     schema = {
@@ -292,7 +308,7 @@ async def extract_procedure(provider, topic: str, evidence: list[SourceChunk]) -
         },
         "required": ["steps", "documents", "fees", "note"], "additionalProperties": False,
     }
-    response = await _ask(provider, system, user, schema)
+    response = await _ask(provider, system, user, schema, max_tokens=2400 if getattr(provider, "supports_per_call_output_tokens", False) else None)
     obj = _decode(response.text)
     by_id = {c.chunk_id: c for c in evidence}
     steps, removed = [], 0
