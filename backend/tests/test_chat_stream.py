@@ -47,18 +47,20 @@ def _results():
     return [TaskResult(task_id="T1", domain="general", status="COMPLETE", answer="a", citations=["c1"], evidence_ids=["c1"])]
 
 
-def test_synthesis_streams_growing_answer_only_with_listener():
+def test_synthesis_does_not_stream_draft_answer_before_verification():
     items: list[dict] = []
+    provider = StreamingProvider()
 
     async def go():
-        progress_sink.set(items.append)
-        return await synthesize(StreamingProvider(), "q", _results(), RunMetrics(), max_output_tokens=1800)
+        token = progress_sink.set(items.append)
+        try:
+            return await synthesize(provider, "q", _results(), RunMetrics(), max_output_tokens=1800)
+        finally:
+            progress_sink.reset(token)
 
     assert asyncio.run(go()) == "Ý 1 [c1]. Ý 2 [c1]."
-    texts = [i["text"] for i in items if i["type"] == "answer"]
-    assert texts and texts[-1].startswith("Ý 1 [c1]. Ý 2")
-    assert all(b.startswith(a) for a, b in zip(texts, texts[1:]))  # chữ chỉ dài thêm, không lặp bản trùng
-    assert len(set(texts)) == len(texts)
+    assert provider.got_on_text is False
+    assert not any(i.get("type") == "answer" for i in items)
 
     quiet = StreamingProvider()
     asyncio.run(synthesize(quiet, "q", _results(), RunMetrics(), max_output_tokens=1800))
@@ -76,8 +78,30 @@ def test_ndjson_run_sends_progress_then_done():
         return {"run_id": "r1", "status": "COMPLETE"}
 
     lines = asyncio.run(_collect(run))
-    assert [line["type"] for line in lines] == ["progress", "answer", "done"]
+    assert [line["type"] for line in lines] == ["progress", "done"]
     assert lines[-1]["run"]["run_id"] == "r1"
+
+
+def test_ndjson_stream_drops_unverified_citation_and_keeps_final_run():
+    async def run():
+        emit({"type": "answer", "text": "Nháp có citation [not_allowed]"})
+        emit({"type": "progress", "stage": "verifying"})
+        return {"run_id": "r2", "status": "PARTIAL", "answer": "Kết quả đã lọc [c1]"}
+
+    events = asyncio.run(_collect(run))
+    assert [e["type"] for e in events] == ["progress", "done"]
+    assert "not_allowed" not in json.dumps(events)
+    assert events[-1]["run"]["answer"] == "Kết quả đã lọc [c1]"
+
+
+def test_ndjson_stream_drops_unverified_draft_on_failure():
+    async def run():
+        emit({"type": "answer", "text": "Bản nháp [bad_source]"})
+        raise ValueError("failed")
+
+    events = asyncio.run(_collect(run))
+    assert len(events) == 1 and events[0]["type"] == "error"
+    assert "bad_source" not in json.dumps(events)
 
 
 def test_ndjson_run_reports_errors_instead_of_cutting_stream():

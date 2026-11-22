@@ -55,6 +55,17 @@ def apply_calc(text: str) -> str:
     return CALC.sub(sub, text)
 
 
+_QUANTITY_UNIT = re.compile(r"(?<![\w.])(?P<n>\d+(?:[.,]\d+)?)\s*(?P<u>ng\u00e0y|days?|tu\u1ea7n|weeks?|th\u00e1ng|months?|n\u0103m|years?)(?!\w)", re.IGNORECASE)
+_UNIT_ALIASES = {"ng\u00e0y":"day", "day":"day", "days":"day", "tu\u1ea7n":"week", "week":"week", "weeks":"week", "th\u00e1ng":"month", "month":"month", "months":"month", "n\u0103m":"year", "year":"year", "years":"year"}
+
+
+def unsupported_quantities(answer: str, sources: str) -> list[tuple[str, str]]:
+    """Detect unmatched number/time-unit pairs; not semantic entailment."""
+    def quantities(text):
+        return {(_norm(m.group('n')), _UNIT_ALIASES[m.group('u').casefold()]) for m in _QUANTITY_UNIT.finditer(text or '')}
+    return sorted(quantities(answer) - quantities(sources))
+
+
 def _norm(token: str) -> str:
     t = token.replace(".", "") if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?", token) else token
     t = t.replace(",", ".")
@@ -82,7 +93,7 @@ def unsupported_numbers(answer: str, sources: str) -> list[str]:
     body = re.sub(r"\([^()]*·\s*đoạn\s*\d+\)", " ", body)  # nhãn trích dẫn
     body = re.sub(r"src_[0-9a-f]+_c\d+", " ", body)
     known = numbers(sources) | numbers(calc_parts)
-    out = [n for n in sorted(numbers(body)) if len(n.replace(".", "")) >= 2 and n not in known]
+    out = [n for n in sorted(numbers(body)) if n not in known]
     return out
 
 
@@ -121,6 +132,73 @@ def finish(answer: str, sources: str) -> tuple[str, list[str]]:
         answer += ("\n\n> **Cần kiểm tra lại:** các con số " + ", ".join(bad[:8]) +
                    " không có nguyên văn trong đoạn tài liệu đã dùng. Hãy bấm vào nguồn để đối chiếu.")
     return answer, bad
+
+
+_CITATION_BRACKET = re.compile(r"\[[^\[\]\n]+\]")
+_CLAIM_STOP = {"may", "can", "could", "should", "must", "will", "shall", "also", "that", "this", "the", "and", "are", "for", "with", "from", "c\u00e1c", "nh\u1eefng", "c\u1ee7a", "trong", "theo", "v\u00e0", "\u0111\u01b0\u1ee3c"}
+_NEGATIVE = re.compile(r"\b(?:not|never|no|prohibit\w*|forbid\w*|den\w*|kh\u00f4ng|c\u1ea5m|ch\u01b0a)\b", re.I)
+_POSITIVE = re.compile(r"\b(?:requir\w*|must|shall|b\u1eaft\s+bu\u1ed9c)\b", re.I)
+
+
+def guard_cited_claims(answer: str, cited_texts: list[str] | dict[str, str]) -> tuple[str, bool, bool]:
+    """Conservative lexical screen, not semantic entailment or per-sentence attribution."""
+    from app.retrieval.text import terms
+
+    def words(text):
+        return terms(_CITATION_BRACKET.sub(' ', text)) - _CLAIM_STOP
+
+    def supported(claim, evidence):
+        claim_words = words(claim)
+        if not claim_words:
+            return False
+        # Compare individual sentences, not unrelated negation in the chunk.
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", evidence)
+        for sentence in sentences:
+            evidence_words = words(sentence)
+            overlap = len(claim_words & evidence_words)
+            if overlap < min(2, len(claim_words)) or overlap / len(claim_words) < 0.6:
+                continue
+            if bool(_NEGATIVE.search(claim)) != bool(_NEGATIVE.search(sentence)):
+                continue
+            if _POSITIVE.search(claim) and _NEGATIVE.search(sentence):
+                continue
+            # A permission is not evidence of an obligation.
+            if _POSITIVE.search(claim) and not _POSITIVE.search(sentence):
+                continue
+            if unsupported_numbers(claim, sentence) or unsupported_articles(claim, sentence) or unsupported_quantities(claim, sentence):
+                continue
+            # Preserve relative order when two named entities are present.
+            names = re.findall(r"\b[A-Z][a-z]{2,}\b", claim)
+            if len(names) >= 2:
+                positions = [sentence.find(name) for name in names]
+                if any(pos < 0 for pos in positions) or positions != sorted(positions):
+                    continue
+            return True
+        return False
+
+    fragments = re.split(r'(?<=[.!?])(?=\s+[^ \t\r\n\[])|(?<=\n)', answer or '')
+    kept, removed, supported_count = [], False, 0
+    for part in fragments:
+        plain = _CITATION_BRACKET.sub('', part).strip()
+        if not plain or re.match(r'^(?:ngu\u1ed3n|source)\s*:', plain, re.I):
+            kept.append(part)
+            continue
+        if isinstance(cited_texts, dict):
+            brackets = _CITATION_BRACKET.findall(part)
+            inline = {cid for cid in cited_texts if any(re.search(r"(?<![\w])" + re.escape(cid) + r"(?![\w])", bracket) for bracket in brackets)}
+            candidates = [cited_texts[cid] for cid in inline] if inline else list(cited_texts.values())
+        else:
+            candidates = cited_texts
+        if any(supported(plain, evidence) for evidence in candidates):
+            kept.append(part)
+            supported_count += 1
+        else:
+            removed = True
+    if not supported_count:
+        return "Kh\u00f4ng \u0111\u1ee7 b\u1eb1ng ch\u1ee9ng \u0111\u1ec3 x\u00e1c nh\u1eadn n\u1ed9i dung tr\u1ea3 l\u1eddi.", True, False
+    if removed:
+        kept.append("\n\nKh\u00f4ng \u0111\u1ee7 b\u1eb1ng ch\u1ee9ng cho m\u1ed9t s\u1ed1 n\u1ed9i dung.")
+    return ''.join(kept).strip(), removed, True
 
 
 __all__ = ["IMG_MARK", "apply_calc", "clean", "finish", "fmt", "numbers", "unsupported_articles", "unsupported_numbers"]

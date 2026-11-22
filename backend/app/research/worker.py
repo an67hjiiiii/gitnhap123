@@ -1,10 +1,10 @@
 from __future__ import annotations
-from app.core.citations import validate_citations
+from app.core.citations import strip_unauthorized_citations, validate_citations
 from app.core.structured_output import is_placeholder_answer, parse_answer_json
 from app.core.types import Task, TaskResult, SourceChunk, RunMetrics
 from app.research.registry import profile
-from app.core.answer_checks import IMG_MARK, apply_calc
-from app.research.vanilla import REPLY_LANGUAGE_HINT
+from app.core.answer_checks import IMG_MARK, finish, unsupported_articles, unsupported_quantities
+from app.research.vanilla import REPLY_LANGUAGE_HINT, render_evidence, sanitize_includes
 
 # Ô chat sản phẩm (21/11): tác tử con thấy câu hỏi gốc (dữ kiện của trường hợp, chữ trong ảnh) và chép số nguyên văn; thực nghiệm giữ prompt cũ.
 PRODUCT_WORKER_HINT = (
@@ -32,7 +32,7 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
             missing_information=["relevant evidence"],
         )
     p = profile(task.domain)
-    evidence_text = "\n\n".join(f"[{c.chunk_id}] {c.text}" for c in evidence)
+    evidence_text = "\n\n".join(render_evidence(c) if product else f"[{c.chunk_id}] {c.text}" for c in evidence)
     system = (
         f"WORKER. Role={p['name']}. Scope={p['scope']}. Exclusions={p['exclusions']}. "
         "Use only supplied evidence; if insufficient, return NO_EVIDENCE or PARTIAL. "
@@ -77,7 +77,20 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
         missing.append("worker answer has no valid citation")
     answer = str(obj.get("answer") or "")
     if product:
-        answer = apply_calc(answer)
+        cleaned = strip_unauthorized_citations(answer, set(valid), set(raw_citations) | {c.chunk_id for c in evidence})
+        answer, removed_include = sanitize_includes(cleaned)
+        if removed_include or cleaned != str(obj.get("answer") or ""):
+            if status == "COMPLETE":
+                status = "PARTIAL"
+            missing.append("unverified citation or include removed")
+    if product and answer:
+        articles = unsupported_articles(answer, evidence_text)
+        quantities = unsupported_quantities(answer, evidence_text)
+        answer, bad = finish(answer, evidence_text)
+        if bad or articles or quantities:
+            answer = "Kh\u00f4ng \u0111\u1ee7 c\u0103n c\u1ee9 \u0111\u1ec3 x\u00e1c nh\u1eadn s\u1ed1 li\u1ec7u ho\u1eb7c \u0111i\u1ec1u kho\u1ea3n trong k\u1ebft qu\u1ea3."
+            status = "PARTIAL"
+            missing.append("unsupported number or article")
     if is_placeholder_answer(answer):
         answer = ""
         if status == "COMPLETE":

@@ -3,8 +3,9 @@ import unicodedata
 import re
 import time
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
+from app.core.answer_checks import guard_cited_claims
 from app.core.config import RuntimeConfig
 from app.core.graph import topological_order, validate_tasks
 from app.core.telemetry import cpu_busy_percent, cpu_times, model_rss_mb, process_rss_mb, gpu_memory_mb
@@ -291,8 +292,45 @@ class ResearchPipeline:
             lifecycle_status = status
             self.run_store.save(make_run(None, "", [], []))
 
+        grounding_chunks = None
+
         def finalize(status: str, answer: str, tasks: list[Task], task_results: list[TaskResult]) -> dict:
             nonlocal lifecycle_status
+            if product_mode and grounding_chunks is not None and status in {"COMPLETE", "PARTIAL", "NO_EVIDENCE"}:
+                chunks = {c.chunk_id: c for c in grounding_chunks if source_ids is None or c.source_id in source_ids}
+                guarded_results = []
+                any_task_removed = False
+                for result in task_results:
+                    if result.status == "NO_EVIDENCE" and result.citations:
+                        result = replace(result, citations=[])
+                    allowed = set(result.citations) & set(result.evidence_ids) & chunks.keys()
+                    if result.status in {"COMPLETE", "PARTIAL", "NO_EVIDENCE"} and result.answer:
+                        evidence = {} if result.status == "NO_EVIDENCE" else {cid: chunks[cid].text for cid in allowed}
+                        checked, removed, supported = guard_cited_claims(result.answer, evidence)
+                        if removed:
+                            any_task_removed = True
+                            result = replace(result, answer=checked, status="PARTIAL" if supported else "NO_EVIDENCE",
+                                             citations=result.citations if supported else [],
+                                             missing_information=[*result.missing_information, "claim support not established"])
+                    guarded_results.append(result)
+                task_results = guarded_results
+                allowed = {cid for result in task_results for cid in result.citations if cid in result.evidence_ids and cid in chunks}
+                evidence = {} if status == "NO_EVIDENCE" else {cid: chunks[cid].text for cid in allowed}
+                answer, removed, supported = guard_cited_claims(answer, evidence)
+                if removed:
+                    status = "PARTIAL" if supported else "NO_EVIDENCE"
+                    if task_results and not any("claim support" in m for r in task_results for m in r.missing_information):
+                        task_results[0] = replace(task_results[0], missing_information=[*task_results[0].missing_information, "claim support not established"])
+                if any_task_removed and supported and status == "COMPLETE":
+                    status = "PARTIAL"
+                sanitized = {r.task_id: asdict(r) for r in task_results}
+                for item in events:
+                    if item.get("stage") == "run_finished":
+                        item["status"] = status
+                    if item.get("stage") == "task_completed" and isinstance(item.get("result"), dict):
+                        tid = item["result"].get("task_id")
+                        if tid in sanitized:
+                            item["result"] = sanitized[tid]
             metrics.latency_ms = int((time.perf_counter() - started) * 1000)
             metrics.peak_rss_mb = max(filter(lambda x: x is not None, [metrics.peak_rss_mb, process_rss_mb()]), default=None)
             metrics.gpu_memory_mb = gpu_memory_mb()
@@ -376,6 +414,7 @@ class ResearchPipeline:
                 event("request_understanding", **understanding.to_dict())
 
             all_chunks = self.source_store.chunks(source_ids)
+            grounding_chunks = all_chunks
             if condition == "A" or simple_product_request:
                 r0 = time.perf_counter()
                 retrieval_trace: dict = {}
@@ -771,13 +810,16 @@ class ResearchPipeline:
                 g0 = time.perf_counter()
                 # Ô chat sản phẩm: nới giới hạn để câu trả lời nhiều ý không bị cắt; thực nghiệm giữ nguyên.
                 synth_limit = cfg.synthesis_max_output_tokens if product_mode else None
+                synthesis_guard = {}
                 answer = await synthesize(provider, query, task_results, metrics, reply_language=answer_language, max_output_tokens=synth_limit,
-                                          evidence_text="\n".join(product_evidence) if product_mode else None)
+                                          evidence_text="\n".join(product_evidence) if product_mode else None, guard_report=synthesis_guard if product_mode else None)
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
 
             status = "COMPLETE" if task_results and all(r.status == "COMPLETE" for r in task_results) else "PARTIAL"
             if task_results and all(r.status == "NO_EVIDENCE" for r in task_results):
                 status = "NO_EVIDENCE"
+            elif product_mode and condition != "A" and not simple_product_request and (synthesis_guard.get("partial") or len(task_results) < len(ordered)):
+                status = "PARTIAL"
             lifecycle_status = "COMPLETED"
             event(
                 "run_finished",

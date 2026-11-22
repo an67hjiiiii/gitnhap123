@@ -1,9 +1,28 @@
 from __future__ import annotations
-from app.core.answer_checks import IMG_MARK, finish
-from app.core.citations import validate_citations
+import re
+from app.core.answer_checks import IMG_MARK, finish, unsupported_articles, unsupported_quantities
+from app.core.citations import strip_unauthorized_citations, validate_citations
 from app.core.structured_output import is_placeholder_answer, parse_answer_json
 from app.core.types import RunMetrics, SourceChunk, TaskResult
 from app.research.progress import answer_streamer
+
+
+_INCLUDE = re.compile(r"\{![\s\S]*?(?:!\}|$)")
+
+
+def sanitize_includes(text: str) -> tuple[str, bool]:
+    result, count = _INCLUDE.subn("[Source code include unavailable]", text)
+    return result, bool(count)
+
+
+def render_evidence(chunk: SourceChunk) -> str:
+    locator = (chunk.provenance or {}).get("locator") or {}
+    section = locator.get("section_path") if isinstance(locator, dict) else None
+    if isinstance(section, list):
+        section = " > ".join(str(item) for item in section if item)
+    section = " ".join(section.split())[:300] if isinstance(section, str) else ""
+    body, _ = sanitize_includes(chunk.text)
+    return f"[{chunk.chunk_id}]" + (f"\nSection: {section}" if section else "") + f"\n{body}"
 
 
 def _extract_json(text: str) -> dict:
@@ -53,7 +72,7 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
             missing_information=["relevant evidence"],
         )
 
-    evidence_text = "\n\n".join(f"[{c.chunk_id}] {c.text}" for c in evidence)
+    evidence_text = "\n\n".join(render_evidence(c) if product else f"[{c.chunk_id}] {c.text}" for c in evidence)
     system = (
         "VANILLA_RAG_ANSWERER. Use only supplied evidence. Return JSON only. "
         "Every factual claim that comes from the corpus must be grounded by one or more exact chunk IDs. "
@@ -97,6 +116,13 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
     if status == "COMPLETE" and not valid:
         status = "PARTIAL"
         missing.append("answer has no valid citation")
+    if product:
+        cleaned = strip_unauthorized_citations(answer, set(valid), set(raw_citations) | {c.chunk_id for c in evidence})
+        answer, removed_include = sanitize_includes(cleaned)
+        if removed_include or cleaned != str(obj.get("answer") or "").strip():
+            if status == "COMPLETE":
+                status = "PARTIAL"
+            missing.append("unverified citation or include removed")
     if is_placeholder_answer(answer):
         answer = ""
         if status == "COMPLETE":
@@ -104,8 +130,13 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         missing.append("model returned an empty answer")
 
     if product and answer:  # hậu kiểm: máy tính thay phép tính, cảnh báo số không có trong nguồn (không áp cho thực nghiệm)
-        answer, bad = finish(answer, evidence_text + "\n" + query)
-        if bad:
+        sources = evidence_text + "\n" + query
+        articles = unsupported_articles(answer, sources)
+        quantities = unsupported_quantities(answer, evidence_text)
+        answer, bad = finish(answer, sources)
+        if bad or articles or quantities:
+            answer = "Kh\u00f4ng \u0111\u1ee7 c\u0103n c\u1ee9 \u0111\u1ec3 x\u00e1c nh\u1eadn s\u1ed1 li\u1ec7u ho\u1eb7c \u0111i\u1ec1u kho\u1ea3n."
+        if bad or articles or quantities:
             missing.append("numbers not found verbatim in evidence: " + ", ".join(bad[:8]))
             if status == "COMPLETE":
                 status = "PARTIAL"

@@ -10,8 +10,6 @@ import logging
 from contextvars import ContextVar
 from typing import Any, AsyncIterator, Awaitable, Callable
 
-from app.core.structured_output import partial_answer
-
 progress_sink: ContextVar[Callable[[dict], None] | None] = ContextVar("progress_sink", default=None)
 
 
@@ -28,29 +26,24 @@ def bound_emit() -> Callable[[dict], None]:
 
 
 def answer_streamer(provider) -> dict:
-    """kwargs `on_text` cho provider khi có người nghe và provider trả chữ theo luồng; rỗng nếu không."""
-    if progress_sink.get() is None or not getattr(provider, "supports_streaming", False):
-        return {}
-    last = {"text": ""}
-
-    def on_text(acc: str) -> None:
-        text = partial_answer(acc)
-        if text and text != last["text"]:
-            last["text"] = text
-            emit({"type": "answer", "text": text})
-
-    return {"on_text": on_text}
+    """Không phát draft answer chưa kiểm chứng; chỉ stream progress, trả lời bằng done.run."""
+    return {}
 
 
 _running: set[asyncio.Task] = set()  # giữ tham chiếu: người dùng đóng trang thì lượt chạy vẫn chạy xong và được lưu
 
 
 async def ndjson_run(run_factory: Callable[[], Awaitable[Any]]) -> AsyncIterator[str]:
-    """Chạy run_factory với progress_sink bật; trả từng dòng JSON: progress/answer, rồi done (kèm run) hoặc error."""
+    """Chỉ gửi tiến độ; chặn mọi draft answer trước final validation."""
     queue: asyncio.Queue = asyncio.Queue()
 
+    def safe_emit(item: dict) -> None:
+        # Defense in depth: some provider/caller may emit answer directly.
+        if item.get("type") != "answer":
+            queue.put_nowait(item)
+
     async def work() -> None:
-        progress_sink.set(queue.put_nowait)
+        progress_sink.set(safe_emit)
         try:
             queue.put_nowait({"type": "done", "run": await run_factory()})
         except Exception as exc:  # HTTPException mang status_code/detail; lỗi khác báo 500 thay vì cắt luồng im lặng

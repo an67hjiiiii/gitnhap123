@@ -1,11 +1,37 @@
 from __future__ import annotations
 import json
+import logging
 import os
 import uuid
 from typing import Callable
 import httpx
 from app.core.types import ProviderResult, Usage
 from app.providers.base import Provider
+
+metrics_logger = logging.getLogger("app.providers.ollama.metrics")
+
+
+def _configure_metrics_logging() -> None:
+    if os.getenv("OLLAMA_METRICS_LOG", "").strip() != "1":
+        return
+    metrics_logger.setLevel(logging.INFO)
+    metrics_logger.propagate = False
+    if not any(getattr(handler, "_ollama_metrics_handler", False) for handler in metrics_logger.handlers):
+        handler = logging.StreamHandler()
+        handler._ollama_metrics_handler = True
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        metrics_logger.addHandler(handler)
+
+
+def _log_response_metrics(data: dict) -> None:
+    fields = ("total_duration", "load_duration", "prompt_eval_duration", "eval_duration", "prompt_eval_count", "eval_count")
+    metrics = {name: data[name] for name in fields if type(data.get(name)) is int and data[name] >= 0}
+    if metrics:
+        metrics_logger.info("ollama_response_metrics %s", metrics)
+
+
+_configure_metrics_logging()
+
 
 class OllamaProvider(Provider):
     name = "ollama"
@@ -112,6 +138,7 @@ class OllamaProvider(Provider):
                 response.raise_for_status()
                 data = response.json()
             text = (data.get("message") or {}).get("content", "")
+        _log_response_metrics(data)
         inp = int(data.get("prompt_eval_count") or 0)
         out = int(data.get("eval_count") or 0)
         return ProviderResult(text=text, usage=Usage(inp, out), request_id="ollama_"+uuid.uuid4().hex[:10], model=self.model)
