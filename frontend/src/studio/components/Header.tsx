@@ -10,7 +10,7 @@ import { Activity, Network, Save, Upload, Layers, Cpu } from 'lucide-react';
 import '../styles/studio-shell.css';
 import { PortalSwitch } from './admin/AdminPortal';
 import { BrandLogo } from './BrandLogo';
-import { ChevronLeft, ChevronRight, FileText, FolderOpen, Inbox } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, FileText, FolderOpen, Inbox } from 'lucide-react';
 
 export const MODES: Record<ExecutionMode, { key: string; title: string; badge: string; desc: string }> = {
   proposed_adaptive: { key: 'C', title: 'Điều phối đầy đủ', badge: 'Đề xuất', desc: 'Điều kiện C: lập kế hoạch có kiểm tra, chuẩn hóa nhiệm vụ, tối ưu ngữ cảnh.' },
@@ -153,6 +153,7 @@ export const Header: React.FC<SidebarProps> = ({
     { id: 'library', label: 'Tài liệu', Icon: FolderOpen, show: true },
     { id: 'compare', label: 'So sánh phiên bản', Icon: GitCompareArrows, show: true },
     { id: 'toolkit', label: 'Kỹ năng', Icon: Sparkles, show: true },
+    { id: 'office', label: 'Văn phòng Agent', Icon: Bot, show: true },
     { id: 'results', label: 'Kết quả & công việc', Icon: Inbox, show: true },
     { id: 'overview', label: 'Tổng quan', Icon: BarChart3, show: true },
     { id: 'organization', label: 'Tổ chức', Icon: Building2, show: !!user },

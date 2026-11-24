@@ -98,6 +98,8 @@ const POKE_LINES = [
   'Nhỏ thôi nhé: mình chỉ đọc tài liệu trong máy của bạn.',
 ]
 
+const TRANSIENT_STATES = new Set<RobotState>(['happy', 'completed', 'speaking']);
+
 export const RobotProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<RobotState>('idle');
   const [speechText, setSpeechText] = useState<string>(
@@ -164,6 +166,14 @@ export const RobotProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       synth.playHappyChime();
     }
   }, [state, soundEnabled]);
+
+  // Biểu cảm thoáng qua (chạm vui, xong việc, đang nói) tự về mặt gốc 'idle' sau 30 giây (24/11, chủ dự án yêu cầu).
+  // Không áp cho trạng thái cố định: lỗi (đỏ), đang làm việc/tìm/nghĩ (vàng), đang nghe, đang ngủ.
+  useEffect(() => {
+    if (!TRANSIENT_STATES.has(state)) return;
+    const t = window.setTimeout(() => setState('idle'), 30000);
+    return () => window.clearTimeout(t);
+  }, [state, pokeTrigger]);
 
   // Tự động chuyển về trạng thái ngủ (sleeping) khi không có tương tác trong 60 giây
   useEffect(() => {

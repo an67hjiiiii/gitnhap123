@@ -6,6 +6,7 @@ Bộ đang dùng đặt theo từng lượt chạy qua ContextVar (`use_pack`), 
 """
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -236,6 +237,78 @@ PACKS[WORK_PACK] = _pack("Theo loại việc", {
      "avoid inventing subjects that were not requested."),
 ])
 
+# ---------------- Văn phòng 3D (Đợt 4 kế hoạch Văn phòng, 23/11): 6 chuyên gia ngành + Data Analyst, khớp nhân vật 3D.
+# Mặc định của ô chat sản phẩm từ Đợt 9 (23/11, chủ dự án duyệt sau đo Đợt 8); PRODUCT_AGENT_PACK=work để quay về bộ cũ.
+# Câu ngoài các ngành này (hành chính – pháp lý, đời sống) do Chuyên viên tổng hợp (`general`) trả lời.
+OFFICE_PACK = "office"
+PACKS[OFFICE_PACK] = _pack("Văn phòng chuyên gia", {
+    "software": _agent(
+        "Software & IT Analyst", "Software and IT: requirements, system design, APIs, databases, security, source code, IT operations",
+        ["requirements", "architecture", "API", "database", "security", "source code"],
+        ["business strategy", "salary and leave rules", "accounting"]),
+    "business": _agent(
+        "Business & Strategy Analyst", "Running a business: business models, operating plans, sales, partners, commercial contracts, strategy",
+        ["business model", "operating plan", "sales", "partners", "commercial contracts", "strategy"],
+        ["software design", "employee leave rules", "detailed arithmetic"]),
+    "marketing": _agent(
+        "Marketing Analyst", "Markets and customers: market research, campaigns, branding, communication, advertising results",
+        ["market research", "customers", "campaigns", "branding", "advertising metrics"],
+        ["accounting records", "employee rules", "software design"]),
+    "hr": _agent(
+        "HR & Workplace Rules Analyst", "People at work: recruitment, labour contracts, leave, salary policy, discipline, evaluation, internal rules",
+        ["recruitment", "labour contracts", "leave", "salary policy", "discipline", "internal rules"],
+        ["marketing campaigns", "software design", "financial statements"]),
+    "finance": _agent(
+        "Finance & Accounting Analyst", "Money: budgets, costs, revenue, invoices, accounting records, financial statements, taxes, fees",
+        ["budget", "costs", "revenue", "invoices", "financial statements", "taxes and fees"],
+        ["recruitment", "software design", "marketing creative"]),
+    "education": _agent(
+        "Education & Research Analyst", "Study and research: academic regulations, credits, grades, scholarships, theses, papers, course material",
+        ["academic regulations", "credits and grades", "scholarships", "theses", "research papers"],
+        ["company finance", "marketing", "software operations"]),
+    "analyst": _agent(
+        "Data Analyst", "Numbers in the documents: computing a value from rules, rates, percentages, comparing figures, trends in tables",
+        ["calculation", "rates", "percentages", "comparison", "tables", "trends"],
+        ["interpreting rules without numbers", "approval workflow"]),
+}, {
+    "software": ("khóa api", "paynhanh", "merchant", "webhook", "mã hóa", "nfr-", "fr-", "phần mềm", "hệ thống", "api", "cơ sở dữ liệu", "database", "csdl", "bảo mật", "mã nguồn", "code", "lập trình",
+                 "yêu cầu chức năng", "kiến trúc", "máy chủ", "đặc tả", "software", "server", "python", "javascript", "thuật toán", "giao thức", "tcp", "udp", "sql", "nosql",
+                 "khóa chính", "khóa ngoại", "ràng buộc thực thể", "ràng buộc tham chiếu", "nhật ký kiểm toán"),
+    "business": ("quyết định đầu tư", "vốn đầu tư", "góp vốn", "hoàn vốn", "đồng sáng lập", "nhà cung cấp", "quán", "kinh doanh", "doanh nghiệp", "chiến lược", "mô hình kinh doanh", "kế hoạch kinh doanh", "bán hàng", "đối tác",
+                 "khách hàng doanh nghiệp", "hợp đồng mua bán", "thương mại", "business", "strategy"),
+    "marketing": ("ctr", "cpa", "kol", "tiktok", "facebook", "kênh quảng cáo", "đơn hàng", "marketing", "tiếp thị", "quảng cáo", "chiến dịch", "thương hiệu", "truyền thông", "thị trường", "khách hàng mục tiêu",
+                  "ctr", "roas", "fanpage", "campaign"),
+    "hr": ("làm việc từ xa", "nghỉ ốm", "quy chế làm việc", "đi muộn", "người lao động", "nhân sự", "nhân viên", "tuyển dụng", "ứng viên", "nghỉ phép", "phép năm", "hợp đồng lao động", "thử việc", "kỷ luật",
+           "nội quy", "chấm công", "làm thêm giờ", "bảo hiểm xã hội", "đánh giá nhân viên", "recruit", "leave"),
+    "finance": ("khoản chi", "quyết toán", "giá vốn", "thuế thu nhập", "dự phòng", "tài chính", "kế toán", "ngân sách", "chi phí", "doanh thu", "lợi nhuận", "hóa đơn", "thuế", "báo cáo tài chính",
+                "công tác phí", "thanh toán", "tạm ứng", "thu chi", "budget", "invoice"),
+    "education": ("ôn thi", "kỳ thi", "môn học", "học tập", "khóa chính", "khóa ngoại", "dạng chuẩn", "chuẩn hóa", "bài giảng", "học kỳ", "rèn luyện", "sinh viên", "học phần", "tín chỉ", "điểm trung bình", "học bổng", "tốt nghiệp", "khóa luận", "luận văn", "giảng viên",
+                  "học vụ", "nghiên cứu khoa học", "bài báo", "đào tạo", "student", "thesis"),
+    # không dùng "tính" đơn lẻ: trùng "tính năng", "tính chất"
+    "analyst": ("bao nhiêu", "tính toán", "tính tiền", "tính ra", "tỷ lệ", "phần trăm", "tổng cộng", "trung bình", "so sánh số liệu",
+                "xu hướng", "công thức", "how much", "calculate", "rate"),
+}, [
+    ("planning_software.md", "Software questions commonly separate requirement, design, data, interface and security concerns."),
+    ("planning_business.md", "Business questions commonly separate goal, plan, parties and commercial terms."),
+    ("planning_marketing.md", "Marketing questions commonly separate audience, campaign, channel and measured results."),
+    ("planning_hr.md", "HR questions commonly separate who is covered, the rule or condition, the procedure and the entitlement."),
+    ("planning_finance.md", "Finance questions commonly separate the item of money, the rule or rate, and the amount or report."),
+    ("planning_education.md", "Education questions commonly separate the student's situation, the academic rule and the required action."),
+    ("planning_analyst.md", "Calculation questions commonly separate the rule or rate, the input numbers and the computation."),
+    ("planning_multi_domain.md", "Requests that mix several fields should create one task per independent subject and "
+     "avoid inventing subjects that were not requested."),
+])
+
+# Bộ tác tử được chọn theo ý nghĩa câu hỏi (ô chat sản phẩm).
+SELECTION_PACKS = frozenset({WORK_PACK, OFFICE_PACK})
+
+
+def product_agent_pack() -> str:
+    """Bộ tác tử cho ô chat sản phẩm: biến môi trường PRODUCT_AGENT_PACK (work | office), mặc định office (Đợt 9)."""
+    name = os.getenv("PRODUCT_AGENT_PACK", OFFICE_PACK).strip().lower()
+    return name if name in SELECTION_PACKS else OFFICE_PACK
+
+
 # Kiến thức ngành nạp cho tác tử theo loại tài liệu trong phạm vi hỏi (nhãn tự phân loại ở đợt 3).
 WORK_KNOWLEDGE: dict[str, dict[str, str]] = {
     "contract": {"terms": "For contracts, check the contents listed in Article 398 of the Vietnamese Civil Code 2015 "
@@ -295,7 +368,7 @@ def active_pack() -> dict:
 
 def active_domains() -> tuple[str, ...]:
     domains = tuple(active_pack()["agents"])
-    allowed = _WORK_ALLOWED.get() if _ACTIVE.get() == WORK_PACK else None
+    allowed = _WORK_ALLOWED.get() if _ACTIVE.get() in SELECTION_PACKS else None
     return tuple(d for d in domains if d in allowed or d == "general") if allowed else domains
 
 
@@ -311,8 +384,12 @@ def validate_domain(domain: str) -> None:
 def profile(domain: str) -> dict:
     validate_domain(domain)
     agent = active_pack()["agents"][domain]
-    if _ACTIVE.get() != WORK_PACK:
+    if _ACTIVE.get() not in SELECTION_PACKS:
         return agent
-    notes = [WORK_KNOWLEDGE[t][domain] for t in sorted(_WORK_DOC_TYPES.get()) if domain in WORK_KNOWLEDGE.get(t, {})]
+    if _ACTIVE.get() == OFFICE_PACK:
+        # chuyên gia ngành không trùng tên tác tử theo loại việc: nạp mọi ghi chú của loại tài liệu đang hỏi
+        notes = list(dict.fromkeys(n for t in sorted(_WORK_DOC_TYPES.get()) for n in WORK_KNOWLEDGE.get(t, {}).values()))
+    else:
+        notes = [WORK_KNOWLEDGE[t][domain] for t in sorted(_WORK_DOC_TYPES.get()) if domain in WORK_KNOWLEDGE.get(t, {})]
     return {**agent, "scope": agent["scope"] + (" Domain knowledge: " + " ".join(notes) if notes else "")}
 

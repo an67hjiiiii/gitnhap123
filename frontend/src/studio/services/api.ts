@@ -451,7 +451,7 @@ export async function sendChat(message: string, conversationId: string | null, w
 }
 
 // Ô chat sản phẩm: /api/chat/stream gửi từng dòng JSON (bước đang làm, chữ trả lời đang viết) rồi kết quả cuối.
-export type ChatStreamEvent = { type: 'progress'; stage: string; task_id?: string; classification?: string; agents?: string[] } | { type: 'answer'; text: string } | { type: 'queue'; position: number };
+export type ChatStreamEvent = { type: 'progress'; stage: string; task_id?: string; domain?: string; classification?: string; agents?: string[] } | { type: 'answer'; text: string } | { type: 'queue'; position: number };
 async function postStream(payload: Record<string, unknown>, onEvent: (e: ChatStreamEvent) => void): Promise<Cap1Run> {
   const res = await fetch(`${API}${scoped('/chat/stream')}`, {
     method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),

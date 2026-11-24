@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import json
 import os
 import uuid
@@ -6,6 +7,23 @@ from typing import Callable
 import httpx
 from app.core.types import ProviderResult, Usage
 from app.providers.base import Provider
+
+# Một AsyncClient cho mỗi vòng lặp sự kiện, dùng lại giữa các lần gọi. Đo 23/11: tạo client mới mỗi lần gọi mô hình tốn
+# 0,4–1,5 s nạp chứng chỉ SSL ngay trong vòng lặp sự kiện, làm luồng sự kiện ô chat tới trình duyệt muộn.
+_CLIENTS: dict[int, tuple[asyncio.AbstractEventLoop, httpx.AsyncClient]] = {}
+
+
+def _async_client(timeout: float) -> httpx.AsyncClient:
+    loop = asyncio.get_running_loop()
+    hit = _CLIENTS.get(id(loop))
+    if hit and hit[0] is loop and not hit[1].is_closed:
+        return hit[1]
+    for key, (lp, _client) in list(_CLIENTS.items()):  # bỏ client của vòng lặp đã đóng
+        if lp.is_closed():
+            _CLIENTS.pop(key, None)
+    client = httpx.AsyncClient(timeout=timeout)
+    _CLIENTS[id(loop)] = (loop, client)
+    return client
 
 class OllamaProvider(Provider):
     name = "ollama"
@@ -107,10 +125,9 @@ class OllamaProvider(Provider):
         if on_text is not None:
             text, data = await self._stream(payload, on_text)
         else:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(f"{self.base_url}/api/chat", json=payload)
-                response.raise_for_status()
-                data = response.json()
+            response = await _async_client(self.timeout).post(f"{self.base_url}/api/chat", json=payload)
+            response.raise_for_status()
+            data = response.json()
             text = (data.get("message") or {}).get("content", "")
         inp = int(data.get("prompt_eval_count") or 0)
         out = int(data.get("eval_count") or 0)
@@ -120,19 +137,18 @@ class OllamaProvider(Provider):
         """Cùng yêu cầu nhưng stream=True: gọi on_text với toàn bộ chữ đã nhận; trả chữ đủ và dòng cuối (có token)."""
         parts: list[str] = []
         last: dict = {}
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream("POST", f"{self.base_url}/api/chat", json={**payload, "stream": True}) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    last = json.loads(line)
-                    if last.get("error"):
-                        raise RuntimeError(f"ollama stream error: {last['error']}")
-                    piece = (last.get("message") or {}).get("content", "")
-                    if piece:
-                        parts.append(piece)
-                        on_text("".join(parts))
+        async with _async_client(self.timeout).stream("POST", f"{self.base_url}/api/chat", json={**payload, "stream": True}) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.strip():
+                    continue
+                last = json.loads(line)
+                if last.get("error"):
+                    raise RuntimeError(f"ollama stream error: {last['error']}")
+                piece = (last.get("message") or {}).get("content", "")
+                if piece:
+                    parts.append(piece)
+                    on_text("".join(parts))
         return "".join(parts), last
 
     async def health(self) -> dict:

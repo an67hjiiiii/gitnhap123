@@ -57,9 +57,21 @@ SKILLS: dict[str, tuple[str, str, frozenset[str] | None]] = {
 COMPOSE = r"\b(tao|soan|viet|lap)\b.{0,30}\b(cau hoi|de thi|bai kiem tra|trac nghiem|van ban|email|thu|bao cao|tom tat)\b|\b(trac nghiem|on tap|tom tat|tom luoc)\b"
 
 
+# Đợt 8 Văn phòng 3D: câu có từ hai vế hỏi trở lên ("ai duyệt … và được trả bao nhiêu") để bộ điều phối chia việc;
+# trước đây kỹ năng chỉ trả lời vế đầu và bỏ mất vế sau.
+_ASKS = (r"\bbao nhieu\b", r"\bai\b", r"\bbao lau\b", r"\bthe nao\b", r"\bnhung gi\b", r"\bo dau\b", r"\bngay nao\b",
+         r"\bkhi nao\b", r"\bla gi\b", r"\bco\b[^?,]{0,60}\bkhong\b")
+
+
+def is_multi_part(text: str) -> bool:
+    return sum(1 for p in _ASKS if re.search(p, text)) >= 2
+
+
 def route_skill(query: str, doc_types: list[str | None]) -> dict | None:
     """Trả {"skill", "label", "reason"} hoặc None (để pipeline xử lý)."""
     text = _fold(query)
+    if is_multi_part(text):
+        return None
     if re.search(SKILLS["quiz"][1], text):  # tạo câu hỏi trắc nghiệm là kỹ năng riêng, đi trước luật "soạn nội dung"
         return {"skill": "quiz", "label": SKILLS["quiz"][0], "reason": 'Yêu cầu tạo câu hỏi trắc nghiệm', "doc_types": None}
     if re.search(COMPOSE, text):
@@ -77,4 +89,4 @@ def route_skill(query: str, doc_types: list[str | None]) -> dict | None:
     return {"skill": key, "label": label, "reason": reason, "doc_types": sorted(needs) if needs else None}
 
 
-__all__ = ["SKILLS", "route_skill"]
+__all__ = ["SKILLS", "is_multi_part", "route_skill"]

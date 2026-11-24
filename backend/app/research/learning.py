@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from app.research.agent_selection import DESCRIPTIONS
+from app.research.agent_selection import PACK_DESCRIPTIONS
 from app.storage.postgres.models import RoutingExampleRecord
 
 MAX_EXAMPLES = 200  # ví dụ gần nhất mỗi người trong một không gian
@@ -13,7 +13,7 @@ MAX_EXAMPLES = 200  # ví dụ gần nhất mỗi người trong một không gi
 
 def record_example(session_factory, user_id: str, space_id: str | None, query: str, agent: str, source: str = "clarify") -> bool:
     query = " ".join(str(query or "").split())[:1000]
-    if session_factory is None or agent not in DESCRIPTIONS or not query:
+    if session_factory is None or not any(agent in d for d in PACK_DESCRIPTIONS.values()) or not query:
         return False
     with session_factory.begin() as db:
         db.add(RoutingExampleRecord(example_id=f"rx_{uuid4().hex[:16]}", owner_user_id=str(user_id), space_id=space_id,

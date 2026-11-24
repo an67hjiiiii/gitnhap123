@@ -20,7 +20,10 @@ const ROLE: Record<string, string> = { database: 'DatabaseAgent', api_architectu
   legal_basis: 'Căn cứ pháp lý', procedure: 'Quy trình và phê duyệt', contract: 'Hợp đồng',
   // bộ theo loại việc (đợt 5); "procedure" dùng chung tên với bộ Hành chính – Pháp lý
   conditions: 'Điều kiện và quy định', terms: 'Điều khoản và cam kết', figures: 'Số liệu và tính toán',
-  hr_policy: 'Chính sách nhân sự', operations: 'Quy trình nội bộ', sales_customer: 'Khách hàng – Bán hàng' };
+  hr_policy: 'Chính sách nhân sự', operations: 'Quy trình nội bộ', sales_customer: 'Khách hàng – Bán hàng',
+  // bộ office (văn phòng 3D, 23/11)
+  software: 'Phần mềm và CNTT', business: 'Kinh doanh và chiến lược', marketing: 'Marketing', hr: 'Nhân sự', finance: 'Tài chính và kế toán',
+  education: 'Giáo dục và nghiên cứu', analyst: 'Phân tích số liệu' };
 
 // Câu trả lời của worker/synthesizer đôi khi là chuỗi JSON; lấy phần chữ như giao diện chat CAP1 (chatModel.mjs).
 export function answerText(raw: unknown): string {

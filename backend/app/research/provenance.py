@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 import platform
 import sys
 from functools import lru_cache
@@ -45,14 +46,23 @@ def environment() -> dict:
     return {"python": sys.version.split()[0], "platform": platform.platform(), "packages": {p: ver(p) for p in PACKAGES}}
 
 
+_DIGEST_CACHE: dict[str, tuple[float, str | None]] = {}
+_DIGEST_TTL_S = 300.0  # mã phiên bản mô hình hiếm khi đổi; hỏi Ollama mỗi lượt là lệnh chờ đồng bộ ~0,8 s (đo 23/11)
+
+
 def ollama_model_digest(model: str) -> str | None:
+    hit_cache = _DIGEST_CACHE.get(model)
+    if hit_cache and time.monotonic() - hit_cache[0] < _DIGEST_TTL_S:
+        return hit_cache[1]
     base = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
     try:
         tags = httpx.get(f"{base}/api/tags", timeout=3).json().get("models", [])
     except Exception:
-        return None
+        return None  # lỗi thì không lưu đệm: lần sau hỏi lại
     hit = next((m for m in tags if model in (m.get("name"), m.get("model"))), None)
-    return hit.get("digest") if hit else None
+    digest = hit.get("digest") if hit else None
+    _DIGEST_CACHE[model] = (time.monotonic(), digest)
+    return digest
 
 
 def build_provenance(*, provider_name: str, model: str, embedding_version: str | None, context_policy: str) -> dict:

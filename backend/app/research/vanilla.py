@@ -27,7 +27,7 @@ PRODUCT_ANSWER_HINT = {
         "Liệt kê các trường hợp, điều kiện thì liệt kê ĐỦ mọi điểm a), b), c)… có trong điều khoản tương ứng của bằng chứng, không thêm ý ngoài điều khoản đó. "
         "Mọi con số, mốc năm, tỷ lệ phải chép nguyên văn từ bằng chứng; không có thì nói không có, tuyệt đối không ước đoán. "
         "Khi phải tính toán, KHÔNG tự tính: viết từng phép tính với số cụ thể trong dấu [[= ... ]], ví dụ \"Lương giờ = [[= 12000000/26/8 ]] đồng\", "
-        "chỉ dùng số, + - * / và ngoặc (150% viết 1.5); hệ thống sẽ tự thay bằng kết quả, không viết lại kết quả sau dấu ]]. "
+        "chỉ dùng số, + - * / // và ngoặc (150% viết 1.5; \"cứ đủ N … được thêm\" dùng // lấy phần nguyên, ví dụ 12 + 6//5); hệ thống sẽ tự thay bằng kết quả, không viết lại kết quả sau dấu ]]. Nếu câu hỏi hỏi một số tiền, số ngày hay số lượng mà bằng chứng chỉ cho tỷ lệ, đơn giá hoặc mức theo ngày, PHẢI viết phép tính [[= ... ]] ra con số cuối cùng (ví dụ phạt 0,5%/ngày × 10 ngày × 120.000.000 → [[= 0.005*10*120000000 ]] đồng), không dừng ở tỷ lệ; câu hỏi có số lượng (4 ngày, 10 giờ, 200 ly) thì nhân số lượng đó với mức trong bằng chứng. Chỉ dùng con số của ĐÚNG chỉ số được hỏi: bằng chứng không có chỉ số đó (ví dụ hỏi người theo dõi mà chỉ có đơn hàng) thì nói tài liệu không có, không lấy số của chỉ số khác. "
         "Ghi căn cứ đúng số Điều, khoản như trong bằng chứng. Không viết mục \"Các chunk ID liên quan\", không nhắc mã nhiệm vụ (T1, T2). "
         "Tối đa khoảng 350 từ. Chỉ dùng thông tin có trong bằng chứng. Giữ nguyên tên kỹ thuật, mã, giá trị và chunk ID."
     ),
@@ -41,7 +41,8 @@ PRODUCT_ANSWER_HINT = {
 
 
 async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None,
-                         product: bool = False, max_output_tokens: int | None = None) -> TaskResult:
+                         product: bool = False, max_output_tokens: int | None = None, extra_hint: str | None = None,
+                         role: dict | None = None) -> TaskResult:
     if not evidence:
         return TaskResult(
             task_id="T1",
@@ -62,6 +63,8 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
         "Preserve technical identifiers, API paths, class/function/field names, SQL identifiers, code blocks, literal values, "
         "source IDs, chunk IDs, and citation locators exactly; do not translate or mutate them."
     )
+    if product and role:  # câu đơn giản do chuyên gia ngành trả lời (ô chat sản phẩm); thực nghiệm không truyền role
+        system += f" You answer as Role={role['name']}. Scope={role['scope']}."
     user = (
         f"USER REQUEST:\n{query}\n\nEVIDENCE:\n{evidence_text}\n\n"
         'Schema: {"status":"COMPLETE|PARTIAL|NO_EVIDENCE","answer":"...",'
@@ -70,6 +73,8 @@ async def answer_vanilla(provider, query: str, evidence: list[SourceChunk], metr
     hints = PRODUCT_ANSWER_HINT if product else REPLY_LANGUAGE_HINT
     if reply_language in hints:
         user += "\n\n" + hints[reply_language]
+    if product and extra_hint:  # bước chọn nguồn tri thức: cho phép bổ sung kiến thức chung có nhãn
+        user += "\n\n" + extra_hint
     if product and IMG_MARK in query:  # ảnh dán vào ô chat: dữ kiện của trường hợp, không phải nguồn
         user += ("\n\nTRƯỜNG HỢP TRONG ẢNH: phần sau dấu \"" + IMG_MARK + "\" là dữ kiện người dùng đưa ra. Đối chiếu từng dữ kiện với "
                  "ngưỡng, điều kiện, thời hạn trong bằng chứng, viết rõ phép so sánh (ví dụ 0,72 < 1,0 nên không đạt) rồi kết luận. "

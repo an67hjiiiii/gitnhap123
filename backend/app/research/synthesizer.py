@@ -18,13 +18,15 @@ SYNTH_LANGUAGE_HINT = {
 
 
 async def synthesize(provider, query: str, results: list[TaskResult], metrics: RunMetrics, reply_language: str | None = None, max_output_tokens: int | None = None,
-                     evidence_text: str | None = None) -> str:
+                     evidence_text: str | None = None, revision_note: str | None = None) -> str:
     compact = []
     all_citations: list[str] = []
     for r in results:
         all_citations.extend(r.citations)
+        # nguồn tri thức chỉ ghi khi khác tài liệu (chỉ ô chat sản phẩm tạo ra), prompt thực nghiệm giữ nguyên
+        source = f" source={r.source}" if r.source != "documents" else ""
         compact.append(
-            f"TASK {r.task_id} [{r.domain}] status={r.status}\n"
+            f"TASK {r.task_id} [{r.domain}] status={r.status}{source}\n"
             f"answer={r.answer}\n"
             f"citations={','.join(r.citations)}\n"
             f"available_evidence={','.join(r.evidence_ids)}\n"
@@ -36,6 +38,13 @@ async def synthesize(provider, query: str, results: list[TaskResult], metrics: R
         "Write the final answer for the user as plain prose (Markdown allowed). Do not return JSON."
     )
     user = f"USER REQUEST:\n{query}\n\nTASK RESULTS:\n" + "\n\n".join(compact)
+    if revision_note:  # Reviewer trả bài (chỉ ô chat sản phẩm)
+        user += "\n\n" + revision_note
+    if any(r.source != "documents" for r in results):
+        user += ("\n\nKNOWLEDGE SOURCES: tasks marked source=general (and the 'Kiến thức chung:' part of source=both) come from general knowledge, "
+                 "not from the user's documents. You MAY use that content (it is not invented by you), but keep it in a clearly labelled part "
+                 "(a '### Kiến thức chung' heading, or '### General knowledge' in English), never attach document citations to it, "
+                 "and keep document-based parts with their citations.")
     if reply_language in SYNTH_LANGUAGE_HINT:
         user += "\n\n" + SYNTH_LANGUAGE_HINT[reply_language]
     if max_output_tokens is not None and IMG_MARK in query:
@@ -51,7 +60,7 @@ async def synthesize(provider, query: str, results: list[TaskResult], metrics: R
             "numbered steps for procedures, and a Markdown table (header row, citation IDs in a column named Nguồn/Source) when comparing or listing items with shared attributes. "
             "Keep simple answers short. Never mention internal task IDs (T1, T2) or the word 'task' to the user; check every item the user asked about. "
             "If the user asks for a table, you MUST answer with a filled Markdown table. Copy every number, year and rate verbatim from the task results. "
-            "Never do arithmetic yourself: write each calculation as [[= expression ]] using only digits, + - * / and parentheses (150% as 1.5); "
+            "Never do arithmetic yourself: write each calculation as [[= expression ]] using only digits, + - * / // and parentheses (150% as 1.5; use // for \"every full N\" rules, e.g. 12 + 6//5); "
             "the system replaces it with the result."
             + ' Return JSON {"answer": "<the final answer for the user as Markdown prose>"}.',
             user=user,

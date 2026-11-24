@@ -18,10 +18,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.analysis.skill_router import SKILLS, route_skill
-from app.research.registry import WORK_PACK
+from app.research.registry import product_agent_pack
+from app.research.product_intents import is_library_question
 from app.analysis.watch import replacement_pairs
 from app.core.secret_audit import log_secret_access
-from app.research.agent_selection import CLARIFY_LABELS, clarify_options, select_agents
+from app.research.agent_selection import PACK_CLARIFY, clarify_options, select_agents
 from app.analysis import versions
 from app.research.learning import load_examples, record_example
 from app.retrieval.hybrid import bm25_scores, fold
@@ -199,6 +200,8 @@ class EvalRunBody(BaseModel):
     condition: Literal["A", "B", "C", "C-P", "C-N", "C-O", "AUTO"]
     source_ids: list[str] | None = Field(default=None, max_length=50)
     key_points: list[str] = Field(default_factory=list, max_length=12)
+    # Đợt 8 Văn phòng 3D: so bộ tác tử "work" và "office" trên cùng máy chủ; None = theo PRODUCT_AGENT_PACK
+    agent_pack: Literal["work", "office"] | None = None
 
 
 class EvalStatsBody(BaseModel):
@@ -395,14 +398,16 @@ def build_router(
         try:
             # Đợt 8: câu giống câu người dùng đã chọn cách hiểu thì không hỏi lại nữa
             examples = load_examples(session_factory(), str(user["user_id"]), user.get("space_id"))
-            options = clarify_options(message, select_agents(message, embedder.embed, examples))
+            pack = product_agent_pack()
+            options = clarify_options(message, select_agents(message, embedder.embed, examples, pack))
         except Exception:  # mô hình nhúng lỗi: không hỏi lại, pipeline tự chọn như cũ
             return {"route": "pipeline"}
         if not options:
             return {"route": "pipeline"}
-        a, b = (CLARIFY_LABELS[o] for o in options)
+        labels = PACK_CLARIFY[pack]
+        a, b = (labels[o] for o in options)
         return {"route": "clarify", "question": f"Bạn muốn hỏi về {a} hay {b}?",
-                "options": [{"agent": o, "label": CLARIFY_LABELS[o]} for o in options]}
+                "options": [{"agent": o, "label": labels[o]} for o in options]}
 
     @router.post("/route")
     def route(body: RouteBody, request: Request) -> dict:
@@ -419,6 +424,8 @@ def build_router(
         else:
             hit = route_skill(body.message, [s.get("doc_type") for s in rows])
         if hit is None:
+            if is_library_question(body.message):  # hỏi về chính kho: không hỏi lại lĩnh vực, pipeline trả danh sách tài liệu
+                return {"route": "pipeline"}
             return _clarify_or_pipeline(user, body.message)
         need = set(hit.pop("doc_types") or [])
         # kỹ năng cần loại tài liệu: chỉ đưa tài liệu đúng loại (hợp đồng, văn bản pháp quy) vào kỹ năng
@@ -659,7 +666,7 @@ def build_router(
         try:
             run = await owner_pipeline(user).run(body.question.strip(), condition, source_ids=body.source_ids,
                                                  reply_in_query_language=True,
-                                                 **({"product_mode": True, "domain_pack": WORK_PACK} if auto else {}))
+                                                 **({"product_mode": True, "domain_pack": body.agent_pack or product_agent_pack()} if auto else {}))
         except LookupError as exc:
             raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.") from exc
         answer = evaluation.readable_answer(run.get("answer"))
@@ -671,6 +678,11 @@ def build_router(
             "metrics": {k: metrics.get(k) for k in evaluation.METRIC_KEYS},
             "tasks": len(run.get("tasks") or []), "model": run.get("model"), "config_hash": run.get("config_hash"),
             "route": (run.get("effective_config") or {}).get("request_route"),
+            # để chấm việc giao tác tử (chỉ tên, không nội dung tài liệu)
+            "agents_selected": next((e.get("agents") for e in run.get("events") or [] if e.get("stage") == "agent_selection"), None),
+            "task_domains": [t.get("domain") for t in run.get("tasks") or []],
+            "review": next(({k: e.get(k) for k in ("review_status", "unsupported")} for e in run.get("events") or []
+                            if e.get("stage") == "review_finished"), None),
         }
 
     @router.post("/eval/stats")

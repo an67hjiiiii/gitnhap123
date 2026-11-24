@@ -10,8 +10,8 @@ from app.research.vanilla import REPLY_LANGUAGE_HINT
 PRODUCT_WORKER_HINT = (
     "QUY TẮC: Viết tiếng Việt. Mọi con số, mốc năm, tỷ lệ chép nguyên văn từ EVIDENCE, không ước đoán. "
     "Liệt kê đủ mọi điểm a), b), c)… của điều khoản liên quan, không thêm ý ngoài điều khoản. Ghi đúng số Điều, khoản. "
-    "Khi phải tính toán, KHÔNG tự tính: viết phép tính với số cụ thể trong dấu [[= ... ]] (chỉ số, + - * / và ngoặc, 150% viết 1.5), "
-    "hệ thống tự thay bằng kết quả. Dữ kiện trong USER_REQUEST (kể cả phần sau dấu \"" + IMG_MARK + "\" là chữ trong ảnh) là trường hợp "
+    "Khi phải tính toán, KHÔNG tự tính: viết phép tính với số cụ thể trong dấu [[= ... ]] (chỉ số, + - * / // và ngoặc, 150% viết 1.5; \"cứ đủ N … được thêm\" dùng // để lấy phần nguyên, ví dụ 12 + 6//5), "
+    "hệ thống tự thay bằng kết quả. Nếu câu hỏi hỏi một số tiền, số ngày hay số lượng mà bằng chứng chỉ cho tỷ lệ, đơn giá hoặc mức theo ngày, PHẢI viết phép tính [[= ... ]] ra con số cuối cùng (ví dụ phạt 0,5%/ngày × 10 ngày × 120.000.000 → [[= 0.005*10*120000000 ]] đồng), không dừng ở tỷ lệ; câu hỏi có số lượng (4 ngày, 10 giờ, 200 ly) thì nhân số lượng đó với mức trong bằng chứng. Chỉ dùng con số của ĐÚNG chỉ số được hỏi: bằng chứng không có chỉ số đó (ví dụ hỏi người theo dõi mà chỉ có đơn hàng) thì nói tài liệu không có, không lấy số của chỉ số khác. Dữ kiện trong USER_REQUEST (kể cả phần sau dấu \"" + IMG_MARK + "\" là chữ trong ảnh) là trường hợp "
     "cần xét, không phải bằng chứng: đối chiếu từng dữ kiện với ngưỡng, điều kiện trong EVIDENCE, viết rõ phép so sánh rồi kết luận."
 )
 
@@ -20,7 +20,8 @@ def _extract_json(text: str) -> dict:
     return parse_answer_json(text)
 
 async def execute_task(provider, task: Task, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None,
-                       upstream: list[TaskResult] | None = None, product: bool = False, user_request: str | None = None) -> TaskResult:
+                       upstream: list[TaskResult] | None = None, product: bool = False, user_request: str | None = None,
+                       extra_hint: str | None = None) -> TaskResult:
     if not evidence:
         return TaskResult(
             task_id=task.task_id,
@@ -54,6 +55,8 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
         if user_request:
             user = f"[USER_REQUEST]{user_request[:2500]}[/USER_REQUEST]\n" + user
         user += "\n\n" + PRODUCT_WORKER_HINT
+        if extra_hint:  # bước chọn nguồn tri thức: cho phép bổ sung kiến thức chung có nhãn
+            user += "\n\n" + extra_hint
     elif reply_language in REPLY_LANGUAGE_HINT:
         user += "\n\n" + REPLY_LANGUAGE_HINT[reply_language]
     grounded = getattr(provider, "generate_grounded", None)

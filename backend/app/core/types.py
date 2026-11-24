@@ -89,6 +89,7 @@ class TaskResult:
     citations: list[str] = field(default_factory=list)
     invalid_citations: list[str] = field(default_factory=list)
     missing_information: list[str] = field(default_factory=list)
+    source: str = "documents"  # nguồn tri thức (ô chat sản phẩm): documents | general | both
 
 @dataclass
 class RunMetrics:

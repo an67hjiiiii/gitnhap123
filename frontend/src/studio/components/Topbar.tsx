@@ -401,10 +401,14 @@ export const Topbar: React.FC<TopbarProps> = ({
             <input id="workspace-name" data-autofocus type="text" value={newWs.name} onChange={e => setNewWs(v => ({ ...v, name: e.target.value }))} placeholder="ví dụ: Quy chế đào tạo, Nội quy công ty" required />
             <label htmlFor="workspace-description">Mô tả ngắn <small>(không bắt buộc)</small></label>
             <textarea id="workspace-description" value={newWs.desc} onChange={e => setNewWs(v => ({ ...v, desc: e.target.value }))} placeholder="Phạm vi, nội dung chính của bộ tài liệu…" rows={3} />
-            <label htmlFor="workspace-pack">Lĩnh vực <small>(trợ lý chia việc cho chuyên gia của ngành này)</small></label>
-            <select id="workspace-pack" value={newWs.pack} onChange={e => setNewWs(v => ({ ...v, pack: e.target.value as DomainPack }))}>
-              {DOMAIN_PACKS.map(p => <option key={p.id} value={p.id}>{p.label}: {p.hint}</option>)}
-            </select>
+            {/* Mặc định Tổng quát; chỉ người cần chuyên gia theo ngành mới mở ra chọn */}
+            <details className="ws-advanced">
+              <summary>Tùy chọn nâng cao <small>(không bắt buộc)</small></summary>
+              <label htmlFor="workspace-pack">Lĩnh vực <small>(trợ lý chia việc cho chuyên gia của ngành này)</small></label>
+              <select id="workspace-pack" value={newWs.pack} onChange={e => setNewWs(v => ({ ...v, pack: e.target.value as DomainPack }))}>
+                {DOMAIN_PACKS.map(p => <option key={p.id} value={p.id}>{p.label}: {p.hint}</option>)}
+              </select>
+            </details>
             <div className="dlg-actions">
               <button type="button" onClick={() => setCreateOpen(false)} className="btn btn-ghost">Hủy</button>
               <button type="submit" disabled={creating} className="btn btn-dark">{creating ? 'Đang tạo…' : 'Tạo không gian'}</button>

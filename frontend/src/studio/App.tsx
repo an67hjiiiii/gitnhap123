@@ -42,12 +42,16 @@ import { ResultsHub, HubTab } from './components/ResultsHub';
 import { OverviewActions } from './components/OverviewActions';
 import { orgNoteText } from './components/Header';
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({default: module.LandingPage}))); 
+// Văn phòng 3D (three.js) nằm ở gói riêng, chỉ tải khi mở trang này
+const loadOffice = () => import('./office3d/OfficeView');
+const OfficeView = lazy(loadOffice);
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { RobotProvider, useRobotAssistant } from './components/robot/RobotContext';
 import './styles/shell-2026.css';  // khung mới (Đợt 1–2): nạp sau CSS của các thành phần
 import './styles/calm-2026.css';   // bảng màu tiết chế (20/11): nạp cuối cùng
+import './styles/composer-2026.css'; // khung chat trang chính (24/11)
 import './styles/topbar-2026.css'; // cụm góc phải, ngày/đêm, trang Thông báo (21/11)
 import './styles/context-2026.css'; // cột ngữ cảnh bên phải (21/11)
 import './styles/pages-2026.css'; // Sức khỏe kho, So sánh phiên bản (21/11)
@@ -106,6 +110,16 @@ function DashboardWorkspace({
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryRecord[]>([]);
   const [mode, setMode] = useState<ExecutionMode>('proposed_adaptive');
   const [activeTab, setActiveTab] = useState<NavigationTab>('orchestration');
+  // Văn phòng 3D: dựng một lần rồi giữ lại khi sang trang khác (ẩn đi, tự dừng vẽ), vào lại không phải dựng lại cảnh
+  const [officeMounted, setOfficeMounted] = useState(false);
+  useEffect(() => { if (activeTab === 'office') setOfficeMounted(true); }, [activeTab]);
+  useEffect(() => {
+    // tải sẵn mã văn phòng khi máy rảnh để lần bấm đầu không phải chờ tải gói three.js
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+    const run = () => { void loadOffice(); };
+    const id = w.requestIdleCallback ? w.requestIdleCallback(run, { timeout: 8000 }) : window.setTimeout(run, 4000);
+    return () => { if (!w.requestIdleCallback) window.clearTimeout(id); };
+  }, []);
   const [portal, setPortal] = useState<'research' | 'admin'>(() => { try { return localStorage.getItem('orchestriq-portal') === 'admin' ? 'admin' : 'research'; } catch { return 'research'; } });
   const adminMode = user?.role === 'admin' && portal === 'admin';
   const switchPortal = (p: 'research' | 'admin') => { setPortal(p); try { localStorage.setItem('orchestriq-portal', p); } catch { /* chế độ riêng tư */ } };
@@ -451,6 +465,7 @@ function DashboardWorkspace({
           ...(currentWs?.kind === 'org' ? [['tasks', 'Việc cần làm', ClipboardCheck]] : []), ['organization', 'Tổ chức', Users], ['overview', 'Tổng quan', BarChart3],
           ['settings', 'Cài đặt', Wrench], ['documents', 'Hồ sơ tài liệu', FileSearch], ['consistency', 'Kiểm tra mâu thuẫn', GitCompareArrows],
           ['toolkit', 'Bộ công cụ theo ngành', Wrench],
+          ['office', 'Văn phòng Agent', Sparkles],
           ['evaluation', 'Phòng đánh giá', ClipboardCheck], ['benchmarks', 'Thực nghiệm', FlaskConical],
           ['rating', 'Chấm mù', EyeOff], ...(user?.role === 'admin' ? [['users', 'Người dùng', Users], ['db_explorer', 'Cơ sở dữ liệu', Database]] : []),
         ] as [NavigationTab, string, Command['Icon']][]).map(([id, label, Icon]) => ({ id: `go-${id}`, label, group: 'Đi đến', Icon, run: () => setActiveTab(id) })),
@@ -514,6 +529,7 @@ function DashboardWorkspace({
             docIds={documents.map(d => String(d.id))} levelName={{ MANAGER: orgTerms(currentWs).level.MANAGER, EXECUTIVE: orgTerms(currentWs).level.EXECUTIVE }} /> : undefined} />}
         {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
           onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} onChanged={refreshState} health={health} docCount={documents.length} />}
+        {officeMounted && <div className="office3d-keep" hidden={activeTab !== 'office'}><Suspense fallback={<div className="office3d-page office3d-loading">Đang dựng văn phòng…</div>}><OfficeView /></Suspense></div>}
         {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} initialTool={toolTarget} />}
         {activeTab === 'notifications' && user && <NotificationsView workspaces={workspaces} onGo={setActiveTab} onOrgChanged={() => { void refreshState(); }} />}
         {activeTab === 'compare' && <CompareView key={`cmp-${currentWorkspaceId}`} docs={documents} workspaceId={currentWorkspaceId} initial={comparePair} />}

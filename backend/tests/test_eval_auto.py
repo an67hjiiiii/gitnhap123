@@ -19,13 +19,13 @@ def client(calls):
     return TestClient(app)
 
 
-def test_auto_runs_product_pipeline_with_work_agents_and_c_stays_as_before(monkeypatch):
+def test_auto_runs_product_pipeline_with_office_agents_and_c_stays_as_before(monkeypatch):
     monkeypatch.setenv("IMPLEMENTATION_PROFILE", "m2")
     calls = []
     c = client(calls)
     auto = c.post("/api/studio/eval/run", json={"question": "Thử việc tối đa bao lâu?", "condition": "AUTO", "key_points": ["60 ngày"]}).json()
     plain = c.post("/api/studio/eval/run", json={"question": "Thử việc tối đa bao lâu?", "condition": "C", "key_points": ["60 ngày"]}).json()
-    assert calls[0] == ("C", {"source_ids": None, "reply_in_query_language": True, "product_mode": True, "domain_pack": "work"})
+    assert calls[0] == ("C", {"source_ids": None, "reply_in_query_language": True, "product_mode": True, "domain_pack": "office"})
     assert calls[1] == ("C", {"source_ids": None, "reply_in_query_language": True})
     assert auto["condition"] == "AUTO" and auto["route"] == "SIMPLE_PROJECT_QUESTION" and auto["key_point_coverage"] == 1.0
     assert plain["condition"] == "C" and plain["route"] is None

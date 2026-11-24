@@ -13,10 +13,12 @@ type Doc = { id?: number | string; source_file: string; chunks_count: number; do
 // tên tác tử/lĩnh vực máy chủ trả về → tiếng Việt; tên lạ thì bỏ gạch dưới
 const AGENT_VI: Record<string, string> = {
   conditions: 'Điều kiện', procedure: 'Quy trình', terms: 'Điều khoản', figures: 'Số liệu', general: 'Tổng hợp',
+  // bộ office (văn phòng 3D)
+  software: 'Phần mềm', business: 'Kinh doanh', marketing: 'Marketing', hr: 'Nhân sự', finance: 'Tài chính', education: 'Giáo dục – Nghiên cứu', analyst: 'Phân tích số liệu',
   api_architecture: 'Kiến trúc API', database: 'Cơ sở dữ liệu', security: 'Bảo mật', frontend: 'Giao diện', backend: 'Máy chủ',
   requirements: 'Yêu cầu', testing: 'Kiểm thử', deployment: 'Triển khai', performance: 'Hiệu năng',
 };
-const agentName = (a: string) => AGENT_VI[a] ?? a.replace(/Agent$/, '').replace(/_/g, ' ');
+export const agentName = (a: string) => AGENT_VI[a] ?? a.replace(/Agent$/, '').replace(/_/g, ' ');
 const docTitle = (f: string) => f.replace(/\.[^.]+$/, '').replace(/_/g, ' ');
 // đoạn gốc thường là Markdown: bỏ dấu tiêu đề, kẻ bảng, in đậm để đọc như văn bản (chỉ để hiển thị, không đổi dữ liệu)
 const plain = (t: string) => t.replace(/^\s*#{1,6}\s*/gm, '').replace(/^\s*\|?[\s:|-]{3,}\|?\s*$/gm, '').replace(/\s*\|\s*/g, ' · ').replace(/[*`]+/g, '').replace(/\n{3,}/g, '\n\n').trim();

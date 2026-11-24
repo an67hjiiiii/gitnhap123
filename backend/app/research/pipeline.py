@@ -1,4 +1,8 @@
 from __future__ import annotations
+import asyncio
+import threading
+import os
+from contextvars import ContextVar
 import unicodedata
 import re
 import time
@@ -29,28 +33,38 @@ from app.research.decomposer import (
 from app.research.normalizer import normalize_tasks
 from app.research.obligation_concern_extraction import extract_obligations_and_concerns
 from app.research.product_intents import (
+    is_library_question,
     is_simple_project_question,
+    library_answer,
     product_help_response,
 )
+from app.ingestion.doc_type import DOC_TYPES
 from app.research.plan_verification import (
     decide_repair,
     validate_repaired_plan,
     verify_task_plan,
 )
 from app.research.planning_retrieval import PlanningRetriever, PLANNING_SCORER_VERSION
-from app.research.agent_selection import forced_selection, select_agents
-from app.research.registry import WORK_PACK, active_pack, active_pack_name, use_pack, use_work_context
+from app.research.agent_selection import PACK_DESCRIPTIONS, forced_selection, select_agents
+from app.research.reviewer import annotate, review_answer, reviewer_enabled, reviewer_revise_enabled, revision_note
+from app.research.agent_tools import TOOL_SEARCH_CHUNKS, agent_tools_enabled, status_rank, tool_query
+from app.research.knowledge_source import BOTH, BOTH_HINT, GENERAL, answer_general, choose_source, doc_bound, label as knowledge_label
+from app.research.registry import OFFICE_PACK, SELECTION_PACKS, active_pack, active_pack_name, profile, use_pack, use_work_context
 from app.research.worker import execute_task
 from app.research.progress import emit
 from app.research.synthesizer import synthesize
 from app.research.vanilla import answer_vanilla
 from app.retrieval.text import retrieve, apply_token_budget, estimate_tokens, terms
+from app.retrieval.source_focus import focus_sources
 from app.retrieval.hybrid import POOL as HYBRID_POOL, continue_articles, fuse as hybrid_fuse
 from app.retrieval.multilingual import build_query_variants, detect_language
 from app.storage.source_store import SourceStore
 from app.storage.run_store import RunStore
 
 CONDITIONS = {"A", "B", "C", "C-P", "C-N", "C-O"}
+# truy xuất (nhúng câu hỏi qua HTTP đồng bộ, chỉ mục vector nhúng) chạy ở luồng phụ trong ô chat sản phẩm để không giữ vòng lặp
+# sự kiện (đo 23/11: sự kiện tới trình duyệt muộn tới 5 s); khóa để hai việc con song song không gọi chỉ mục cùng lúc
+_RETRIEVE_LOCK = threading.Lock()
 _LEXICAL_FALLBACK_FILLERS = frozenset(
     {"what", "which", "who", "where", "when", "why", "how", "doe", "do", "did", "use", "used", "dùng", "gì"}
 )
@@ -88,6 +102,31 @@ class ResearchPipeline:
         hybrid: bool = False,
     ) -> list[SourceChunk]:
         variants = build_query_variants(query)
+        if hybrid and active_pack_name() == OFFICE_PACK:
+            # Đợt 8: câu nêu tên tài liệu ("theo nội quy", "quy chế 2026") chỉ tìm trong tài liệu đó
+            focused = focus_sources(query, chunks, source_ids)
+            if focused:
+                source_ids = focused
+                chunks = [c for c in chunks if c.source_id in focused]  # BM25 chạy trên danh sách đoạn: lọc luôn
+                if fallback_trace is not None:
+                    fallback_trace["source_focus"] = focused
+            else:
+                # câu nhiều vế chỉ nêu một tài liệu (vòng khóa 1: "theo nội quy, tạm ứng 6 triệu…" lấy nhầm PayNhanh):
+                # không lọc hẳn (vế kia có thể ở tài liệu khác) nhưng đưa đoạn của tài liệu được nêu lên trước
+                preferred = focus_sources(query, chunks, source_ids, allow_multi_part=True) or _DOC_HINT.get()
+                if preferred and source_ids is not None:
+                    preferred = [p for p in preferred if p in source_ids]
+                if preferred:
+                    first = self._retrieve_hybrid(query, variants, [c for c in chunks if c.source_id in preferred], top_k=top_k,
+                                                  min_score=min_score, source_ids=preferred, trace=None)
+                    rest = self._retrieve_hybrid(query, variants, chunks, top_k=top_k, min_score=min_score, source_ids=source_ids,
+                                                 trace=fallback_trace)
+                    seen = {c.chunk_id for c in first}
+                    half = max(1, top_k // 2)
+                    merged = first[:half] + [c for c in rest if c.chunk_id not in seen]
+                    if fallback_trace is not None:
+                        fallback_trace["source_prefer"] = preferred
+                    return continue_articles(merged[:top_k], chunks)
         if hybrid:
             # chỉ chế độ sản phẩm (Đợt 3): vector + BM25 + tiêu đề mục; A/B/C không đi nhánh này
             found = self._retrieve_hybrid(query, variants, chunks, top_k=top_k, min_score=min_score, source_ids=source_ids, trace=fallback_trace)
@@ -140,6 +179,16 @@ class ResearchPipeline:
             )
         return fallback
 
+    async def _retrieve_async(self, product: bool, *args, **kwargs):
+        """Như _retrieve_candidates; ô chat sản phẩm chạy ở luồng phụ (thực nghiệm giữ nguyên chạy thẳng)."""
+        if not product:
+            return self._retrieve_candidates(*args, **kwargs)
+
+        def run():
+            with _RETRIEVE_LOCK:
+                return self._retrieve_candidates(*args, **kwargs)
+        return await asyncio.to_thread(run)
+
     def _retrieve_hybrid(self, query, variants, chunks, *, top_k, min_score, source_ids, trace):
         vector_ranked: list[str] = []
         if self.candidate_index is not None:
@@ -160,22 +209,38 @@ class ResearchPipeline:
         """Chạy một lượt với bộ lĩnh vực của không gian; None = Phần mềm (hành vi và prompt như cũ)."""
         with use_pack(domain_pack):
             examples = kwargs.pop("routing_examples", None)  # Đợt 8: chỉ bộ "work" (ô chat sản phẩm) dùng
-            if active_pack_name() != WORK_PACK:
+            pack = active_pack_name()
+            if pack not in SELECTION_PACKS:
                 kwargs.pop("forced_agent", None)
                 return await self._run(query, condition, provider_name, **kwargs)
             # Bộ "work" (đợt 5): chọn tác tử theo ý nghĩa + nạp kiến thức ngành theo loại tài liệu trong phạm vi hỏi
             doc_types = self._doc_types(kwargs.get("source_ids"))
             embedder = getattr(self.candidate_index, "embedder", None)
             forced = kwargs.pop("forced_agent", None)
+            if forced and forced not in PACK_DESCRIPTIONS[pack]:
+                forced = None  # nút hỏi lại của bộ khác (đổi PRODUCT_AGENT_PACK giữa chừng): chọn lại theo ý nghĩa, không báo lỗi
             try:
-                selection = forced_selection(forced) if forced else select_agents(query, getattr(embedder, "embed", None), examples)
+                selection = (forced_selection(forced, pack) if forced
+                             else await asyncio.to_thread(select_agents, query, getattr(embedder, "embed", None), examples, pack))
             except ValueError:
                 raise
             except Exception as exc:  # mô hình nhúng lỗi: chọn theo từ khóa, ghi lại lý do
-                selection = {**select_agents(query, None), "embed_error": type(exc).__name__}
+                selection = {**select_agents(query, None, pack=pack), "embed_error": type(exc).__name__}
             selection["doc_types"] = sorted(doc_types)
-            with use_work_context(doc_types, selection["agents"]):
-                return await self._run(query, condition, provider_name, agent_selection=selection, **kwargs)
+            hint_token = None
+            if pack == OFFICE_PACK:
+                try:
+                    sids = kwargs.get("source_ids")
+                    hint_token = _DOC_HINT.set(focus_sources(query, self.source_store.chunks(sids) if sids else self.source_store.chunks(
+                        [x["source_id"] for x in self.source_store.list_sources()]), sids, allow_multi_part=True))
+                except Exception:  # gợi ý chỉ để ưu tiên; lỗi thì bỏ qua
+                    hint_token = None
+            try:
+                with use_work_context(doc_types, selection["agents"]):
+                    return await self._run(query, condition, provider_name, agent_selection=selection, **kwargs)
+            finally:
+                if hint_token is not None:
+                    _DOC_HINT.reset(hint_token)
 
     def _doc_types(self, source_ids: list[str] | None) -> set[str]:
         lister = getattr(self.source_store, "list_sources", None)
@@ -257,9 +322,27 @@ class ResearchPipeline:
         def event(stage: str, **data):
             events.append({"stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **data})
             # ô chat sản phẩm (stream): báo bước đang làm; chỉ gửi tên bước và mã nhiệm vụ, không gửi nội dung
-            brief = {k: data[k] for k in ("task_id", "classification", "agents") if k in data}
+            # thêm cờ trạng thái để văn phòng 3D Trực tiếp diễn giống Xem lại (23/11); không gửi nội dung trả lời/tài liệu
+            brief = {k: data[k] for k in ("task_id", "domain", "classification", "agents", "has_documents", "document_bound",
+                                          "source", "review_status", "waves", "limit",
+                                          # công cụ của chuyên gia, Reviewer trả bài (23/11): chỉ tên công cụ, số lượng, trạng thái
+                                          "tool", "added", "before", "after", "revision") if k in data}
+            if isinstance(data.get("unsupported"), list):
+                brief["unsupported"] = len(data["unsupported"])  # chỉ số lượng: danh sách chứa câu trích từ câu trả lời
+            elif isinstance(data.get("unsupported"), int):
+                brief["unsupported"] = data["unsupported"]
+            # chỉ số lượng (23/11): văn phòng biết RAG có tìm thấy đoạn nào không, kế hoạch có mấy việc con
+            if isinstance(data.get("selected"), list):
+                brief["selected_count"] = len(data["selected"])
+            if isinstance(data.get("tasks"), list):
+                brief["task_count"] = len(data["tasks"])
+            elif isinstance(data.get("task_count"), int):
+                brief["task_count"] = data["task_count"]
             if isinstance(data.get("result"), dict) and data["result"].get("task_id"):
                 brief["task_id"] = data["result"]["task_id"]
+                brief["result"] = {k: data["result"][k] for k in ("task_id", "domain", "status") if data["result"].get(k)}
+                if data["result"].get("domain"):
+                    brief["domain"] = data["result"]["domain"]  # tác tử làm việc này (văn phòng 3D biết ai vừa xong)
             emit({"type": "progress", "stage": stage, **brief})
 
         def make_run(status: str | None, answer: str, tasks: list[Task], task_results: list[TaskResult]) -> dict:
@@ -325,6 +408,10 @@ class ResearchPipeline:
         event("lifecycle_transition", from_status="PENDING", to_status="RUNNING")
         try:
             product_help = product_help_response(query) if product_mode else None
+            if product_mode and product_help is None and is_library_question(query):
+                # câu hỏi về chính kho ("kho có những tài liệu gì"): trả lời từ danh sách tài liệu thật, không tìm đoạn gần nghĩa
+                rows = [s for s in self.source_store.list_sources() if source_ids is None or s["source_id"] in source_ids]
+                product_help = ("library", library_answer(rows, DOC_TYPES))
             if product_help is not None:
                 intent, answer = product_help
                 task = Task(task_id="T1", goal=query, domain="general")
@@ -356,7 +443,8 @@ class ResearchPipeline:
                 product_mode
                 and condition != "A"
                 and understanding is not None
-                and is_simple_project_question(query, understanding.domains)
+                and is_simple_project_question(query, [d for d in understanding.domains
+                                                       if not (active_pack_name() == OFFICE_PACK and d in ("analyst", "general"))])
             )
             if product_mode and condition != "A":
                 route = (
@@ -376,10 +464,68 @@ class ResearchPipeline:
                 event("request_understanding", **understanding.to_dict())
 
             all_chunks = self.source_store.chunks(source_ids)
+            # Bước điều phối "chọn nguồn tri thức" (23/11): chỉ ô chat sản phẩm; điều kiện A và thực nghiệm giữ nguyên.
+            knowledge_on = bool(product_mode and condition != "A")
+            has_docs = bool(all_chunks)
+            bound = knowledge_on and doc_bound(query, _DOC_HINT.get() if has_docs else None)
+            if knowledge_on:
+                effective["knowledge_source"] = {"has_documents": has_docs, "document_bound": bound}
+                event("knowledge_source_policy", has_documents=has_docs, document_bound=bound)
+
+            async def by_source(task_id, domain, question, evidence, run_docs, *, stream=False, search=None):
+                """Chọn nguồn cho một việc: tài liệu (run_docs như cũ), kiến thức chung, hoặc cả hai.
+                Câu gắn với tài liệu không bao giờ chuyển sang kiến thức chung."""
+                if not knowledge_on:
+                    return await run_docs(None, evidence)
+                source = choose_source(question, len(evidence), bound=bound)
+                try:
+                    role = profile(domain)["name"]
+                except Exception:
+                    role = "General Assistant"
+
+                async def general(had_docs):
+                    return await answer_general(provider, question, metrics, task_id=task_id, domain=domain, role=role,
+                                                reply_language=answer_language, had_documents=had_docs,
+                                                max_output_tokens=cfg.synthesis_max_output_tokens,
+                                                user_request=query, stream=stream)
+
+                if source == GENERAL:
+                    result = await general(has_docs)
+                else:
+                    hint = BOTH_HINT if source == BOTH else None
+                    result = await run_docs(hint, evidence)
+                    if search is not None and result.status != "COMPLETE" and agent_tools_enabled():
+                        # công cụ của tác tử (23/11): thiếu thông tin thì tự tìm thêm tài liệu theo điều còn thiếu, làm lại một lần
+                        extra = await search(tool_query(question, result.missing_information))
+                        event("agent_tool", task_id=task_id, domain=domain, tool="search", added=len(extra))
+                        if extra:
+                            evidence = [*evidence, *extra]
+                            again = await run_docs(hint, evidence)
+                            event("agent_tool_result", task_id=task_id, domain=domain, tool="search", before=result.status, after=again.status)
+                            if status_rank(again.status) > status_rank(result.status):
+                                result = again
+                    if result.status == "NO_EVIDENCE" and not stream:
+                        # việc con có đoạn tài liệu mà tác tử vẫn báo không có (đo 23/11, K29: mục tiêu việc viết tiếng Anh,
+                        # tác tử bỏ sót bảng số): hỏi lại một lần trên chính các đoạn đó bằng câu hỏi gốc, rồi mới xét kiến thức chung
+                        retry = await answer_vanilla(provider, f"{query}\n\n(Phần cần trả lời: {question})", evidence, metrics,
+                                                     reply_language=answer_language, product=True,
+                                                     max_output_tokens=cfg.synthesis_max_output_tokens)
+                        event("knowledge_source_retry", task_id=task_id, status=retry.status)
+                        if retry.status != "NO_EVIDENCE":
+                            retry.task_id, retry.domain = task_id, domain
+                            result = retry
+                    if result.status == "NO_EVIDENCE" and not bound:
+                        result = await general(True)  # tài liệu có nhưng không nói tới: trả lời phổ thông, nói rõ tài liệu không có
+                    elif source == BOTH and "Kiến thức chung:" in result.answer:
+                        result.source = BOTH
+                event("knowledge_source", task_id=task_id, domain=domain, source=result.source, evidence_chunks=len(evidence))
+                return result
+
             if condition == "A" or simple_product_request:
                 r0 = time.perf_counter()
                 retrieval_trace: dict = {}
-                candidates = self._retrieve_candidates(
+                candidates = await self._retrieve_async(
+                    product_mode,
                     simple_retrieval_query,
                     all_chunks,
                     top_k=cfg.task_top_k,
@@ -404,14 +550,44 @@ class ResearchPipeline:
                     dropped=budget_dropped,
                     query_variants=[{"label": v.label, "language": v.language} for v in build_query_variants(simple_retrieval_query)],
                 )
-                task = Task(task_id="T1", goal=query, domain="general")
+                # 23/11 (chủ dự án duyệt): ô chat sản phẩm, câu đơn giản do đúng chuyên gia ngành đã chọn trả lời (vẫn một lần gọi
+                # mô hình); không có đúng một chuyên gia ngành thì Chuyên viên tổng hợp trả lời như cũ. Điều kiện A/thực nghiệm không đổi.
+                answerer = simple_answerer(agent_selection) if product_mode and condition != "A" else "general"
+                task = Task(task_id="T1", goal=query, domain=answerer)
+                if answerer != "general":
+                    event("task_started", task_id="T1", domain=answerer)
                 g0 = time.perf_counter()
                 answer_query = (
                     "\n\n".join((query, f"(Câu hỏi tiếp nối. Câu hỏi trước của người dùng: {follow_up})"))
                     if follow_up else query
                 )
-                result = await answer_vanilla(provider, answer_query, selected, metrics, reply_language=answer_language,
-                                              product=product_mode, max_output_tokens=cfg.synthesis_max_output_tokens if product_mode else None)
+                role = profile(answerer) if answerer != "general" else None
+                result = await by_source(
+                    "T1", answerer, answer_query, selected,
+                    lambda hint, ev: answer_vanilla(provider, answer_query, ev, metrics, reply_language=answer_language, product=product_mode,
+                                                max_output_tokens=cfg.synthesis_max_output_tokens if product_mode else None, extra_hint=hint,
+                                                role=role),
+                    stream=True)
+                result.domain = answerer
+                # 23/11: Reviewer soát cả câu đơn giản (đo: mô hình bịa "PostgreSQL", "mở cửa 3 giờ chiều" khi tài liệu không có);
+                # ý không thấy trong tài liệu thì người trả lời làm lại một lần với góp ý. Chỉ phần trả lời từ tài liệu.
+                if product_mode and condition != "A" and reviewer_enabled() and result.source == "documents" \
+                        and result.status != "NO_EVIDENCE" and selected and result.answer.strip():
+                    event("review_started", task_id="T1")
+                    r0 = time.perf_counter()
+                    review = await review_answer(provider, result.answer, "\n".join(c.text for c in selected), metrics)
+                    event("review_finished", task_id="T1", review_status=review["status"], checked=review["checked"],
+                          unsupported=review["unsupported"], error=review.get("error"), latency_ms=int((time.perf_counter() - r0) * 1000))
+                    if review["status"] == "ok" and review["unsupported"] and reviewer_revise_enabled():
+                        event("review_revision", task_id="T1", unsupported=len(review["unsupported"]))
+                        redo = await answer_vanilla(provider, answer_query, selected, metrics, reply_language=answer_language, product=True,
+                                                    max_output_tokens=cfg.synthesis_max_output_tokens, role=role,
+                                                    extra_hint=revision_note(review["unsupported"]))
+                        if redo.answer.strip():
+                            redo.task_id, redo.domain = "T1", answerer
+                            result = redo
+                if answerer != "general":
+                    event("task_completed", result=asdict(result))
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                 tasks, task_results = [task], [result]
                 answer = result.answer
@@ -458,11 +634,10 @@ class ResearchPipeline:
                 fallback_reason = "planning_retrieval_disabled_by_condition"
                 if flags["P"]:
                     retrieval_started = time.perf_counter()
-                    planning_hits = self.planning.search(
-                        query,
-                        top_k=cfg.planning_top_k,
-                        min_score=cfg.retrieval_min_score,
-                    )
+                    planning_hits = (await asyncio.to_thread(self.planning.search, query, top_k=cfg.planning_top_k,
+                                                             min_score=cfg.retrieval_min_score)
+                                     if product_mode else
+                                     self.planning.search(query, top_k=cfg.planning_top_k, min_score=cfg.retrieval_min_score))
                     metrics.retrieval_latency_ms += int(
                         (time.perf_counter() - retrieval_started) * 1000
                     )
@@ -704,8 +879,10 @@ class ResearchPipeline:
                 budget_plan = None
                 if flags["O"] and policy == "adaptive_qwen":
                     # Nhu cầu ước từ lượt truy xuất sơ bộ (chưa có ngữ cảnh phụ thuộc); trần áp vào lượt truy xuất thật bên dưới.
-                    preview = {
-                        task.task_id: self._retrieve_candidates(
+                    preview = {}
+                    for task in ordered:
+                        preview[task.task_id] = await self._retrieve_async(
+                            product_mode,
                             _task_query(task, query),
                             all_chunks,
                             top_k=cfg.task_top_k,
@@ -714,16 +891,17 @@ class ResearchPipeline:
                             fallback_trace={},
                             hybrid=product_mode,
                         )
-                        for task in ordered
-                    }
                     budget_plan = plan_task_budgets(preview, cfg.max_context_tokens)
                     event("adaptive_budget_plan", **budget_plan)
-                for task in ordered:
+                async def run_one(task):
+                    """Một việc con: tìm đoạn tài liệu, chọn theo ngân sách, giao tác tử. Không ghi vào kết quả chung."""
+                    event("task_started", task_id=task.task_id, domain=task.domain)  # Đợt 4 văn phòng 3D: mốc bắt đầu từng việc
                     dependency_context = " ".join(completed[d].answer for d in task.depends_on if d in completed)
                     retrieval_query = f"{_task_query(task, query)} {dependency_context}".strip()
                     r0 = time.perf_counter()
                     retrieval_trace: dict = {}
-                    candidates = self._retrieve_candidates(
+                    candidates = await self._retrieve_async(
+                        product_mode,
                         retrieval_query,
                         all_chunks,
                         top_k=cfg.task_top_k,
@@ -750,6 +928,7 @@ class ResearchPipeline:
                     event(
                         "task_retrieval",
                         task_id=task.task_id,
+                        domain=task.domain,
                         retrieval_backend=self.retrieval_backend,
                         retrieval_fallback=retrieval_trace or None,
                         candidates=[c.chunk_id for c in candidates],
@@ -758,22 +937,89 @@ class ResearchPipeline:
                     )
                     g0 = time.perf_counter()
                     upstream = [completed[d] for d in task.depends_on if d in completed]
-                    result = await execute_task(provider, task, selected, metrics, reply_language=answer_language, upstream=upstream,
-                                                product=product_mode, user_request=query if product_mode else None)
-                    product_evidence.extend(c.text for c in selected)
+                    found_more: list[SourceChunk] = []
+
+                    async def search_more(tool_q: str) -> list[SourceChunk]:
+                        seen = {c.chunk_id for c in selected} | {c.chunk_id for c in found_more}
+                        r1 = time.perf_counter()
+                        more = await self._retrieve_async(product_mode, tool_q, all_chunks, top_k=cfg.task_top_k, min_score=cfg.retrieval_min_score,
+                                                         source_ids=source_ids, fallback_trace={}, hybrid=product_mode)
+                        metrics.retrieval_latency_ms += int((time.perf_counter() - r1) * 1000)
+                        new = [c for c in more if c.chunk_id not in seen][:TOOL_SEARCH_CHUNKS]
+                        found_more.extend(new)
+                        return new
+
+                    result = await by_source(
+                        task.task_id, task.domain, task.goal, selected,
+                        lambda hint, ev: execute_task(provider, task, ev, metrics, reply_language=answer_language, upstream=upstream,
+                                                      product=product_mode, user_request=query if product_mode else None, extra_hint=hint),
+                        search=search_more if product_mode else None)
                     metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
+                    return result, [*selected, *found_more]
+
+                def record(task, result, selected) -> bool:
+                    """Ghi kết quả theo thứ tự kế hoạch; trả True khi vượt ngân sách token của lượt."""
+                    product_evidence.extend(c.text for c in selected)
                     completed[task.task_id] = result
                     task_results.append(result)
                     event("task_completed", result=asdict(result))
                     if metrics.input_tokens + metrics.output_tokens > cfg.max_run_tokens:
                         event("run_budget_exceeded", total_tokens=metrics.input_tokens + metrics.output_tokens)
-                        break
+                        return True
+                    return False
+
+                parallel = task_parallel_limit() if product_mode else 1
+                if parallel <= 1:
+                    for task in ordered:
+                        if record(task, *(await run_one(task))):
+                            break
+                else:
+                    # Đợt 7: các việc không phụ thuộc nhau chạy cùng lúc, tối đa `parallel` việc; việc phụ thuộc chờ đợt trước.
+                    waves = dependency_waves(ordered)
+                    effective["task_parallel"] = parallel
+                    event("parallel_execution", limit=parallel, waves=[[t.task_id for t in w] for w in waves])
+                    gate = asyncio.Semaphore(parallel)
+
+                    async def gated(task):
+                        async with gate:
+                            return await run_one(task)
+
+                    for wave in waves:
+                        outcomes = await asyncio.gather(*(gated(t) for t in wave))
+                        if any([record(t, *o) for t, o in zip(wave, outcomes)]):
+                            break
+                event("synthesis_started", task_count=len(task_results))
                 g0 = time.perf_counter()
                 # Ô chat sản phẩm: nới giới hạn để câu trả lời nhiều ý không bị cắt; thực nghiệm giữ nguyên.
                 synth_limit = cfg.synthesis_max_output_tokens if product_mode else None
                 answer = await synthesize(provider, query, task_results, metrics, reply_language=answer_language, max_output_tokens=synth_limit,
                                           evidence_text="\n".join(product_evidence) if product_mode else None)
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
+                if knowledge_on and task_results and all(r.source == GENERAL for r in task_results) \
+                        and not any(m in answer for m in ("iến thức chung", "eneral knowledge")):
+                    answer = f"{knowledge_label(answer_language, has_docs)}\n\n{answer}"  # bước tổng hợp bỏ nhãn: mã gắn lại
+                # Reviewer đối chiếu từng ý với đoạn tài liệu đã dùng; phần kiến thức chung không có trong tài liệu nên không soát
+                if product_mode and reviewer_enabled() and all(r.source == "documents" for r in task_results):
+                    event("review_started")
+                    g0 = time.perf_counter()
+                    review = await review_answer(provider, answer, "\n".join(product_evidence), metrics)
+                    review_ms = int((time.perf_counter() - g0) * 1000)
+                    metrics.generation_latency_ms += review_ms
+                    event("review_finished", review_status=review["status"], checked=review["checked"],
+                          unsupported=review["unsupported"], error=review.get("error"), latency_ms=review_ms)
+                    if review["status"] == "ok" and review["unsupported"] and reviewer_revise_enabled():
+                        # 23/11: Reviewer trả bài, Integrator viết lại một lần chỉ dựa trên kết quả các tác tử
+                        event("review_revision", unsupported=len(review["unsupported"]))
+                        event("synthesis_started", task_count=len(task_results), revision=True)
+                        g0 = time.perf_counter()
+                        revised = await synthesize(provider, query, task_results, metrics, reply_language=answer_language,
+                                                   max_output_tokens=synth_limit, evidence_text="\n".join(product_evidence),
+                                                   revision_note=revision_note(review["unsupported"]))
+                        metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
+                        if revised.strip():
+                            answer = revised
+                    else:
+                        answer = annotate(answer, review, answer_language)
 
             status = "COMPLETE" if task_results and all(r.status == "COMPLETE" for r in task_results) else "PARTIAL"
             if task_results and all(r.status == "NO_EVIDENCE" for r in task_results):
@@ -784,6 +1030,10 @@ class ResearchPipeline:
                 status=status,
                 lifecycle_status=lifecycle_status,
             )
+            if product_mode:
+                # đo đạc tài nguyên (nvidia-smi, tiến trình) và ghi lượt chạy vào CSDL là việc đồng bộ: chạy ở luồng phụ để sự kiện
+                # run_finished tới trình duyệt ngay (đo 23/11: muộn 0,6–3,6 s và câu trả lời cuối tới chậm theo)
+                return await asyncio.to_thread(finalize, status, answer, tasks, task_results)
             return finalize(status, answer, tasks, task_results)
         except Exception as exc:
             lifecycle_status = "FAILED"
@@ -802,6 +1052,44 @@ class ResearchPipeline:
         if condition == "C":
             return {"P": True, "N": True, "O": True}
         return {"P": condition != "C-P", "N": condition != "C-N", "O": condition != "C-O"}
+
+
+# tài liệu được nêu tên trong câu hỏi của người dùng (một lượt chạy): việc con không nhắc lại tên vẫn ưu tiên tài liệu đó
+_DOC_HINT: ContextVar[list[str] | None] = ContextVar("doc_hint", default=None)
+
+
+# tác tử chung, không phải chuyên gia ngành: Tổng hợp, Số liệu (bộ office), Số liệu (bộ work)
+_NOT_FIELD_EXPERTS = frozenset({"general", "analyst", "figures"})
+
+
+def simple_answerer(selection: dict | None) -> str:
+    """Người trả lời câu đơn giản: đúng một chuyên gia ngành được chọn (không mơ hồ) thì là người đó, còn lại là general."""
+    if not selection or selection.get("ambiguous"):
+        return "general"
+    experts = [a for a in selection.get("agents") or [] if a not in _NOT_FIELD_EXPERTS]
+    return experts[0] if len(experts) == 1 else "general"
+
+
+def task_parallel_limit() -> int:
+    """Số việc con chạy cùng lúc ở ô chat sản phẩm (PRODUCT_TASK_PARALLEL, mặc định 1 = lần lượt như cũ, tối đa 4)."""
+    try:
+        return max(1, min(4, int(os.getenv("PRODUCT_TASK_PARALLEL", "1"))))
+    except ValueError:
+        return 1
+
+
+def dependency_waves(tasks: list) -> list[list]:
+    """Chia việc đã sắp theo thứ tự phụ thuộc thành từng đợt: mỗi việc chỉ chờ các việc nó phụ thuộc ở đợt trước."""
+    ids = {t.task_id for t in tasks}
+    done: set[str] = set()
+    remaining = list(tasks)
+    waves: list[list] = []
+    while remaining:
+        wave = [t for t in remaining if all(d in done or d not in ids for d in t.depends_on)] or [remaining[0]]
+        waves.append(wave)
+        done.update(t.task_id for t in wave)
+        remaining = [t for t in remaining if t not in wave]
+    return waves
 
 
 def _task_query(task, query: str) -> str:

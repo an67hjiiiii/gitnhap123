@@ -36,7 +36,7 @@ from app.core.secret_audit import log_secret_access, run_read_source_ids, source
 from app.analysis.watch import notify_findings, watch_findings
 from app.ingestion.shared_folder import list_shared_files, shared_root
 from app.ingestion.ocr import IMAGE_EXTENSIONS, LANGS, ocr_image, ocr_pdf, ocr_status
-from app.research.registry import PACKS, WORK_PACK
+from app.research.registry import PACKS, product_agent_pack
 from app.research.conversation_context import build_conversation_context
 from app.storage.run_store import RunStore
 from app.storage.source_store import SourceStore
@@ -77,6 +77,21 @@ def _configured_stores(storage_backend: str | None = None):
     return PostgresAuthStore(session_factory), None, None, (engine, session_factory)
 
 app = FastAPI(title="Local Multi-Agent RAG", version="0.2.0-m0")
+
+
+def _warm_caches() -> None:
+    """Nạp sẵn ở luồng nền những thứ lượt hỏi đầu tiên từng làm đồng bộ trong vòng lặp sự kiện (đo 23/11):
+    tokenizer Qwen3 (~0,8 s), băm mã nguồn cho provenance (~0,3 s), mã phiên bản mô hình Ollama (~0,9 s)."""
+    from app.research.provenance import code_manifest, ollama_model_digest
+    from app.research.token_budget import _tokenizer
+    for warm in (_tokenizer, code_manifest, lambda: ollama_model_digest(os.getenv("LOCAL_LLM_MODEL", "qwen3:4b"))):
+        try:
+            warm()
+        except Exception:  # thiếu tokenizer, Ollama chưa chạy...: lượt hỏi tự xử lý như cũ
+            pass
+
+
+threading.Thread(target=_warm_caches, name="warm-caches", daemon=True).start()
 app.mount("/static", StaticFiles(directory=BASE / "app" / "static"), name="static")
 app.include_router(auth_router)
 app.include_router(_build_oidc_router())  # đăng nhập tổ chức: tắt khi chưa đặt OIDC_PROVIDERS
@@ -255,7 +270,8 @@ class ChatRequest(BaseModel):
     # lĩnh vực của không gian đang mở; bỏ trống = Phần mềm (prompt nghiên cứu như cũ, dùng cho script thực nghiệm)
     domain_pack: Literal[tuple(PACKS)] | None = None  # type: ignore[valid-type]
     # ô chat Tự động: người dùng chọn một cách hiểu khi được hỏi lại (tác tử theo loại việc)
-    agent: Literal["conditions", "procedure", "terms", "figures"] | None = None
+    # (bộ work: conditions…; bộ office: hr, finance…); tên lạ bị bỏ qua trong pipeline, không báo lỗi
+    agent: str | None = Field(default=None, max_length=32)
 
 class SourceTextRequest(BaseModel):
     source_name: str
@@ -581,7 +597,7 @@ async def _chat(body: ChatRequest, request: Request):
             conversation_id=conversation_id,
             product_mode=body.product_mode,
             reply_in_query_language=body.reply_in_query_language,
-            domain_pack=body.domain_pack or (WORK_PACK if body.product_mode else None),  # ô chat sản phẩm: tác tử theo loại việc
+            domain_pack=body.domain_pack or (product_agent_pack() if body.product_mode else None),  # ô chat sản phẩm: mặc định bộ office (Đợt 9)
             forced_agent=body.agent if body.product_mode else None,
             routing_examples=examples,
         )

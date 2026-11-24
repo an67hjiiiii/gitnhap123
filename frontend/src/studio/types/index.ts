@@ -244,7 +244,7 @@ export interface HealthResponse {
 
 export type ExecutionMode = 'proposed_adaptive' | 'naive_multi_agent' | 'vanilla_rag' | 'ablation_comparison';
 export type NavigationTab = 'orchestration' | 'chat' | 'overview' | 'documents' | 'toolkit' | 'consistency' | 'evaluation' | 'benchmarks' | 'rating' | 'users' | 'db_explorer' | 'organization'
-  | 'library' | 'results' | 'tasks' | 'settings' | 'compare' | 'notifications';  // đợt 6: bố cục 7 trang (mục 2b); 20/11: So sánh phiên bản
+  | 'library' | 'results' | 'tasks' | 'settings' | 'compare' | 'notifications' | 'office';  // đợt 6: bố cục 7 trang (mục 2b); 20/11: So sánh phiên bản
 
 // Phase 6: Security Audit & Diagnostics Types
 export interface SecurityCheckpointItem {

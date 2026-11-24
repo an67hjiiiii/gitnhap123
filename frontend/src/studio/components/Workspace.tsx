@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, Wrench, Paperclip, PanelRight, Pencil, RotateCcw, Archive, ListChecks, CornerDownRight, Link2, X, FileDown, FileText, FolderOpen, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, Zap } from 'lucide-react';
+import { ArrowRight, ArrowUp, Bot, BookOpen, Check, ChevronDown, Wrench, Paperclip, PanelRight, Pencil, RotateCcw, Archive, ListChecks, CornerDownRight, Link2, X, FileDown, FileText, Footprints, Inbox, MessageSquareText, Mic, Microscope, RefreshCw, Sparkles, Square, Upload, Users, Volume2, Zap } from 'lucide-react';
 import { ChatStreamEvent, chatScope, saveSkillCard, routeSkill, runSkill, SKILL_LIST, SkillKey, SkillOutput, SkillRoute, ConversationMessage, getChunk, getConversation, getRawRun, sendAnalysis, sendChat, explainFailure, getDocuments, GroundingResult, listFeedback, listReports, getReport, Rating, answerReport, saveReport, exportDocx, canSaveReports, ocrImage } from '../services/api';
 import { FileIcon } from './FileIcon';
 import { WorkspaceContext, CtxTab } from './WorkspaceContext';
@@ -14,14 +14,20 @@ import { AssistantRobot } from './robot/AssistantRobot';
 import { useRobotAssistant } from './robot/RobotContext';
 import { RobotState } from './robot/robotEngine';
 import { PIPELINE_STEPS, PipelineStep } from './ExecutionFlowGraph';
+import { OfficePanel, readOfficePref, type OfficeMode, type OfficeSource } from '../office3d/OfficePanel';
+import { endLive, getLive, pushLive, startLive } from '../office3d/liveBus';
+import { RunTimeline } from '../office3d/RunTimeline';
+import { buildTimeline, timelineOf } from '../office3d/timeline';
 import { NodeTraceModal } from './NodeTraceModal';
 import { StudioModal } from './StudioModal';
 import { ModeExecutionResult } from '../types';
 import { motionAllowed } from '../utils/motion';
+import { burstBubbles } from '../utils/bubbles';
 import { citeLabel, inlineCites } from '../utils/citations';
 import { SkillCard } from './SkillCard';
 import { parseSkillMessage, summarizeSkill } from '../utils/skillMessage';
 import { progressLabel } from '../utils/progress';
+
 
 // Không gian làm việc duy nhất: hỏi nhanh (nhiều lượt) và phân tích sâu (A/B/C, 8 bước) trong cùng một cuộc trò chuyện.
 type Mode = 'quick' | 'A' | 'B' | 'C';
@@ -160,6 +166,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const [error, setError] = useState<string | null>(null);
   const [allDocs, setAllDocs] = useState<{ id?: number | string; source_file: string }[]>([]);
   const [trace, setTrace] = useState<{ result: ModeExecutionResult; step: PipelineStep } | null>(null);
+  // văn phòng 3D trực tiếp / xem lại trong bảng bên phải (Đợt 4, 23/11): nguồn cuối cùng được giữ để bảng sống khi thu gọn/đóng
+  const [officeSrc, setOfficeSrc] = useState<OfficeSource | null>(null);
+  const [officeMode, setOfficeMode] = useState<OfficeMode>('closed');
+  const setOffice = useCallback((src: OfficeSource) => { setOfficeSrc(src); setOfficeMode('open'); }, []);
+  const [agentsLive, setAgentsLive] = useState(false);  // câu hỏi đang đi qua các Agent (không phải kỹ năng): mới có gì để xem trong văn phòng
   const [agentsOf, setAgentsOf] = useState<string | null>(null);
   const [chunk, setChunk] = useState<{ id: string; source?: string; sourceId?: string; text?: string; error?: string } | null>(null);
   // cột phải (Đợt 2): tab đang mở, ngăn kéo trên điện thoại, phạm vi hỏi (rỗng = cả không gian), lượt đang xem quá trình
@@ -167,7 +178,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const [ctxOpen, setCtxOpen] = useState(false);
   // thu gọn cột phải (20/11): nhớ trên trình duyệt; tiện ích riêng của người xem
   const [ctxFold, setCtxFold] = useState(() => { try { return localStorage.getItem('orchestriq-ctx-fold') === '1'; } catch { return false; } });
-  const foldCtx = (v: boolean) => { setCtxFold(v); try { localStorage.setItem('orchestriq-ctx-fold', v ? '1' : '0'); } catch { /* bỏ qua */ } };
+  // thu gọn thì tắt luôn cờ mở kiểu điện thoại (bấm nguồn bật cờ này), nếu không cột đầy đủ rơi xuống dưới khung chat
+  const foldCtx = (v: boolean) => { setCtxFold(v); if (v) setCtxOpen(false); try { localStorage.setItem('orchestriq-ctx-fold', v ? '1' : '0'); } catch { /* bỏ qua */ } };
   const [picked, setPicked] = useState<string[]>([]);
   const [focusRun, setFocusRun] = useState<string | null>(null);
   const [fullDoc, setFullDoc] = useState<{ id: string; name?: string } | null>(null);
@@ -261,8 +273,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     closedH.current = 0;
   }, [open]);
 
-  const expand = () => {
+  const expand = (e?: React.MouseEvent) => {
     if (open) return;
+    if (e && motionAllowed()) burstBubbles(e.clientX, e.clientY);
     closedH.current = formRef.current?.offsetHeight ?? 0;
     setOpen(true);
     speak(`Chào ${firstName(userName) || 'bạn'}! Cứ hỏi về tài liệu, mình tự chọn cách làm: trả lời thẳng, gọi kỹ năng hay chia việc cho các tác tử.`);
@@ -276,6 +289,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
     if ((!typed && !img) || pending || pasting) return;
     const spoken = spokenAsk.current; spokenAsk.current = false;
     setPending({ text: typed || 'Hỏi về ảnh đính kèm', mode, image: img?.url }); setDraft(''); setError(null);
+    // điện thoại: tấm trượt văn phòng che nửa dưới (câu trả lời, nút chọn cách hiểu): thu về thẻ "Agent đang làm"
+    const narrow = !!window.matchMedia?.('(max-width: 1023px)').matches;
+    if (narrow && officeMode === 'open') setOfficeMode('collapsed');
     let text = typed;
     if (img) {
       setLive({ steps: ['Đang đọc chữ trong ảnh'], answer: '' });
@@ -323,7 +339,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         }
       }
       setLive({ steps: [], answer: '' });
-      const onEvent = (e: ChatStreamEvent) => setLive(prev => {
+      startLive(splitAsk(text).ask); setAgentsLive(true);
+      // bảng văn phòng tự theo câu hỏi đang chạy: đang mở/thu gọn (hoặc lần trước để mở) thì chuyển sang Trực tiếp
+      let pref = officeMode !== 'closed' ? officeMode : officeSrc ? 'closed' : readOfficePref().mode;
+      if (pref === 'open' && narrow) pref = 'collapsed';
+      if (pref !== 'closed') { setOfficeSrc({ kind: 'live' }); setOfficeMode(pref); }
+      const onEvent = (e: ChatStreamEvent) => { pushLive(e); setLive(prev => {
         if (e.type === 'answer') return { ...prev, answer: e.text };
         if (e.type === 'queue') {  // máy đang trả lời người khác: báo thứ tự chờ, thay dòng chờ cũ
           const waiting = `Đang chờ lượt, thứ tự ${e.position}`;
@@ -332,7 +353,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         }
         const label = progressLabel(e);
         return !label || prev.steps[prev.steps.length - 1] === label ? prev : { ...prev, steps: [...prev.steps, label] };
-      });
+      }); };
       let run = mode === 'quick' ? await sendChat(text, conversationId, workspaceId, scope, onEvent, again?.agent) : await sendAnalysis(text, mode, conversationId, workspaceId, scope);
       setRuns(prev => ({ ...prev, [run.run_id]: run }));
       // Kế hoạch bị bước kiểm tra của CAP1 từ chối (hành vi nghiên cứu, giữ nguyên): lượt thất bại vẫn lưu và hiện,
@@ -340,10 +361,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
       if (mode !== 'quick' && isPlanRejected(run)) {
         setPending({ text, mode: 'quick' }); setState('searching'); speak('Kế hoạch chưa qua bước kiểm tra, mình trả lời bằng chế độ Tự động nhé…');
         setLive({ steps: [], answer: '' });
+        endLive(true);
+        startLive(splitAsk(text).ask);
         const quickRun = await sendChat(text, run.conversation_id ?? conversationId, workspaceId, scope, onEvent);
         setRuns(prev => ({ ...prev, [quickRun.run_id]: quickRun }));
         run = quickRun;
       }
+      endLive(run.status === 'FAILED');
       if (run.conversation_id) {
         await load(run.conversation_id);
         if (run.conversation_id !== conversationId) { skipLoad.current = run.conversation_id; onConversation(run.conversation_id); }
@@ -356,8 +380,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         if (spoken && run.status !== 'NO_EVIDENCE') readAloud(run.run_id, answerText(run.answer as any));
       }
     } catch (err: any) {
+      endLive(true);
       setError(err.message); setDraft(text); setState('error'); speak('Có lỗi khi gửi. Bạn thử lại nhé.');
-    } finally { setPending(null); }
+    } finally { setPending(null); setAgentsLive(false); }
   };
 
   const listen = () => {
@@ -438,7 +463,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const composer = (
     <form ref={formRef} className={`ws-composer${open || !fresh ? ' is-open' : ''}${pending ? ' is-busy' : ''}`} onSubmit={send} onClick={expand}>
       {!(open || !fresh) ? (
-        <button type="button" className="ws-launch" onClick={expand} aria-label="Mở khung hỏi đáp">
+        <button type="button" className="ws-launch" aria-label="Mở khung hỏi đáp">
           <Sparkles size={16} /><span>Hỏi C27 về tài liệu của bạn…</span>
         </button>
       ) : <>
@@ -486,7 +511,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
   const ctxAt = messages.findIndex(m => m.run_id && m.run_id === (focusRun ?? lastRunId));
   const ctxAsk = (ctxAt > 0 ? [...messages.slice(0, ctxAt)].reverse().find(m => m.role === 'USER')?.content : undefined) ?? lastAsk;
   return (
-    <div className={`ws-shell${ctxFold ? ' is-folded' : ''}`}>
+    <div className={`ws-shell ws-v2${ctxFold ? ' is-folded' : ''}${officeSrc && officeMode === 'open' ? ' has-office' : ''}`}>
     <main className={`mn ws${fresh ? ' is-fresh' : ''}`}>
       <div className="ws-top">
         <div className={`ws-bot${busyNow ? ' is-busy' : ''}`} aria-label="Chạm vào Trợ lý C27" title="Chạm để C27 phản hồi">
@@ -500,11 +525,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         <div className="ws-hero">
           <div className="ws-glow" aria-hidden="true"><i /><i /><i /></div>
           <h1>Chào {firstName(userName) || 'bạn'}, <span>cần tìm gì hôm nay?</span></h1>
-          <div className="ws-stats" aria-label="Tình trạng kho">
-            <span><FolderOpen size={14} />{workspaceName || 'Kho tài liệu'}</span>
-            <span><FileText size={14} />{docCount} tài liệu · {chunkCount} đoạn</span>
-            <span className={modelOk ? 'is-ok' : 'is-warn'}><i />{modelOk ? 'Mô hình sẵn sàng' : 'Chưa kết nối mô hình'}</span>
-          </div>
+          {/* bỏ dòng tình trạng kho ở khung giữa (24/11, chủ dự án duyệt) */}
           {composer}
           <div className={`ws-chips${open ? ' is-in' : ''}`}>
             {PRESETS.map(p => <button key={p.label} type="button" onClick={() => { setOpen(true); setDraft(p.text); setMode('quick'); inputRef.current?.focus(); speak('Đã điền câu hỏi. Bạn sửa thêm hoặc nhấn gửi nhé.'); }}>{p.label}</button>)}
@@ -566,6 +587,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                     <span className="ws-meta">{((run.metrics?.input_tokens ?? 0) + (run.metrics?.output_tokens ?? 0)).toLocaleString('vi-VN')} token · {((run.metrics?.latency_ms ?? 0) / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} giây</span>
                     <button type="button" onClick={() => { setFocusRun(run.run_id); setCtxTab('process'); setCtxOpen(true); }}><ListChecks size={13} />Quá trình</button>
                     <button type="button" onClick={() => result && setTrace({ result, step: PIPELINE_STEPS[0] })}><Footprints size={13} />8 bước</button>
+                    {quick && Array.isArray(run.events) && run.events.length > 0 && <button type="button" onClick={() => setOffice({ kind: 'replay', question: splitAsk(String(run.query ?? '')).ask, events: run.events })} title="Diễn lại lượt này trong văn phòng 3D theo mốc thời gian đã lưu"><Bot size={13} />Văn phòng</button>}
                     {hasAgents && <button type="button" aria-expanded={agentsOf === run.run_id} onClick={() => setAgentsOf(agentsOf === run.run_id ? null : run.run_id)}><Users size={13} />Theo tác tử</button>}
                     {!failed && run.status !== 'NO_EVIDENCE' && <GroundingButton open={groundOf === run.run_id} onToggle={() => setGroundOf(groundOf === run.run_id ? null : run.run_id)} />}
                     {!failed && <button type="button" onClick={() => readAloud(run.run_id, m.content)} aria-pressed={speaking === run.run_id}
@@ -573,6 +595,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                     {!failed && run.status !== 'NO_EVIDENCE' && <button type="button" onClick={() => openReport(run.run_id)} title="Viết thành báo cáo hoàn chỉnh, tải Word hoặc PDF"><FileDown size={13} />Báo cáo</button>}
                     {!failed && <AnswerFeedback key={run.run_id} runId={run.run_id} initial={ratings[run.run_id]} onSaved={r => setRatings(p => ({ ...p, [run.run_id]: r }))} />}
                   </footer>}
+                  {run && quick && Array.isArray(run.events) && run.events.length > 0 && <RunTimeline groups={timelineOf(run.events)}
+                    onSeek={ix => setOffice({ kind: 'replay', question: splitAsk(String(run.query ?? '')).ask, events: run.events, seek: ix })} />}
                   {run && !failed && run.status !== 'NO_EVIDENCE' && (() => {
                     const q = messages.slice(0, i).reverse().find(x => x.role === 'USER')?.content ?? '';
                     const md = stripSources(answerText(m.content));
@@ -607,12 +631,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                   const phase = phaseOf(live.steps, live.answer);
                   const note = live.answer ? 'Đang viết câu trả lời' : live.steps[live.steps.length - 1] ?? (pending.mode === 'quick' ? 'Đang tìm trong tài liệu' : 'Các tác tử đang làm việc');
                   return <section className="ws-proc" aria-label="Quá trình xử lý">
-                    <div className="ws-proc-head"><b><Sparkles size={15} />Đang xử lý yêu cầu…</b><small>Đã xử lý {elapsed} giây</small></div>
+                    <div className="ws-proc-head"><b><Sparkles size={15} />Đang xử lý yêu cầu…</b><small>Đã xử lý {elapsed} giây</small>
+                      {agentsLive && <button type="button" className="ws-proc-office" onClick={() => setOffice({ kind: 'live' })} title="Xem các Agent nhận việc và làm việc trong văn phòng 3D, theo sự kiện thật"><Bot size={13} />Xem văn phòng</button>}</div>
                     <ol className="ws-proc-steps">{PHASES.map((p, i) => (
                       <li key={p.t} className={i < phase ? 'is-done' : i === phase ? 'is-now' : ''} aria-current={i === phase ? 'step' : undefined}>
                         <span className="ws-proc-dot">{i < phase ? <Check size={13} /> : i === phase ? <span className="spin is-dark" /> : null}</span>
                         <span><b>{p.t}</b><small>{p.d}</small></span></li>))}</ol>
                     <p className="ws-proc-note" aria-live="polite"><Zap size={14} /><b>Cập nhật nhanh:</b><span>{note}</span></p>
+                    {agentsLive && <RunTimeline live groups={buildTimeline(getLive()?.events ?? [])} onSeek={() => setOffice({ kind: 'live' })} />}
                   </section>;
                 })()}
                 {live.answer && <div className="md ws-live-answer"><Markdown text={inlineCites(stripSources(live.answer), allDocs.length ? allDocs : docs)} /></div>}
@@ -626,7 +652,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         </div>
       )}
 
-      {trace && <NodeTraceModal isOpen step={trace.step} result={trace.result} onClose={() => setTrace(null)} onSelectStep={s => setTrace({ ...trace, step: s })} />}
+      {trace && <NodeTraceModal isOpen step={trace.step} result={trace.result} onClose={() => setTrace(null)} onSelectStep={s => setTrace({ ...trace, step: s })} docs={docsForCite} />}
       {report && <StudioModal labelId="ws-report" icon={<FileDown size={18} />} title={report.data?.title || 'Báo cáo từ câu trả lời'}
         subtitle={report.data ? `Mô hình cục bộ biên soạn · ${report.data.tokens.toLocaleString('vi-VN')} token · ${(report.data.ms / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} giây` : 'Viết thành báo cáo có cấu trúc từ câu trả lời và các đoạn tài liệu đã dùng'}
         onClose={() => setReport(null)}
@@ -647,6 +673,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
       onUseSkill={k => { setForced(k); setDraft(''); setOpen(true); setCtxOpen(false); inputRef.current?.focus(); }} manage={manage}
       mobileOpen={ctxOpen} onMobileClose={() => setCtxOpen(false)} collapsed={ctxFold} onCollapse={foldCtx}
       cites={citationsOf(ctxRun).map(id => ({ id, label: citeLabel(id, docsForCite) }))} onCite={showChunk} />
+    <OfficePanel source={officeSrc} mode={officeMode} onMode={setOfficeMode} />
     </div>
   );
 };

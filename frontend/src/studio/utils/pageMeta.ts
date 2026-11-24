@@ -9,6 +9,7 @@ export const PAGE_META: Record<NavigationTab, { title: string; desc: string }> =
   consistency: { title: 'Kiểm tra mâu thuẫn', desc: 'Tìm chỗ các tài liệu nói khác nhau.' },
   compare: { title: 'So sánh phiên bản', desc: 'Đối chiếu hai bản theo Chương, Điều, Khoản: thêm, sửa, bỏ, giữ.' },
   toolkit: { title: 'Kỹ năng', desc: 'Danh mục kỹ năng theo ngành, chạy ngay trên tài liệu đã chọn.' },
+  office: { title: 'Văn phòng Agent', desc: 'Xem đội Agent nhận việc, chia việc và tổng hợp câu trả lời trong văn phòng 3D.' },
   results: { title: 'Kết quả & công việc', desc: 'Kết quả đã lưu, việc cần xem xét, đơn từ và thông báo.' },
   tasks: { title: 'Đơn từ', desc: 'Gửi đơn, kiểm tra theo quy định và duyệt theo cấp.' },
   overview: { title: 'Tổng quan', desc: 'Việc đang dở, cảnh báo kho tài liệu và đơn đang chờ.' },

@@ -66,4 +66,4 @@ def test_pipeline_ignores_examples_outside_work_pack():
 
     from app.research.pipeline import ResearchPipeline
     src = inspect.getsource(ResearchPipeline.run)
-    assert src.index('kwargs.pop("routing_examples"') < src.index("if active_pack_name() != WORK_PACK")
+    assert src.index('kwargs.pop("routing_examples"') < src.index("if pack not in SELECTION_PACKS")

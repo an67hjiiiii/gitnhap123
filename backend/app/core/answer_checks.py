@@ -11,7 +11,7 @@ import re
 # Mô hình viết phép tính dạng [[= 12000000/26/8*4*1.5 ]]; máy tính thay bằng kết quả (mô hình 4B hay nhân sai).
 # mô hình đôi khi quên dấu "=" đầu hoặc tự ghi kết quả sau: [[3.000 * 1,5 = 45]] → chỉ lấy vế trái, máy tính lại
 CALC = re.compile(r"\[\[\s*=?\s*([0-9(][^\]=]{0,200}?[0-9)%])\s*(?:=[^\]]*)?\]\]")
-_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
         ast.USub: operator.neg, ast.UAdd: operator.pos}
 # số kiểu Việt: 12.000.000 / 1,5 / 150% ; bỏ số thứ tự đầu dòng ("1.", "2)")
 _NUM = re.compile(r"(?<![\w.,])\d{1,3}(?:\.\d{3})+(?:,\d+)?|(?<![\w.,])\d+(?:[.,]\d+)?")
@@ -33,7 +33,8 @@ def _eval(node):
 def _plain(expr: str) -> str:
     """'12.000.000 × 1,5' → '12000000*1.5' (dấu chấm nghìn, dấu phẩy thập phân, × ÷)."""
     e = expr.replace("×", "*").replace("x", "*").replace("÷", "/").replace("%", "/100")
-    e = re.sub(r"(?<=\d)\.(?=\d{3}(?!\d))", "", e)
+    # dấu chấm nghìn (12.000.000); "0.005" là số thập phân kiểu Anh, giữ nguyên
+    e = re.sub(r"(?<![\d.])\d{1,3}(?:\.\d{3})+(?![\d.])", lambda m: m.group(0) if m.group(0).startswith("0.") else m.group(0).replace(".", ""), e)
     return e.replace(",", ".")
 
 
@@ -44,6 +45,9 @@ def fmt(value: float) -> str:
     return s.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
+BARE = re.compile(r"(=\s*)(\d[\d.,]*(?:\s*[*×/]{1,2}\s*\d[\d.,]*)+)(?!\s*[=*×/\d])")
+
+
 def apply_calc(text: str) -> str:
     """Thay mọi [[= biểu thức ]] bằng kết quả; biểu thức lỗi thì giữ nguyên chữ để người đọc thấy (không đoán)."""
     def sub(m: re.Match) -> str:
@@ -52,7 +56,17 @@ def apply_calc(text: str) -> str:
         except (ValueError, SyntaxError, ZeroDivisionError, TypeError):
             return m.group(1)
         return f"**{fmt(v)}**"
-    return CALC.sub(sub, text)
+    text = CALC.sub(sub, text)
+
+    # Đợt 8 Văn phòng 3D: mô hình hay viết "Phạt = 0.005*10*120000000 đồng" mà quên [[= ]]: tính luôn phép tính
+    # đứng ngay sau dấu "=" và có ít nhất một phép nhân/chia (không đoán khi không có dấu "=").
+    def bare(m: re.Match) -> str:
+        try:
+            v = _eval(ast.parse(_plain(m.group(2)), mode="eval"))
+        except (ValueError, SyntaxError, ZeroDivisionError, TypeError):
+            return m.group(0)
+        return f"{m.group(1)}{m.group(2).strip()} = **{fmt(v)}**"
+    return BARE.sub(bare, text)
 
 
 def _norm(token: str) -> str:

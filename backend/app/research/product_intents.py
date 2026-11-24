@@ -70,6 +70,31 @@ def product_help_response(message: str) -> tuple[str, str] | None:
     return None
 
 
+_LIB_OBJECT = re.compile(r"\b(tai lieu|van ban|file|tep|nguon|cau tra loi)\b")
+_LIB_ASK = re.compile(r"\b(nhung|gi|nao|liet ke|danh sach|bao nhieu)\b")
+_LIB_PLACE = re.compile(r"\b(kho|thu vien|da tai|dang co|hien co|liet ke|danh sach|he thong co)\b")
+
+
+def is_library_question(message: str) -> bool:
+    """Câu hỏi về chính kho tài liệu ("kho đang có những tài liệu gì"), không phải về nội dung tài liệu.
+    24/11: trước đây đi tìm đoạn gần nghĩa rồi liệt kê lung tung. Có " về " (tài liệu nào nói về X) là hỏi nội dung."""
+    t = _normalize_intent_text(message)
+    return bool(_LIB_OBJECT.search(t) and _LIB_ASK.search(t) and _LIB_PLACE.search(t)) and " ve " not in f" {t} "
+
+
+def library_answer(rows: list[dict], doc_type_labels: dict[str, str]) -> str:
+    """Danh sách tài liệu thật trong phạm vi hỏi, đọc từ kho (không gọi mô hình)."""
+    if not rows:
+        return "Kho chưa có tài liệu nào trong phạm vi này. Hãy tải tài liệu lên rồi hỏi về nội dung của chúng."
+    lines = [f"Kho có **{len(rows)} tài liệu**:", ""]
+    for i, r in enumerate(sorted(rows, key=lambda x: str(x.get("source_name", "")).lower()), 1):
+        kind = doc_type_labels.get(r.get("doc_type") or "", "")
+        meta = ", ".join(x for x in (kind, f"{r.get('chunk_count', 0)} đoạn") if x)
+        lines.append(f"{i}. **{r.get('source_name')}** ({meta})")
+    lines += ["", "Bạn có thể hỏi về nội dung của bất kỳ tài liệu nào ở trên, hoặc gõ \"/\" để chọn một kỹ năng."]
+    return "\n".join(lines)
+
+
 def is_simple_project_question(message: str, domains: Iterable[str]) -> bool:
     """Conservatively recognize a single factual question for grounded RAG.
 

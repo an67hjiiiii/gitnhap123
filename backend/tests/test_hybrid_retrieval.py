@@ -93,7 +93,7 @@ def test_pipeline_passes_hybrid_only_in_product_mode(monkeypatch):
     monkeypatch.setattr(pl.ResearchPipeline, "_retrieve_candidates", spy)
     src = open(pl.__file__, encoding="utf8").read()
     # mọi lời gọi truy xuất trong pipeline đều gắn với product_mode, không bật cứng
-    assert src.count("hybrid=product_mode") == 3 and "hybrid=True" not in src
+    assert src.count("hybrid=product_mode") == 4 and "hybrid=True" not in src  # 4: thêm công cụ tìm kiếm của tác tử (23/11)
 
 
 def test_strong_keyword_match_kept_when_vector_misses_it():

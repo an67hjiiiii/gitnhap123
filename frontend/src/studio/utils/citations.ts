@@ -14,8 +14,14 @@ const esc = (s: string) => s.replace(/[-.*+?^$(){}|[\]\\]/g, (c) => '\\' + c);
 
 /** Mã đoạn chèn trong câu văn đổi thành nhãn; không lặp tên tài liệu (mô hình hay viết "tên.txt [mã]" hoặc dẫn một đoạn hai lần liền). */
 export const inlineCites = (text: string, docs: CiteDoc[]) => {
+  const ID = /src_[0-9a-f]+_c\d+/gi;
+  // mọi đoạn được dẫn đều thuộc một tài liệu → trong câu chỉ ghi "đoạn N" (tên tài liệu đã có ở "Nguồn tham chiếu")
+  const known = [...new Set((text.match(ID) ?? []).map(id => id.replace(/_c\d+$/i, '')))].filter(k => docs.some(d => String(d.id) === k));
+  const label = (id: string) => known.length === 1 && citeLabel(id, docs).includes(' · ') ? citeLabel(id, docs).split(' · ').pop()! : citeLabel(id, docs);
   let out = text
-    .replace(/(?:chunk(?:_id)?:?\s*)?\[?(src_[0-9a-f]+_c\d+)\]?/gi, (_, id: string) => `(${citeLabel(id, docs)})`)
+    // "(trích từ [mã])", "(nguồn: [mã])" → chỉ còn nhãn, bỏ chữ dẫn thừa
+    .replace(/\(\s*(?:trích\s+(?:từ|dẫn)|nguồn|xem|theo)\s*:?\s*(\[?src_[0-9a-f]+_c\d+\]?)\s*\)/gi, '$1')
+    .replace(/(?:chunk(?:_id)?:?\s*)?\[?(src_[0-9a-f]+_c\d+)\]?/gi, (_, id: string) => `(${label(id)})`)
     .replace(/\(\(([^()]*)\)\)/g, '($1)');
   // mã đoạn mô hình chép sai (không đổi được thành nhãn) thì bỏ; nút nguồn bên dưới vẫn còn
   out = out.replace(/\s*\((?:chunk(?:_id)?:?\s*)?src_[^()]*\)/gi, '');
