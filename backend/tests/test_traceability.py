@@ -44,8 +44,8 @@ def test_requirement_ending_at_next_heading():
 
 
 def test_assign_agent_prefers_strongest_domain_and_defaults():
-    assert assign_agent("Bảng payments có khóa chính, chỉ mục và transaction database")[1] == "database"
-    assert assign_agent("Trang chủ hiển thị logo")[1] == "api_architecture"
+    assert assign_agent("Bảng payments có khóa chính, chỉ mục và transaction database")[1] == "software"
+    assert assign_agent("Trang chủ hiển thị logo")[1] == "general"
 
 
 CHUNKS = [SourceChunk("d1", "s9", "api.md", "Khóa bị thu hồi mất hiệu lực trong 60 giây.", 0, 0.7)]
@@ -171,7 +171,7 @@ def test_security_controls_are_unique_and_routed_to_security_agent():
     controls = asvs_controls()
     ids = [c["req_id"] for c in controls]
     assert len(ids) == len(set(ids)) >= 25
-    assert all(c["agent"] == "security" and c["group"] and c["title"] and c["body"] for c in controls)
+    assert all(c["agent"] == "software" and c["group"] and c["title"] and c["body"] for c in controls)
     assert _client().get("/api/studio/security/controls").json()["standard"] == "OWASP ASVS 4.0.3"
 
 

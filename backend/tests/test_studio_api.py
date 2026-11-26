@@ -153,8 +153,8 @@ def test_admin_table_without_search_has_no_filter():
 class DomainPipeline(FakePipeline):
     class Store:
         def chunks(self, source_ids=None):
-            return [SourceChunk("c1", "s1", "a.md", "Bảng payments có khóa chính và chỉ mục database", 0, 0.0),
-                    SourceChunk("c2", "s1", "a.md", "Cookie phiên và xác thực đăng nhập authentication", 1, 0.0)]
+            return [SourceChunk("c1", "s1", "a.md", "Bảng payments có khóa chính, chỉ mục database và xác thực authentication", 0, 0.0),
+                    SourceChunk("c2", "s1", "b.md", "Nhân viên thử việc được nghỉ phép năm theo nội quy nhân sự", 1, 0.0)]
     source_store = Store()
 
 
@@ -164,7 +164,7 @@ def test_retrieval_test_filters_by_domain_and_tags_hits():
                                     owner_pipeline=lambda user, *a: DomainPipeline(), session_factory=lambda: None))
     c = TestClient(app)
     all_hits = c.post("/api/studio/retrieval-test", json={"query": "x", "top_k": 5}).json()["results"]
-    assert {h["chunk_id"]: h["domains"] for h in all_hits} == {"c1": ["database"], "c2": ["security"]}
-    sec = c.post("/api/studio/retrieval-test", json={"query": "x", "top_k": 5, "domain": "security"}).json()["results"]
-    assert [h["chunk_id"] for h in sec] == ["c2"]
+    assert {h["chunk_id"]: h["domains"] for h in all_hits} == {"c1": ["software"], "c2": ["hr"]}
+    hr_hits = c.post("/api/studio/retrieval-test", json={"query": "x", "top_k": 5, "domain": "hr"}).json()["results"]
+    assert [h["chunk_id"] for h in hr_hits] == ["c2"]
     assert c.post("/api/studio/retrieval-test", json={"query": "x", "domain": "nope"}).status_code == 422

@@ -19,8 +19,8 @@ class Spy:
 
 def test_upstream_results_are_in_prompt_only_when_given():
     spy = Spy()
-    up = TaskResult("t1", "database", "COMPLETE", "Bảng payments dùng BIGINT cho amount.")
-    asyncio.run(execute_task(spy, Task("t2", "Thiết kế API tạo đơn", "api_architecture", ["t1"]), EV, RunMetrics(), upstream=[up]))
+    up = TaskResult("t1", "software", "COMPLETE", "Bảng payments dùng BIGINT cho amount.")
+    asyncio.run(execute_task(spy, Task("t2", "Thiết kế API tạo đơn", "software", ["t1"]), EV, RunMetrics(), upstream=[up]))
     assert "[UPSTREAM]" in spy.user and "Bảng payments dùng BIGINT" in spy.user and spy.user.index("[UPSTREAM]") < spy.user.index("[EVIDENCE]")
-    asyncio.run(execute_task(spy, Task("t3", "Thiết kế API", "api_architecture"), EV, RunMetrics()))
+    asyncio.run(execute_task(spy, Task("t3", "Thiết kế API", "software"), EV, RunMetrics()))
     assert "[UPSTREAM]" not in spy.user
