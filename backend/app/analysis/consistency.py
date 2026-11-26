@@ -15,7 +15,7 @@ from app.analysis.design import _call, _obj, _text
 from app.analysis.evaluation import _content_tokens
 from app.analysis.traceability import _numbers
 from app.core.types import SourceChunk
-from app.research.registry import profile
+from app.research.registry import active_pack, profile
 
 _NORMATIVE = re.compile(r"\b(phải|không được|bắt buộc|tối đa|tối thiểu|chỉ|cấm|luôn|must|shall|never|only|at least|at most)\b", re.I)
 _NEGATION = re.compile(r"\b(không|cấm|chưa|never|not|no)\b", re.I)
@@ -133,7 +133,8 @@ def unconfirmed_reason(value_a: str, value_b: str, a_text: str, b_text: str) -> 
 
 
 async def judge_pair(provider, a: dict, b: dict) -> dict:
-    agent = profile("api_architecture")
+    agents = active_pack()["agents"]
+    agent = profile("general") if "general" in agents else profile(active_pack()["default_domain"])
     schema = _obj({"verdict": {"type": "string", "enum": list(VERDICTS)}, "severity": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},
                    "same_subject": {"type": "boolean"}, "value_a": {"type": "string"}, "value_b": {"type": "string"},
                    "explanation": {"type": "string"}})

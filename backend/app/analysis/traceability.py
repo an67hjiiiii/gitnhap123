@@ -32,6 +32,15 @@ _REQUIREMENT_LINE = re.compile(
 )
 
 
+def _resolve_profile(agent_id: str) -> dict:
+    agents = active_pack()["agents"]
+    if agent_id in agents:
+        return profile(agent_id)
+    if agent_id in ("security", "database", "api_architecture") and "software" in agents:
+        return profile("software")
+    return profile(active_pack()["default_domain"])
+
+
 @dataclass(frozen=True)
 class Requirement:
     req_id: str
@@ -41,7 +50,7 @@ class Requirement:
     agent: str
 
     def to_dict(self) -> dict:
-        return {**asdict(self), "agent_name": profile(self.agent)["name"]}
+        return {**asdict(self), "agent_name": _resolve_profile(self.agent)["name"]}
 
 
 def assign_agent(text: str) -> tuple[list[str], str]:
@@ -226,7 +235,7 @@ async def check_requirement(provider, requirement: Requirement, evidence: list[S
                             required_terms: list[list[str]] | None = None) -> dict:
     """Kết luận một yêu cầu đã được tài liệu thiết kế đáp ứng chưa. Kết luận là gợi ý; người dùng duyệt lại."""
     started = time.perf_counter()
-    agent = profile(requirement.agent)
+    agent = _resolve_profile(requirement.agent)
     result = {
         "req_id": requirement.req_id,
         "agent": requirement.agent,

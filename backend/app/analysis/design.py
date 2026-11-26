@@ -13,7 +13,7 @@ import time
 from app.analysis.traceability import _decode, assign_agent
 from app.core.citations import validate_citations
 from app.core.types import SourceChunk
-from app.research.registry import profile
+from app.research.registry import profile, use_pack
 
 DOMAINS = ("database", "api_architecture", "security")
 DOMAIN_LABEL = {"database": "database", "api_architecture": "API and integration", "security": "security and access control"}
@@ -80,7 +80,9 @@ async def key_points(provider, request: str) -> dict:
             points.append({"id": f"P{len(points) + 1}", "text": _text(item["text"]), "domain": item["domain"]})
     flags = []
     if not points:  # mô hình không tách được: giữ nguyên yêu cầu làm một ý, nói rõ
-        points = [{"id": "P1", "text": _text(request), "domain": assign_agent(request)[1]}]
+        with use_pack("software"):
+            fallback_domain = assign_agent(request)[1]
+        points = [{"id": "P1", "text": _text(request), "domain": fallback_domain}]
         flags.append("fallback_single_point")
     return {"points": points, "flags": flags, **measured}
 
@@ -172,7 +174,8 @@ def _clean_section(domain: str, obj: dict, evidence: list[SourceChunk]) -> dict:
 
 
 async def design_section(provider, request: str, domain: str, points: list[dict], evidence: list[SourceChunk]) -> dict:
-    agent = profile(domain)
+    with use_pack("software"):
+        agent = profile(domain)
     own = [p for p in points if p.get("domain") == domain] or points
     system = (
         f"DESIGN_AGENT. Role={agent['name']}. Scope={agent['scope']}. Write the {DOMAIN_LABEL[domain]} part of a technical "

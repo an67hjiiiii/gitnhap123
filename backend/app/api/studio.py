@@ -287,11 +287,12 @@ def build_router(
         runs = []
         for condition in conditions:
             try:
+                extra = {"domain_pack": body.domain_pack} if body.domain_pack else {}
                 run = await owner_pipeline(user).run(
                     body.message.strip(),
                     condition,
                     source_ids=body.source_ids,
-                    domain_pack=body.domain_pack or OFFICE_PACK,
+                    **extra,
                 )
             except LookupError as exc:
                 raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.") from exc

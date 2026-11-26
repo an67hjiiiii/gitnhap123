@@ -82,10 +82,12 @@ _CONTROLS: tuple[tuple[str, str, str, str], ...] = (
 
 
 def asvs_controls() -> list[dict]:
-    """Danh mục tiêu chí dạng yêu cầu, luôn giao cho tác tử Bảo mật."""
-    name = profile("security")["name"]
+    """Danh mục tiêu chí OWASP ASVS, giao cho chuyên gia Phần mềm & CNTT (hoặc security ở pack cũ)."""
+    from app.research.registry import active_pack
+    agent_id = "security" if "security" in active_pack()["agents"] else ("software" if "software" in active_pack()["agents"] else active_pack()["default_domain"])
+    name = profile(agent_id)["name"]
     return [
-        {**Requirement(cid, title, body, ["security"], "security").to_dict(), "group": group, "agent_name": name}
+        {**Requirement(cid, title, body, [agent_id], agent_id).to_dict(), "group": group, "agent_name": name}
         for cid, group, title, body in _CONTROLS
     ]
 
