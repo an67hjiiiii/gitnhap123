@@ -16,12 +16,13 @@ from typing import Any, Callable, Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 
 from app.core.access import Source, can_delete, load_member
+from app.core.secret_audit import log_secret_access
 from app.research.decomposer import detect_domains
-from app.research.registry import PACKS
+from app.research.registry import OFFICE_PACK, PACKS, use_pack
 from app.storage.postgres.models import KnowledgeSourceRecord
 
 # Cột được phép xem trong trang quản trị; cột bí mật (password_hash, token_hash) không bao giờ trả về.
@@ -47,13 +48,23 @@ class RetrievalTestRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     top_k: int = Field(default=4, ge=1, le=20)
     source_ids: list[str] | None = None
-    domain: Literal["database", "api_architecture", "security"] | None = None
+    domain: Literal[
+        "software", "business", "marketing", "hr", "finance", "education", "analyst",
+        "database", "api_architecture", "security",
+    ] | None = None
 
 
 class WorkspaceBody(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default="", max_length=500)
-    domain_pack: Literal[tuple(PACKS)] | None = None  # type: ignore[valid-type]  # None: tạo mới = general, sửa = giữ nguyên
+    domain_pack: Literal[tuple(PACKS)] | None = None  # type: ignore[valid-type]  # None: tạo mới = office (11 Agent), sửa = giữ nguyên
+
+    @field_validator("name")
+    @classmethod
+    def _non_blank_name(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Tên không gian làm việc không được để trống.")
+        return v
 
 
 class WorkspaceItemBody(BaseModel):
@@ -65,6 +76,7 @@ class CompareRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     conditions: list[str] = Field(default_factory=lambda: ["A", "B", "C"], min_length=1, max_length=6)
     source_ids: list[str] | None = None  # tài liệu của không gian đang mở, như ô hỏi đáp
+    domain_pack: Literal[tuple(PACKS)] | None = None  # type: ignore[valid-type]  # mặc định office (11 Agent 3D)
 
 
 def _loopback(url: str | None) -> bool | None:
@@ -108,9 +120,13 @@ def build_router(
             body.query, chunks, top_k=min(body.top_k * 5, 50) if body.domain else body.top_k,
             min_score=0.0, source_ids=body.source_ids, fallback_trace=trace,
         )
-        domains = {c.chunk_id: detect_domains(c.text) if c.text.strip() else [] for c in hits}
+        detect_pack = "software" if body.domain in {"database", "api_architecture", "security"} else OFFICE_PACK
+        with use_pack(detect_pack):
+            domains = {c.chunk_id: detect_domains(c.text) if c.text.strip() else [] for c in hits}
         if body.domain:
             hits = [c for c in hits if body.domain in domains[c.chunk_id]][: body.top_k]
+        if hits:
+            log_secret_access(session_factory(), str(user["user_id"]), {c.source_id for c in hits}, "ASK")
         return {
             "query": body.query,
             "top_k": body.top_k,
@@ -203,10 +219,10 @@ def build_router(
         wid = "ws_" + secrets.token_hex(8)
         with session_factory()() as db:
             db.execute(text("INSERT INTO studio_workspaces (workspace_id, owner_user_id, name, description, domain_pack) VALUES (:w, :o, :n, :d, :p)"),
-                       {"w": wid, "o": str(user["user_id"]), "n": body.name.strip(), "d": (body.description or "").strip(), "p": body.domain_pack or "general"})
+                       {"w": wid, "o": str(user["user_id"]), "n": body.name.strip(), "d": (body.description or "").strip(), "p": body.domain_pack or OFFICE_PACK})
             db.commit()
         return {"workspace_id": wid, "name": body.name.strip(), "description": (body.description or "").strip(),
-                "domain_pack": body.domain_pack or "general", "source_count": 0, "conversation_count": 0}
+                "domain_pack": body.domain_pack or OFFICE_PACK, "source_count": 0, "conversation_count": 0}
 
     @router.patch("/workspaces/{workspace_id}")
     def rename_workspace(workspace_id: str, body: WorkspaceBody, request: Request) -> dict:
@@ -270,7 +286,17 @@ def build_router(
         conditions = [c.strip().upper() for c in body.conditions]
         runs = []
         for condition in conditions:
-            run = await owner_pipeline(user).run(body.message.strip(), condition, source_ids=body.source_ids)
+            try:
+                run = await owner_pipeline(user).run(
+                    body.message.strip(),
+                    condition,
+                    source_ids=body.source_ids,
+                    domain_pack=body.domain_pack or OFFICE_PACK,
+                )
+            except LookupError as exc:
+                raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.") from exc
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
             runs.append(run)
         return {"message": body.message.strip(), "conditions": conditions, "runs": runs,
                 "note": "Một lượt so sánh là số mô tả kỹ thuật, không phải kết quả thực nghiệm."}
@@ -314,7 +340,7 @@ def build_router(
         checks = {
             "llm_endpoint_loopback": _loopback(ollama),
             "database_host_loopback": _loopback(db_url.replace("+psycopg", "")) if db_url else None,
-            "vector_index": os.getenv("VECTOR_INDEX_BACKEND", "disabled"),
+            "vector_index": os.getenv("VECTOR_INDEX_BACKEND") or os.getenv("VECTOR_BACKEND", "disabled"),
             "provider": os.getenv("PROVIDER", "fake"),
             "app_env": os.getenv("APP_ENV", "development"),
         }

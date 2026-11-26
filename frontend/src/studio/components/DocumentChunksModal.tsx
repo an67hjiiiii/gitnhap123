@@ -50,7 +50,7 @@ export const DocumentChunksModal: React.FC<DocumentChunksModalProps> = ({ docume
       labelId="chunks-title"
       icon={<FileIcon name={document.source_file} size={20} />}
       title={document.source_file}
-      subtitle={<>{document.file_type}{document.file_size_kb ? ` · ${document.file_size_kb} KB` : ''} · {chunks.length} phân đoạn · {chunks.some(c => c.token_count != null) ? `${totalTokens.toLocaleString('vi-VN')} token` : 'chưa đếm token'}</>}
+      subtitle={<>{document.file_type}{document.file_size_kb ? ` · ${document.file_size_kb} KB` : ''} · {chunks.length} phân đoạn · {chunks.some(c => c.token_count != null) ? `~${totalTokens.toLocaleString('vi-VN')} token` : 'chưa đếm token'}</>}
       onClose={onClose}
       toolbar={<>
         <label className="search is-grow"><Search size={14} /><span className="sr">Tìm trong phân đoạn</span><input data-autofocus type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Tìm nội dung, mã vector hoặc nhãn" /></label>
@@ -66,7 +66,7 @@ export const DocumentChunksModal: React.FC<DocumentChunksModalProps> = ({ docume
         : error ? <div className="note is-error"><AlertCircle size={16} /><span>{error}</span></div>
         : shown.length === 0 ? <div className="empty">Không có phân đoạn phù hợp.</div>
         : <div className="chunk-list">{shown.map(c => {
-          const tags = c.domain_tag.split(/[,;|]\s*/).filter(Boolean).map(domainOf);
+          const tags = c.domain_tag.split(/[;|]\s*/).filter(Boolean).map(domainOf);
           return (
             <article key={c.id} className="chunk">
               <div className="chunk-head">

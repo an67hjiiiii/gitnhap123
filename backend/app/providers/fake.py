@@ -60,16 +60,38 @@ class FakeProvider(Provider):
         return ProviderResult(text=text, usage=usage, request_id="fake_"+uuid.uuid4().hex[:10], model=self.model)
 
     def _tasks(self, user: str) -> list[dict]:
+        from app.research.registry import OFFICE_PACK, active_domains, active_pack_name
+
         low = user.lower()
         tasks: list[dict] = []
+        allowed = set(active_domains())
+        if active_pack_name() == OFFICE_PACK or "software" in allowed:
+            # Lõi 11 Agent 3D thật (OFFICE_PACK): định tuyến về đúng chuyên gia thật trong 11 Agent.
+            office_rules = [
+                ("software", ["security", "auth", "jwt", "đăng nhập", "phân quyền", "authorization", "database", "sql", "query", "truy vấn", "api", "architecture", "kiến trúc", "endpoint", "phần mềm", "hệ thống", "webhook", "idempotency"], "Phân tích yêu cầu kỹ thuật, hệ thống và bảo mật", ["software", "architecture", "security"]),
+                ("hr", ["nhân sự", "nhân viên", "nghỉ phép", "phép năm", "lương", "thưởng", "tuyển dụng", "nội quy", "thử việc", "hr", "leave"], "Phân tích chính sách nhân sự và nội quy lao động", ["hr", "policy"]),
+                ("finance", ["tài chính", "ngân sách", "chi phí", "doanh thu", "lợi nhuận", "hóa đơn", "thuế", "thanh toán", "tạm ứng", "finance", "budget"], "Phân tích tài chính, ngân sách và chi phí", ["finance", "budget"]),
+                ("business", ["kinh doanh", "chiến lược", "đối tác", "hợp đồng", "quy trình", "phê duyệt", "thủ tục", "business", "contract"], "Phân tích quy trình nghiệp vụ, hợp đồng và chiến lược", ["business", "contract"]),
+                ("marketing", ["marketing", "chiến dịch", "quảng cáo", "thương hiệu", "khách hàng", "thị trường", "ctr", "roas"], "Phân tích thị trường và hiệu quả chiến dịch marketing", ["marketing", "campaign"]),
+                ("education", ["sinh viên", "tín chỉ", "học bổng", "đào tạo", "tốt nghiệp", "giảng viên", "học vụ", "nghiên cứu", "student", "thesis"], "Phân tích quy chế đào tạo, học vụ và nghiên cứu", ["education", "academic"]),
+                ("analyst", ["bao nhiêu", "tỷ lệ", "phần trăm", "tính toán", "số liệu", "thống kê", "calculate", "rate"], "Tính toán và đối chiếu số liệu từ tài liệu", ["numbers", "calculation"]),
+            ]
+            for dom, kws, goal, needs in office_rules:
+                if dom in allowed and any(x in low for x in kws):
+                    tasks.append({"id": f"T{len(tasks)+1}", "goal": goal, "domain": dom, "depends_on": [], "evidence_needs": needs})
+            if not tasks:
+                fallback_dom = "general" if "general" in allowed else next(iter(allowed), "general")
+                tasks.append({"id": "T1", "goal": "Tổng hợp câu trả lời từ bằng chứng tài liệu hiện có", "domain": fallback_dom, "depends_on": [], "evidence_needs": ["user request"]})
+            return tasks
+
         if any(x in low for x in ["security", "auth", "jwt", "đăng nhập", "phân quyền", "authorization"]):
-            tasks.append({"id":"T1","goal":"Review authentication and authorization requirements","domain":"security","depends_on":[],"evidence_needs":["authentication","authorization","JWT"]})
+            tasks.append({"id": "T1", "goal": "Review authentication and authorization requirements", "domain": "security", "depends_on": [], "evidence_needs": ["authentication", "authorization", "JWT"]})
         if any(x in low for x in ["database", "sql", "query", "dữ liệu", "truy vấn"]):
-            tasks.append({"id":f"T{len(tasks)+1}","goal":"Review database and query concerns","domain":"database","depends_on":[],"evidence_needs":["database","query"]})
+            tasks.append({"id": f"T{len(tasks)+1}", "goal": "Review database and query concerns", "domain": "database", "depends_on": [], "evidence_needs": ["database", "query"]})
         if any(x in low for x in ["api", "architecture", "kiến trúc", "endpoint"]):
-            tasks.append({"id":f"T{len(tasks)+1}","goal":"Review API and architecture concerns","domain":"api_architecture","depends_on":[],"evidence_needs":["API","architecture"]})
+            tasks.append({"id": f"T{len(tasks)+1}", "goal": "Review API and architecture concerns", "domain": "api_architecture", "depends_on": [], "evidence_needs": ["API", "architecture"]})
         if not tasks:
-            tasks.append({"id":"T1","goal":"Answer the user's request from available evidence","domain":"api_architecture","depends_on":[],"evidence_needs":["user request"]})
+            tasks.append({"id": "T1", "goal": "Answer the user's request from available evidence", "domain": "api_architecture", "depends_on": [], "evidence_needs": ["user request"]})
         return tasks
 
     @staticmethod

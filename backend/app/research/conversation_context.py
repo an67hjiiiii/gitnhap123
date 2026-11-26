@@ -99,10 +99,19 @@ def build_conversation_context(
 
 
 # Câu hỏi tiếp nối ngắn ("Làm sao cho an toàn?", "Còn hoàn tiền thì sao?") thường không nhắc lại chủ đề.
-_FOLLOW_MARKERS = re.compile(
-    r"\b(nó|đó|đấy|kia|ở trên|nói trên|trước đó|vừa rồi|như vậy|như thế|thế còn|còn|vậy thì|thì sao|tiếp theo|chi tiết hơn|"
-    r"cụ thể hơn|ví dụ|it|its|they|them|that|this|those|what about|how about)\b",
+# V9: tách tín hiệu nối tiếp mạnh ở đầu câu/cuối vế ngắn khỏi đại từ mơ hồ ("đó", "nó", "còn") vốn hay dùng nội câu.
+_STRONG_FOLLOW = re.compile(
+    r"(?:^\s*(?:thế còn|vậy còn|còn\b|vậy thì|thế thì|chi tiết hơn|cụ thể hơn|nói rõ hơn|giải thích thêm|what about|how about)"
+    r"|\b(?:thì sao|ở trên|nói trên|trước đó|vừa rồi|câu trên|ý trên)\b)",
     re.IGNORECASE,
+)
+_WEAK_FOLLOW = re.compile(
+    r"\b(nó|đó|đấy|kia|như vậy|như thế|tiếp theo|ví dụ|it|its|they|them|that|this|those)\b",
+    re.IGNORECASE,
+)
+_INTRA_SENTENCE_REF = re.compile(
+    r"\btrong\s+(tháng|năm|quý|tuần|ngày|trường hợp|giai đoạn)\b.{1,180}\b(?:trong\s+)?\1\s+đó\b",
+    re.IGNORECASE | re.DOTALL,
 )
 _FILLER = set("""gì nào sao làm thế bao nhiêu ai đâu hãy giúp tôi bạn ở là những cách có được không thì khi như cái các và của
 cho với trong về từ theo nếu này đó kia một mình nó vậy còn nữa thêm cần phải nên muốn biết hơn rõ cụ thể chi tiết ví dụ
@@ -117,15 +126,27 @@ def _fold(text: str) -> str:
 def resolve_follow_up(query: str, context: ConversationContext) -> str | None:
     """Câu hỏi trước mà câu này đang hỏi tiếp, hoặc None nếu câu này tự đủ nghĩa.
 
-    Coi là hỏi tiếp khi có từ chỉ trỏ ("nó", "còn ... thì sao") hoặc câu chỉ còn tối đa hai chữ nội dung
-    sau khi bỏ hư từ. Lịch sử chỉ dùng để hiểu ý, không bao giờ là bằng chứng.
+    Coi là hỏi tiếp khi câu rất ngắn (<= 2 từ nội dung), hoặc có cụm nối tiếp mạnh ("Còn ... thì sao?", "chi tiết hơn",
+    "ở trên") trên câu ngắn/trung bình, hoặc đại từ chỉ trỏ trên câu ngắn thiếu chủ ngữ. Không nhận nhầm câu độc lập dài
+    hoặc đại từ nội câu ("trong tháng ... trong tháng đó"). Lịch sử chỉ dùng để hiểu ý, không bao giờ là bằng chứng.
     """
     previous = (context.last_user_request or "").strip()
-    if not previous or _fold(previous) == _fold(query.strip()):
+    stripped = query.strip()
+    if not previous or _fold(previous) == _fold(stripped):
         return None
     filler = {_fold(w) for w in _FILLER}
-    content = [w for w in re.findall(r"\w+", _fold(query)) if w not in filler and not w.isdigit()]
-    if _FOLLOW_MARKERS.search(query) or len(content) <= 2:
+    content = [w for w in re.findall(r"\w+", _fold(stripped)) if w not in filler and not w.isdigit()]
+    if len(content) <= 2:
+        return previous
+    # Câu tự đủ nghĩa dài (> 110 ký tự hoặc >= 11 từ nội dung hoặc nhiều câu độc lập): không gán follow-up
+    # trừ khi mở đầu rõ ràng bằng "Còn ... / Thế còn ... / Vậy thì ... / Chi tiết hơn..."
+    starts_follow = bool(re.match(r"^\s*(?:thế còn|vậy còn|còn\b|vậy thì|thế thì|chi tiết hơn|cụ thể hơn|what about|how about)", stripped, re.IGNORECASE))
+    if len(content) >= 11 or len(stripped) > 110:
+        return previous if starts_follow and len(content) <= 14 else None
+    if _STRONG_FOLLOW.search(stripped):
+        return previous
+    cleaned_for_weak = _INTRA_SENTENCE_REF.sub(" ", stripped)
+    if len(content) <= 6 and len(stripped) <= 85 and _WEAK_FOLLOW.search(cleaned_for_weak):
         return previous
     return None
 

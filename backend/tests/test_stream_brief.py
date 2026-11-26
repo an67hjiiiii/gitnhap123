@@ -36,6 +36,16 @@ def _check_matches_saved_events(run, streamed):
             assert s["selected_count"] == len(e["selected"]) and "selected" not in s  # chỉ số lượng, không gửi mã đoạn
         if isinstance(e.get("tasks"), list):
             assert s["task_count"] == len(e["tasks"]) and "tasks" not in s
+        # 25/11: số lượng cho cơ chế điều phối, không gửi mã đoạn / nội dung
+        if isinstance(e.get("candidates"), list):
+            assert s["candidate_count"] == len(e["candidates"]) and "candidates" not in s
+        if isinstance(e.get("dropped"), list):
+            assert s["dropped_count"] == len(e["dropped"]) and "dropped" not in s
+        for k in ("removed", "checked"):
+            if isinstance(e.get(k), int):
+                assert s[k] == e[k]
+        if isinstance(e.get("limits"), dict):
+            assert s["budget_tasks"] == len(e["limits"]) and "limits" not in s and "needs" not in s
         if isinstance(e.get("unsupported"), list):
             assert s["unsupported"] == len(e["unsupported"])  # chỉ số lượng, không gửi câu trích
         if isinstance(e.get("result"), dict):
@@ -66,3 +76,17 @@ def test_task_completed_streams_result_status(tmp_path, monkeypatch):
     _check_matches_saved_events(run, streamed)
     done = [s for s in streamed if s["stage"] == "task_completed"]
     assert done and done[0]["result"] == {"task_id": "T1", "domain": "general", "status": "COMPLETE"}
+
+
+def test_simple_vanilla_retrieval_streams_target_domain(tmp_path, monkeypatch):
+    run, streamed = _run(
+        tmp_path,
+        monkeypatch,
+        "Nhân viên nghỉ phép năm bao nhiêu ngày?",
+        docs=[("chinh_sach_nhan_su.docx", "Nhân viên chính thức được 12 ngày nghỉ phép năm.")],
+    )
+    _check_matches_saved_events(run, streamed)
+    vr = [s for s in streamed if s["stage"] == "vanilla_retrieval"]
+    assert vr and vr[0].get("domain") in ("hr", "general")
+    fin = [s for s in streamed if s["stage"] == "run_finished"]
+    assert fin and fin[0].get("status") in ("COMPLETE", "PARTIAL", "NO_EVIDENCE")

@@ -13,7 +13,7 @@ from app.core.structured_output import decode_structured_json
 from app.core.types import RunMetrics
 
 MAX_CLAIMS = 8
-MAX_EVIDENCE_CHARS = 6000
+MAX_EVIDENCE_CHARS = 10000
 REVIEW_OUTPUT_TOKENS = 600
 
 REVIEW_SCHEMA = {

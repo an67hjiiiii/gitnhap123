@@ -1,8 +1,14 @@
-"""Bộ lĩnh vực (domain pack): tác tử, từ khóa nhận diện, mẫu lập kế hoạch theo từng ngành.
+"""Bộ tác tử trung tâm của lõi điều phối C1SE.27: 11 Agent 3D thật sự (`OFFICE_PACK = "office"`).
 
-`software` giữ nguyên 3 tác tử, từ khóa, mẫu và prompt của CAP1 (mặc định, dùng cho thực nghiệm A/B/C).
-Các bộ khác thêm tác tử `general` cho câu ngoài phạm vi và quy tắc giữ ngôn ngữ của yêu cầu.
-Bộ đang dùng đặt theo từng lượt chạy qua ContextVar (`use_pack`), đọc bằng `active_pack()`.
+Kiến trúc 11 Agent thật:
+- 4 tác tử lõi vận hành các chặng của pipeline: Orchestrator (lập kế hoạch & chọn chuyên gia),
+  RAG Specialist (truy xuất & phân bổ ngữ cảnh), Reviewer (kiểm định kế hoạch & bằng chứng),
+  Integrator (tổng hợp câu trả lời cuối & xử lý câu ngoài 6 ngành qua vai trò `general`).
+- 7 tác tử chuyên môn thực thi nhiệm vụ khớp 1-1 với 7 bàn 3D:
+  `software`, `business`, `marketing`, `hr`, `finance`, `education`, `analyst` (Data Analyst).
+
+Các bộ cũ (`software`, `education`, `legal_admin`, `business_hr`, `general`, `work`) chỉ còn giữ ở
+dạng tương thích nội bộ cho dữ liệu/test cũ khi truyền tường minh; mặc định toàn hệ thống dùng `office`.
 """
 from __future__ import annotations
 
@@ -10,7 +16,7 @@ import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-DEFAULT_PACK = "software"
+DEFAULT_PACK = "office"
 
 _SOFTWARE_AGENTS = {
     "security": {
@@ -273,20 +279,23 @@ PACKS[OFFICE_PACK] = _pack("Văn phòng chuyên gia", {
 }, {
     "software": ("khóa api", "paynhanh", "merchant", "webhook", "mã hóa", "nfr-", "fr-", "phần mềm", "hệ thống", "api", "cơ sở dữ liệu", "database", "csdl", "bảo mật", "mã nguồn", "code", "lập trình",
                  "yêu cầu chức năng", "kiến trúc", "máy chủ", "đặc tả", "software", "server", "python", "javascript", "thuật toán", "giao thức", "tcp", "udp", "sql", "nosql",
-                 "khóa chính", "khóa ngoại", "ràng buộc thực thể", "ràng buộc tham chiếu", "nhật ký kiểm toán"),
+                 "khóa chính", "khóa ngoại", "ràng buộc thực thể", "ràng buộc tham chiếu", "nhật ký kiểm toán",
+                 "security", "auth", "authentication", "authorization", "jwt", "rbac", "hmac", "idempotency", "oauth", "endpoint", "rest", "schema", "query", "index", "transaction",
+                 "đăng nhập", "phân quyền", "xác thực", "lược đồ", "truy vấn", "giao dịch"),
     "business": ("quyết định đầu tư", "vốn đầu tư", "góp vốn", "hoàn vốn", "đồng sáng lập", "nhà cung cấp", "quán", "kinh doanh", "doanh nghiệp", "chiến lược", "mô hình kinh doanh", "kế hoạch kinh doanh", "bán hàng", "đối tác",
-                 "khách hàng doanh nghiệp", "hợp đồng mua bán", "thương mại", "business", "strategy"),
+                 "khách hàng doanh nghiệp", "hợp đồng mua bán", "thương mại", "business", "strategy",
+                 "hợp đồng", "điều khoản", "quy trình nội bộ", "phê duyệt", "thủ tục", "hồ sơ", "căn cứ pháp lý", "nghị định", "thông tư", "bảo hành", "khiếu nại", "contract", "approval", "workflow"),
     "marketing": ("ctr", "cpa", "kol", "tiktok", "facebook", "kênh quảng cáo", "đơn hàng", "marketing", "tiếp thị", "quảng cáo", "chiến dịch", "thương hiệu", "truyền thông", "thị trường", "khách hàng mục tiêu",
-                  "ctr", "roas", "fanpage", "campaign"),
+                  "roas", "fanpage", "campaign"),
     "hr": ("làm việc từ xa", "nghỉ ốm", "quy chế làm việc", "đi muộn", "người lao động", "nhân sự", "nhân viên", "tuyển dụng", "ứng viên", "nghỉ phép", "phép năm", "hợp đồng lao động", "thử việc", "kỷ luật",
-           "nội quy", "chấm công", "làm thêm giờ", "bảo hiểm xã hội", "đánh giá nhân viên", "recruit", "leave"),
+           "nội quy", "chấm công", "làm thêm giờ", "bảo hiểm xã hội", "đánh giá nhân viên", "recruit", "leave", "overtime", "payroll"),
     "finance": ("khoản chi", "quyết toán", "giá vốn", "thuế thu nhập", "dự phòng", "tài chính", "kế toán", "ngân sách", "chi phí", "doanh thu", "lợi nhuận", "hóa đơn", "thuế", "báo cáo tài chính",
                 "công tác phí", "thanh toán", "tạm ứng", "thu chi", "budget", "invoice"),
-    "education": ("ôn thi", "kỳ thi", "môn học", "học tập", "khóa chính", "khóa ngoại", "dạng chuẩn", "chuẩn hóa", "bài giảng", "học kỳ", "rèn luyện", "sinh viên", "học phần", "tín chỉ", "điểm trung bình", "học bổng", "tốt nghiệp", "khóa luận", "luận văn", "giảng viên",
-                  "học vụ", "nghiên cứu khoa học", "bài báo", "đào tạo", "student", "thesis"),
+    "education": ("ôn thi", "kỳ thi", "môn học", "học tập", "dạng chuẩn", "chuẩn hóa", "bài giảng", "học kỳ", "rèn luyện", "sinh viên", "học phần", "tín chỉ", "điểm trung bình", "học bổng", "tốt nghiệp", "khóa luận", "luận văn", "giảng viên",
+                  "học vụ", "nghiên cứu khoa học", "bài báo", "đào tạo", "cảnh báo học tập", "student", "thesis", "curriculum", "scholarship"),
     # không dùng "tính" đơn lẻ: trùng "tính năng", "tính chất"
     "analyst": ("bao nhiêu", "tính toán", "tính tiền", "tính ra", "tỷ lệ", "phần trăm", "tổng cộng", "trung bình", "so sánh số liệu",
-                "xu hướng", "công thức", "how much", "calculate", "rate"),
+                "xu hướng", "công thức", "how much", "calculate", "rate", "thống kê", "chỉ số"),
 }, [
     ("planning_software.md", "Software questions commonly separate requirement, design, data, interface and security concerns."),
     ("planning_business.md", "Business questions commonly separate goal, plan, parties and commercial terms."),

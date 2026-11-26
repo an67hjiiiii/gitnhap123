@@ -7,7 +7,7 @@ import os
 import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,7 +15,7 @@ from app.api.auth import router as auth_router
 from app.api.oidc import build_router as _build_oidc_router
 from app.api.auth import get_session_token
 from app.auth.store import AuthStore, InvalidSessionError
-from app.core.access import require_active_member
+from app.core.access import DEPARTMENT_BOUND, can_upload, require_active_member
 from app.core.config import RuntimeConfig
 from app.ingestion.documents import (
     DOCUMENT_INGESTION_VERSION,
@@ -384,20 +384,105 @@ def import_text(body: SourceTextRequest, request: Request):
     except IndexingError as exc:
         raise HTTPException(503, "DERIVED_INDEX_FAILED") from exc
 
+_VALID_SPACE_CLASSIFICATIONS = frozenset({"PRIVATE", "COMPANY", "DEPARTMENT", "RESTRICTED", "SECRET"})
+
+
+def _prepare_space_upload(
+    user: dict,
+    space_id: str,
+    classification: str | None,
+    department_id: str | None,
+) -> tuple[str, str | None]:
+    """Kiểm tra quyền nộp tài liệu trực tiếp vào không gian tổ chức trước khi ghi dữ liệu."""
+    factory = app.state.session_factory
+    if factory is None:
+        raise HTTPException(503, "Không gian tổ chức cần APP_STORAGE_BACKEND=postgres.")
+    level = (classification or "PRIVATE").strip().upper()
+    if level not in _VALID_SPACE_CLASSIFICATIONS:
+        raise HTTPException(400, "Mức mật không hợp lệ.")
+    dept = (department_id or "").strip() or None
+    uid = str(user["user_id"])
+    from sqlalchemy import select
+    from app.storage.postgres.models import OrgDepartmentRecord
+
+    with factory() as db:
+        try:
+            actor = require_active_member(db, uid, space_id)
+        except PermissionError as exc:
+            raise HTTPException(403, "Bạn không thuộc không gian tổ chức này.") from exc
+        if dept is None and level in DEPARTMENT_BOUND:
+            dept = actor.department_id
+            if dept is None:
+                ids = db.scalars(select(OrgDepartmentRecord.department_id).where(
+                    OrgDepartmentRecord.space_id == space_id).limit(2)).all()
+                dept = ids[0] if len(ids) == 1 else None
+        if dept is not None:
+            dep_row = db.get(OrgDepartmentRecord, dept)
+            if dep_row is None or dep_row.space_id != space_id:
+                raise HTTPException(404, "Không tìm thấy đơn vị.")
+        if not can_upload(actor, level, dept):
+            raise HTTPException(403, "Bạn không được đặt mức mật hoặc đơn vị này.")
+    return level, dept
+
+
+def _attach_source_to_space(
+    user: dict,
+    space_id: str,
+    imported: dict,
+    classification: str,
+    department_id: str | None,
+) -> dict:
+    """Gán tài liệu vừa nạp vào không gian tổ chức kèm mức mật và đơn vị."""
+    factory = app.state.session_factory
+    source_id = str(imported.get("source_id") or "")
+    if factory is None or not source_id:
+        return imported
+    from sqlalchemy import text as sa_text
+    from app.storage.postgres.models import KnowledgeSourceRecord
+
+    uid = str(user["user_id"])
+    with factory() as db:
+        row = db.get(KnowledgeSourceRecord, source_id)
+        if row is None or row.owner_user_id != uid:
+            raise HTTPException(404, "Không tìm thấy tài liệu vừa tải lên.")
+        row.space_id = space_id
+        row.department_id = department_id
+        row.classification = classification
+        try:
+            db.execute(
+                sa_text("DELETE FROM studio_workspace_items WHERE item_type = 'source' AND item_id = :s"),
+                {"s": source_id},
+            )
+        except Exception:
+            pass
+        db.commit()
+    return {**imported, "space_id": space_id, "classification": classification, "department_id": department_id}
+
+
 @app.post("/api/sources/file")
-async def import_file(request: Request, file: UploadFile = File(...)):
+async def import_file(
+    request: Request,
+    file: UploadFile = File(...),
+    classification: str | None = Form(default=None),
+    department_id: str | None = Form(default=None),
+):
     user = current_user(request)
-    if request.query_params.get("space_id"):  # nộp tài liệu vào tổ chức (kèm mức mật) làm ở đợt sau
-        raise HTTPException(400, "Chưa hỗ trợ tải tài liệu trực tiếp vào không gian tổ chức.")
+    space_id = (request.query_params.get("space_id") or "").strip() or None
+    space_spec: tuple[str, str | None] | None = None
+    if space_id:
+        cls_val = classification or request.query_params.get("classification")
+        dept_val = department_id or request.query_params.get("department_id")
+        space_spec = _prepare_space_upload(user, space_id, cls_val, dept_val)
     data = await file.read()
     if len(data) > MAX_DOCUMENT_BYTES:
         raise HTTPException(413, "Files must be no larger than 20 MB")
 
     source_name = file.filename or "upload.txt"
-    request.state.audit_target = source_name
+    request.state.audit_target = "(tài liệu tổ chức)" if space_id else source_name
     suffix = os.path.splitext(source_name)[1].lower()
     if suffix in IMAGE_EXTENSIONS:  # ảnh chụp văn bản: nhận dạng chữ (OCR) rồi mới đọc
-        return _import_ocr(user, source_name, lambda: ocr_image(data, suffix))
+        imported = _import_ocr(user, source_name, lambda: ocr_image(data, suffix))
+        return _attach_source_to_space(user, space_id, imported, *space_spec) if (space_id and space_spec) else imported
     try:
         document = extract_document(
             data,
@@ -412,7 +497,8 @@ async def import_file(request: Request, file: UploadFile = File(...)):
             else "PDF_EXTRACTION_UNAVAILABLE"
         )
         if detail == "PDF_NO_TEXT" and ocr_status()["available"]:  # PDF scan không có lớp chữ: thử OCR
-            return _import_ocr(user, source_name, lambda: ocr_pdf(data))
+            imported = _import_ocr(user, source_name, lambda: ocr_pdf(data))
+            return _attach_source_to_space(user, space_id, imported, *space_spec) if (space_id and space_spec) else imported
         if source_name.lower().endswith((".docx", ".xlsx")):
             detail = "OFFICE_EXTRACTION_FAILED"
         elif not source_name.lower().endswith(".pdf"):
@@ -431,7 +517,13 @@ async def import_file(request: Request, file: UploadFile = File(...)):
             document.text,
             provenance=document.provenance,
         )
-        return _watch_new_source(user, store, _index_imported_source(user, store, imported))
+        if space_id and space_spec:
+            imported = _attach_source_to_space(user, space_id, imported, *space_spec)
+            org_store = owner_source_store({**user, "space_id": space_id})
+            indexed = _index_imported_source(user, org_store, imported)
+            return _watch_new_source(user, org_store, indexed)
+        indexed = _index_imported_source(user, store, imported)
+        return _watch_new_source(user, store, indexed)
     except IndexingError as exc:
         raise HTTPException(503, "DERIVED_INDEX_FAILED") from exc
 
@@ -528,8 +620,12 @@ async def chat_stream(body: ChatRequest, request: Request):
     Chỉ dành cho ô chat sản phẩm; tiến trình qua ContextVar nên pipeline và thực nghiệm không đổi.
     Người dùng đóng trang giữa chừng thì lượt chạy vẫn chạy xong và được lưu như /api/chat.
     """
+    # Kiểm tra xác thực và quyền không gian tổ chức trước tiên để mọi yêu cầu chưa đăng nhập luôn nhận HTTP 401/403.
+    current_principal(request)
     if not body.product_mode:
         raise HTTPException(400, "STREAM_ONLY_FOR_PRODUCT_MODE")
+    if not body.message.strip():
+        raise HTTPException(400, "message is required")
     return StreamingResponse(ndjson_run(lambda: _chat(body, request)), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
@@ -597,7 +693,7 @@ async def _chat(body: ChatRequest, request: Request):
             conversation_id=conversation_id,
             product_mode=body.product_mode,
             reply_in_query_language=body.reply_in_query_language,
-            domain_pack=body.domain_pack or (product_agent_pack() if body.product_mode else None),  # ô chat sản phẩm: mặc định bộ office (Đợt 9)
+            domain_pack=body.domain_pack or product_agent_pack(),  # thống nhất bộ 11 Agent 3D thật (office) cho cả hỏi nhanh & phân tích A/B/C
             forced_agent=body.agent if body.product_mode else None,
             routing_examples=examples,
         )
@@ -681,7 +777,17 @@ def save_skill_card(body: SkillCardBody, request: Request):
     payload = json.dumps(body.card, ensure_ascii=False, separators=(",", ":"))
     if len(payload) > 60_000:
         raise HTTPException(413, "Thẻ kết quả quá lớn để lưu.")
-    conversations = owner_conversation_store(current_principal(request))
+    user = current_principal(request)
+    if user.get("space_id"):
+        # SEC-02: kiểm tra quyền đọc các nguồn được đính kèm trong thẻ kỹ năng ngay lúc lưu
+        from app.storage.postgres.runtime import _extract_source_ids_obj
+        refs: set[str] = set()
+        _extract_source_ids_obj(body.card, refs)
+        if refs:
+            visible_ids = {s["source_id"] for s in owner_source_store(user).list_sources()}
+            if not (refs <= visible_ids):
+                raise HTTPException(403, "Bạn không có quyền lưu thẻ kết quả chứa tài liệu ngoài phạm vi truy cập.")
+    conversations = owner_conversation_store(user)
     conversation_id = body.conversation_id
     if conversation_id:
         if conversations.get(conversation_id) is None:
@@ -704,6 +810,7 @@ def get_conversation(conversation_id: str, request: Request):
 
 # API bổ sung cho giao diện Studio (C1SE.27): thử truy xuất, so sánh điều kiện, trang quản trị.
 from app.api.studio import build_router as _build_studio_router
+from app.api.office import build_router as _build_office_router
 
 app.include_router(_build_studio_router(
     current_user=current_principal,
@@ -711,6 +818,11 @@ app.include_router(_build_studio_router(
     session_factory=lambda: app.state.session_factory,
     owner_source_store=owner_source_store,
     vector_store=_configured_vector_store,
+))
+app.include_router(_build_office_router(
+    current_user=current_principal,
+    owner_pipeline=owner_pipeline,
+    session_factory=lambda: app.state.session_factory,
 ))
 
 # Chức năng phân tích của Studio (truy vết yêu cầu, báo cáo); không đi qua /api/chat hay điều kiện A/B/C.

@@ -14,7 +14,7 @@ from typing import Any, Callable, Literal
 
 import httpx
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 
 from app.analysis.skill_router import SKILLS, route_skill
@@ -22,7 +22,7 @@ from app.research.registry import product_agent_pack
 from app.research.product_intents import is_library_question
 from app.analysis.watch import replacement_pairs
 from app.core.secret_audit import log_secret_access
-from app.research.agent_selection import PACK_CLARIFY, clarify_options, select_agents
+from app.research.agent_selection import PACK_CLARIFY, PACK_DESCRIPTIONS, clarify_options, select_agents
 from app.analysis import versions
 from app.research.learning import load_examples, record_example
 from app.retrieval.hybrid import bm25_scores, fold
@@ -121,9 +121,13 @@ class GenerateBody(BaseModel):
     topic: str | None = Field(default=None, max_length=500)  # ô chat: chỉ dùng các đoạn nói về chủ đề này
 
 
+_FEEDBACK_AGENTS = tuple(sorted({a for desc in PACK_DESCRIPTIONS.values() for a in desc}))
+FeedbackAgent = Literal[_FEEDBACK_AGENTS]  # type: ignore[valid-type]
+
+
 class RoutingFeedbackBody(BaseModel):
     query: str = Field(min_length=1, max_length=1000)
-    agent: Literal["conditions", "procedure", "terms", "figures"]
+    agent: FeedbackAgent
 
 
 class CompareBody(BaseModel):
@@ -211,7 +215,7 @@ class EvalStatsBody(BaseModel):
 
 
 class CandidatesBody(BaseModel):
-    source_ids: list[str] = Field(min_length=2, max_length=50)
+    source_ids: list[str] = Field(min_length=1, max_length=50)
     max_pairs: int = Field(default=15, ge=1, le=40)
 
 
@@ -295,12 +299,26 @@ class ReportUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     payload: dict[str, Any]
 
+    @field_validator("title")
+    @classmethod
+    def _non_blank_title_opt(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("Tiêu đề không được để trống.")
+        return v
+
 
 class ReportBody(BaseModel):
     kind: ReportKind
     title: str = Field(min_length=1, max_length=200)
     workspace_id: str | None = Field(default=None, max_length=64)
     payload: dict[str, Any]
+
+    @field_validator("title")
+    @classmethod
+    def _non_blank_title(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Tiêu đề không được để trống.")
+        return v
 
 
 def build_router(
@@ -328,6 +346,7 @@ def build_router(
         chunks = sorted(owner_pipeline(user).source_store.chunks([body.source_id]), key=lambda c: c.index)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
+        _audit(user, chunks)
         text = "\n\n".join(c.text for c in chunks)
         with use_pack(body.domain_pack):
             requirements = extract_checklist(text) if body.mode == "list" else extract_requirements(text)
@@ -341,6 +360,7 @@ def build_router(
         chunks = sorted(owner_pipeline(user).source_store.chunks([body.source_id]), key=lambda c: c.index)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
+        _audit(user, chunks)
         request.state.audit_target = chunks[0].source_name
         return {"source_id": body.source_id, "source_name": chunks[0].source_name,
                 **req_quality.review_text("\n\n".join(c.text for c in chunks))}
@@ -360,6 +380,7 @@ def build_router(
         chunks = pipeline.source_store.chunks(body.source_ids)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu thiết kế đã chọn.")
+        _audit(user, chunks)
         item = body.requirement
         # tác tử bảo mật chỉ có ở bộ Phần mềm: chỉ định agent thì chạy bộ Phần mềm
         with use_pack(None if body.agent else body.domain_pack):
@@ -430,20 +451,27 @@ def build_router(
         need = set(hit.pop("doc_types") or [])
         # kỹ năng cần loại tài liệu: chỉ đưa tài liệu đúng loại (hợp đồng, văn bản pháp quy) vào kỹ năng
         ids = [s["source_id"] for s in rows if not need or s.get("doc_type") in need]
+        if body.skill is None:
+            # Tự động định tuyến (user không gõ "/"): nếu thiếu điều kiện phạm vi tài liệu thì trả về pipeline tự nhiên
+            # thay vì ép vào skill rồi báo lỗi đỏ chặn lượt hỏi.
+            if not ids:
+                return _clarify_or_pipeline(user, body.message)
+            if hit["skill"] == "compare" and len(ids) != 2:
+                return {"route": "pipeline"}
         return {"route": "skill", **hit, "source_ids": ids}
 
     @router.post("/casework/conditions")
     async def conditions(body: ConditionBody, request: Request) -> dict:
         user = current_user(request)
         evidence = _case_evidence(user, f"{body.question}\n{body.case}"[:900], body.source_ids)
-        with use_pack(body.domain_pack):
+        with use_pack(body.domain_pack or "general"):
             return await _llm(casework.check_conditions(provider_factory(), body.question.strip(), body.case.strip(), evidence))
 
     @router.post("/casework/procedure")
     async def procedure(body: ProcedureBody, request: Request) -> dict:
         user = current_user(request)
         evidence = _case_evidence(user, body.topic, body.source_ids)
-        with use_pack(body.domain_pack):
+        with use_pack(body.domain_pack or "general"):
             return await _llm(casework.extract_procedure(provider_factory(), body.topic.strip(), evidence))
 
     # ---------------- Công cụ riêng theo ngành (analysis/domain_tools.py)
@@ -588,7 +616,7 @@ def build_router(
     async def _llm(call):
         try:
             return await call
-        except (httpx.HTTPError, OSError, TimeoutError) as exc:
+        except (httpx.HTTPError, OSError, TimeoutError, RuntimeError) as exc:
             raise HTTPException(503, "Không gọi được mô hình ngôn ngữ cục bộ (Ollama).") from exc
 
     # ---------------- Rà soát bảo mật: danh mục tiêu chí; từng tiêu chí kiểm tra qua /traceability/check với agent=security
@@ -624,13 +652,14 @@ def build_router(
         current_user(request)
         return await _llm(design.coverage(provider_factory(), body.request.strip(), [p.model_dump() for p in body.points], body.sections))
 
-    # ---------------- Kiểm tra mâu thuẫn giữa tài liệu
+    # ---------------- Kiểm tra mâu thuẫn giữa tài liệu (hoặc nội bộ 1 tài liệu)
     @router.post("/consistency/candidates")
     def consistency_candidates(body: CandidatesBody, request: Request) -> dict:
         user = current_user(request)
         chunks = sorted(owner_pipeline(user).source_store.chunks(body.source_ids), key=lambda c: (c.source_id, c.index))
-        if len({c.source_id for c in chunks}) < 2:
-            raise HTTPException(404, "Cần ít nhất hai tài liệu có nội dung để so sánh.")
+        if not chunks:
+            raise HTTPException(404, "Không tìm thấy tài liệu có nội dung để kiểm tra.")
+        _audit(user, chunks)
         statements = consistency.extract_statements(chunks)
         return {"statements": len(statements), "pairs": consistency.candidate_pairs(statements, max_pairs=body.max_pairs)}
 
@@ -704,6 +733,7 @@ def build_router(
         chunks = sorted(owner_pipeline(user).source_store.chunks([source_id]), key=lambda c: c.index)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
+        _audit(user, chunks)
         return chunks
 
     @router.post("/grounding")

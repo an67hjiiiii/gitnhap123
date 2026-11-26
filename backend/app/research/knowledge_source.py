@@ -21,7 +21,8 @@ GENERAL_MISSING = "answered from general knowledge, not from the user's document
 _DOC_BOUND = re.compile(
     r"\b(theo|trong|căn cứ|dựa (vào|trên)|đối chiếu)\s+(các\s+|bản\s+|file\s+)?"
     r"(tài liệu|văn bản|nội quy|quy chế|quy định của công ty|hợp đồng|kế hoạch|hướng dẫn|báo cáo|đặc tả|biên bản|chính sách|tệp|bảng)"
-    r"|\btài liệu (này|đã (tải|gửi)|của (tôi|công ty|mình))"
+    r"|\btài liệu (này|đã (tải|gửi)|của (tôi|công ty|mình)|hiện có)"
+    r"|\b(của|tại|trong)\s+(công ty|doanh nghiệp|tổ chức|đơn vị)\b"
     r"|\b(according to|based on|in) (the|this|my) (document|file|contract|policy|report|plan|manual|spec)",
     re.I,
 )
@@ -39,11 +40,46 @@ _LABEL = {
     ("en", False): "**General knowledge** (no documents were provided; answered from the model's knowledge, please verify):",
     ("en", True): "Your documents do not contain this information. **From general knowledge** (not from your documents, please verify):",
 }
+_ORG_LABEL = {
+    "vi": "Không tìm thấy thông tin này trong các tài liệu bạn được phép xem. **Theo kiến thức chung** (không từ tài liệu nội bộ, nên kiểm tra lại):",
+    "en": "This information was not found in the documents you have access to. **From general knowledge** (not from internal documents, please verify):",
+}
 
 
-def doc_bound(query: str, named_documents: list[str] | None = None) -> bool:
-    """Câu hỏi gắn với tài liệu: chỉ được trả lời từ tài liệu."""
-    return bool(named_documents) or bool(_DOC_BOUND.search(query or ""))
+_GENERIC_FILENAME_TOKENS = frozenset({
+    "quy", "che", "nhan", "su", "phuc", "loi", "bao", "cao", "tai", "chinh", "marketing", "kien", "truc",
+    "nen", "tang", "sla", "chien", "luoc", "thi", "truong", "dao", "tao", "noi", "hop", "dong", "van", "ban",
+    "chinh", "sach", "huong", "dan", "dac", "ta", "ke", "hoach", "du", "an", "mau", "phien", "final", "draft",
+    "report", "policy", "manual", "guide", "system", "platform", "document", "spec", "architecture", "version",
+    "xlsx", "docx", "pdf", "md", "txt", "csv", "xls", "pptx", "company", "cong", "ty", "he", "thong", "lo", "trinh",
+})
+
+
+def _corpus_entity_tokens(corpus_names: list[str] | None) -> set[str]:
+    """Trích các định danh riêng nổi bật từ tên tài liệu trong kho (vd. 'vietcore', 'novatech', 'paynhanh')."""
+    if not corpus_names:
+        return set()
+    entities: set[str] = set()
+    for name in corpus_names:
+        stem = str(name or "").rsplit(".", 1)[0]
+        for tok in re.findall(r"[A-Za-z][A-Za-z0-9]{4,}", stem):
+            low = tok.casefold()
+            if low not in _GENERIC_FILENAME_TOKENS and not re.fullmatch(r"v\d+.*", low):
+                if any(ch.isupper() for ch in tok[1:]) or tok[0].isupper():
+                    entities.add(low)
+    return entities
+
+
+def doc_bound(query: str, named_documents: list[str] | None = None, corpus_names: list[str] | None = None) -> bool:
+    """Câu hỏi gắn với tài liệu hoặc thực thể/doanh nghiệp nội bộ trong kho: chỉ được trả lời từ tài liệu."""
+    if named_documents or _DOC_BOUND.search(query or ""):
+        return True
+    entities = _corpus_entity_tokens(corpus_names)
+    if entities:
+        q_tokens = {t.casefold() for t in re.findall(r"[A-Za-z0-9]{5,}", query or "")}
+        if entities & q_tokens:
+            return True
+    return False
 
 
 def choose_source(query: str, evidence_count: int, *, bound: bool) -> str:
@@ -54,20 +90,29 @@ def choose_source(query: str, evidence_count: int, *, bound: bool) -> str:
     return BOTH if _EXPLAIN.search(query or "") else DOCUMENTS
 
 
-def label(reply_language: str | None, had_documents: bool) -> str:
-    return _LABEL[("en" if reply_language == "en" else "vi", had_documents)]
+def label(reply_language: str | None, had_documents: bool, *, in_org: bool = False) -> str:
+    lang = "en" if reply_language == "en" else "vi"
+    if in_org and had_documents:
+        return _ORG_LABEL[lang]
+    return _LABEL[(lang, had_documents)]
 
 
 async def answer_general(provider, question: str, metrics: RunMetrics, *, task_id: str = "T1", domain: str = "general",
                          role: str = "General Assistant", reply_language: str | None = None, had_documents: bool = False,
-                         max_output_tokens: int | None = None, user_request: str | None = None, stream: bool = False) -> TaskResult:
+                         max_output_tokens: int | None = None, user_request: str | None = None, stream: bool = False,
+                         in_org: bool = False) -> TaskResult:
     """Trả lời bằng kiến thức chung của mô hình. Nhãn do mã gắn (không để mô hình tự quyết), không có trích dẫn."""
     english = reply_language == "en"
+    org_guard = (
+        " Never claim that an internal project code, salary, or organization policy 'does not exist in reality'; "
+        "simply note that it is not available in the accessible documents."
+        if in_org else ""
+    )
     system = (
         f"GENERAL_KNOWLEDGE_ANSWERER. Role={role}. The user's documents do not cover this question, so answer from well-established "
         "general knowledge. Be accurate and concise. If a fact is uncertain, depends on country or may have changed recently "
         "(laws, prices, versions), say so briefly instead of guessing. Never invent document citations, article numbers or exact figures. "
-        "Do not say the answer comes from the user's documents. Do not mention internal task IDs. "
+        "Do not say the answer comes from the user's documents. Do not mention internal task IDs." + org_guard + " "
         + ("Write the answer in English." if english else "Viết câu trả lời bằng tiếng Việt, kể cả khi câu hỏi hoặc mục tiêu việc viết bằng tiếng Anh.")
     )
     context = f"USER REQUEST (full question, for context):\n{user_request[:2500]}\n\n" if user_request and user_request != question else ""
@@ -96,5 +141,5 @@ async def answer_general(provider, question: str, metrics: RunMetrics, *, task_i
     if not text:
         return TaskResult(task_id=task_id, domain=domain, status="NO_EVIDENCE", answer="", missing_information=["general answer was empty"],
                           source=GENERAL)
-    return TaskResult(task_id=task_id, domain=domain, status="COMPLETE", answer=f"{label(reply_language, had_documents)}\n\n{text}",
+    return TaskResult(task_id=task_id, domain=domain, status="COMPLETE", answer=f"{label(reply_language, had_documents, in_org=in_org)}\n\n{text}",
                       missing_information=[GENERAL_MISSING], source=GENERAL)

@@ -2,7 +2,7 @@
 // lối vào Hồ sơ tài liệu, Kiểm tra cả kho và Kiểm tra mâu thuẫn (trước là trang riêng trên thanh bên).
 import { FileIcon } from './FileIcon';
 import React, { useMemo, useRef, useState } from 'react';
-import { Activity, AlertTriangle, ArrowUpRight, CheckCircle2, Copy, FileSearch, HelpCircle, History, XCircle, FileText, Filter, GitCompareArrows, Library, Search, Upload } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowUpRight, CheckCircle2, Copy, FileDiff, FileSearch, HelpCircle, History, XCircle, FileText, Filter, GitCompareArrows, Library, Search, Upload } from 'lucide-react';
 import { DOC_TYPES, setDocType , libraryQuality, LibraryQuality, documentValidity, DocValidity } from '../services/api';
 import type { DocumentInfo } from '../types';
 import { ToolHeader } from './analysis/shared';
@@ -16,11 +16,12 @@ type Props = {
   docs: DocumentInfo[];
   onOpenProfile: (sourceId: string) => void;
   onOpenConsistency: () => void;
+  onOpenCompare: () => void;
   onAsk: (sourceId: string, name: string) => void;
   onUploadFile: (file: File) => Promise<void>;
 };
 
-export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsistency, onAsk, onUploadFile }) => {
+export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsistency, onOpenCompare, onAsk, onUploadFile }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [q, setQ] = useState('');
@@ -87,23 +88,17 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
         <ToolHeader Icon={Library} title="Thư viện tài liệu"
           desc="Mọi tài liệu của không gian đang mở: loại tài liệu hệ thống tự nhận (bấm để sửa nếu sai), mức mật, số đoạn. Mở hồ sơ, kiểm tra cả kho hoặc tìm mâu thuẫn từ đây."
           right={<>
-            <input ref={fileRef} type="file" hidden multiple accept=".pdf,.docx,.xlsx,.md,.txt,.sql,.png,.jpg,.jpeg,.tif,.tiff"
+            <input ref={fileRef} type="file" hidden multiple accept=".pdf,.docx,.xlsx,.csv,.md,.txt,.sql,.png,.jpg,.jpeg,.tif,.tiff"
               onChange={e => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; void upload(fs); }} />
             <button className="btn btn-dark" onClick={() => fileRef.current?.click()} disabled={uploading}>{uploading ? <span className="spin" /> : <Upload size={15} />}Thêm tài liệu</button></>} />
-
-        {docs.length > 0 && <section className="lib-kpis" aria-label="Lọc theo loại tài liệu">
-          <button type="button" className={`lib-kpi${type === '' ? ' is-on' : ''}`} aria-pressed={type === ''} onClick={() => setType('')}><b>{docs.length}</b><span>Tất cả</span></button>
-          {Object.entries(DOC_TYPES).filter(([k]) => counts[k]).map(([k, v]) => (
-            <button key={k} type="button" className={`lib-kpi${type === k ? ' is-on' : ''}`} aria-pressed={type === k} onClick={() => setType(type === k ? '' : k)}>
-              <b>{counts[k]}</b><span>{v}</span></button>))}
-          {counts.none > 0 && <span className="lib-kpi is-static"><b>{counts.none}</b><span>Chưa phân loại</span></span>}
-        </section>}
 
         <section className="lib-tools">
           <button type="button" className="lib-tool" onClick={() => onOpenProfile(shown[0] ? String(shown[0].id) : '')}>
             <span className="lib-tool-ico"><FileSearch size={18} /></span><span><b>Hồ sơ tài liệu</b><small>Tóm tắt, thuật ngữ, sơ đồ tư duy, chất lượng, kiểm tra cả kho</small></span><ArrowUpRight size={16} /></button>
           <button type="button" className="lib-tool" onClick={onOpenConsistency}>
             <span className="lib-tool-ico"><GitCompareArrows size={18} /></span><span><b>Kiểm tra mâu thuẫn</b><small>Cặp câu cùng chủ đề khác con số hoặc ngược nghĩa giữa các tài liệu</small></span><ArrowUpRight size={16} /></button>
+          <button type="button" className="lib-tool" onClick={onOpenCompare}>
+            <span className="lib-tool-ico"><FileDiff size={18} /></span><span><b>So sánh phiên bản</b><small>Đối chiếu bản cũ và bản mới theo Chương, Điều, Khoản: thêm, sửa, bỏ</small></span><ArrowUpRight size={16} /></button>
         </section>
 
         {docs.length > 0 && (() => {
@@ -155,6 +150,13 @@ export const LibraryView: React.FC<Props> = ({ docs, onOpenProfile, onOpenConsis
         <section className={`dz-card lib-table-card${drag ? ' is-drag' : ''}`} {...dropProps}>
           <div className="lib-bar">
             <label className="lib-find"><Search size={15} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Tìm theo tên tài liệu" aria-label="Tìm theo tên tài liệu" /></label>
+            {Object.keys(counts).length > 1 && <label className="lib-sort">
+              <select value={type} onChange={e => setType(e.target.value)} aria-label="Lọc theo loại tài liệu">
+                <option value="">Tất cả loại ({docs.length})</option>
+                {Object.entries(DOC_TYPES).filter(([k]) => counts[k]).map(([k, v]) => (
+                  <option key={k} value={k}>{v} ({counts[k]})</option>
+                ))}
+              </select></label>}
             <label className="lib-sort"><Filter size={14} />
               <select value={sort} onChange={e => setSort(e.target.value as Sort)} aria-label="Sắp xếp">
                 <option value="name">Tên A–Z</option><option value="type">Loại tài liệu</option><option value="chunks">Nhiều đoạn nhất</option><option value="new">Mới nhất</option>

@@ -471,3 +471,100 @@ class AuthStore:
             if changed:
                 self._save()
             return None if session is None else self._public_session(session)
+
+    def update_profile(self, user_id: str, *, display_name: str) -> dict[str, Any]:
+        """Người dùng tự cập nhật họ tên hiển thị của chính mình."""
+        name = str(display_name or "").strip()
+        if not name or len(name) > 128:
+            raise ValueError("Tên hiển thị phải từ 1 đến 128 ký tự.")
+        with self._lock:
+            user = next((item for item in self._users() if item.get("user_id") == user_id), None)
+            if user is None:
+                raise KeyError(user_id)
+            user["display_name"] = name
+            user["updated_at"] = _iso(_utc_now())
+            self._save()
+            return self._public_user(user)
+
+    def change_password(
+        self,
+        user_id: str,
+        *,
+        current_password: str,
+        new_password: str,
+        keep_session_token: str | None = None,
+    ) -> int:
+        """Đổi mật khẩu (xác nhận mật khẩu cũ) và đăng xuất mọi phiên khác ngoại trừ phiên hiện tại."""
+        if not isinstance(new_password, str) or len(new_password) < PASSWORD_MIN_LENGTH:
+            raise ValueError(f"Mật khẩu mới phải có ít nhất {PASSWORD_MIN_LENGTH} ký tự.")
+        if new_password == current_password:
+            raise ValueError("Mật khẩu mới phải khác mật khẩu hiện tại.")
+        keep_digest = _token_hash(keep_session_token.strip()) if isinstance(keep_session_token, str) and keep_session_token.strip() else None
+        with self._lock:
+            user = next((item for item in self._users() if item.get("user_id") == user_id), None)
+            if user is None:
+                raise KeyError(user_id)
+            if not _password_matches(current_password, user.get("password_hash")):
+                raise InvalidCredentialsError("Mật khẩu hiện tại không đúng.")
+            user["password_hash"] = _password_hash(new_password)
+            user["updated_at"] = _iso(_utc_now())
+            kept: list[dict[str, Any]] = []
+            revoked = 0
+            for item in self._sessions():
+                if item.get("user_id") == user_id:
+                    if keep_digest and hmac.compare_digest(str(item.get("token_hash") or ""), keep_digest):
+                        kept.append(item)
+                    else:
+                        revoked += 1
+                else:
+                    kept.append(item)
+            self._data["sessions"] = kept
+            self._save()
+            return revoked
+
+    def list_sessions(
+        self,
+        user_id: str,
+        *,
+        current_session_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Liệt kê các phiên đăng nhập còn hiệu lực của người dùng (không trả mã bí mật)."""
+        cur_digest = _token_hash(current_session_token.strip()) if isinstance(current_session_token, str) and current_session_token.strip() else None
+        with self._lock:
+            now = _utc_now()
+            if self._purge_sessions(now=now):
+                self._save()
+            rows = [
+                {
+                    **self._public_session(item),
+                    "is_current": bool(cur_digest and hmac.compare_digest(str(item.get("token_hash") or ""), cur_digest)),
+                }
+                for item in self._sessions()
+                if item.get("user_id") == user_id
+            ]
+            rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+            return rows
+
+    def revoke_other_sessions(
+        self,
+        user_id: str,
+        *,
+        keep_session_token: str | None = None,
+    ) -> int:
+        """Đăng xuất mọi thiết bị/phiên khác của người dùng, giữ lại phiên hiện tại."""
+        keep_digest = _token_hash(keep_session_token.strip()) if isinstance(keep_session_token, str) and keep_session_token.strip() else None
+        with self._lock:
+            kept: list[dict[str, Any]] = []
+            revoked = 0
+            for item in self._sessions():
+                if item.get("user_id") == user_id:
+                    if keep_digest and hmac.compare_digest(str(item.get("token_hash") or ""), keep_digest):
+                        kept.append(item)
+                    else:
+                        revoked += 1
+                else:
+                    kept.append(item)
+            if revoked or self._purge_sessions():
+                self._data["sessions"] = kept
+                self._save()
+            return revoked

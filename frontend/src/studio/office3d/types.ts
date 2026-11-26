@@ -1,3 +1,5 @@
+import type { FlowEdge, FlowKind, LiveMetrics } from './liveDirector';
+
 export type CoreAgentId =
   | 'orchestrator'
   | 'rag'
@@ -50,10 +52,14 @@ export type CarryItemKind =
 
 export type CameraPresetId =
   | 'overview'
+  | 'huddle'
   | 'core_studio'
   | 'specialist_row'
   | 'rag_analyst'
   | 'city_exterior'
+  | 'campus_sports'
+  | 'campus_gate'
+  | 'campus_gdqp'
   | AgentId;
 
 export interface AgentProfile {
@@ -171,17 +177,19 @@ export interface Studio3DController {
   setWeather: (mode: WeatherMode) => void;
   wakeAgents: (ids: AgentId[]) => void;
   putAgentsToSleep: (ids: AgentId[]) => void;
+  gatherAtHuddle?: (ids: AgentId[], speakingId?: AgentId | null, statusText?: string) => void;
   setAgentAction: (
     agentId: AgentId,
     action: RobotAction,
     actionText?: string,
     carryItem?: CarryItemKind,
-    spot?: 'whiteboard' | 'reception' | 'cabinet' | 'easel',
+    spot?: 'whiteboard' | 'board_review' | 'reception' | 'cabinet' | 'easel',
   ) => void;
   setLiveScene: (opts: {
     lead?: AgentId | null;
     effects?: Partial<{ requestArrived: boolean; cabinetOpen: boolean; whiteboardCards: number; analystChartActive: boolean; qcApproved: boolean; finalReportReady: boolean }>;
     dispatch?: { from: AgentId; toList: AgentId[] };
+    flow?: { kind: FlowKind; label: string };
     wall?: { tierLabel: string; requestTitle: string; stepText: string; progressPct: number };
   }) => void;
   walkAndHandoff: (
@@ -191,6 +199,11 @@ export interface Studio3DController {
     label?: string,
     onArrive?: () => void,
   ) => void;
+  settle: () => void;
+  setShowFlowHistory?: (show: boolean) => void;
+  syncFlowEdges: (edges: FlowEdge[], finished?: boolean) => void;
+  syncActiveWorkers?: (activeWorkers: AgentId[], finished?: boolean) => void;
+  setWallMetrics: (metrics: LiveMetrics | null) => void;
   setFollowLeadAgent: (follow: boolean) => void;
   setCameraPreset: (preset: CameraPresetId) => void;
   setSpeed: (multiplier: number) => void;

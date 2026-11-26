@@ -76,22 +76,26 @@ def _topic(text: str) -> set[str]:
 
 
 def candidate_pairs(statements: list[Statement], max_pairs: int = 15, min_overlap: float = 0.3, min_shared: int = 3) -> list[dict]:
-    """Cặp câu ở hai tài liệu khác nhau, cùng chủ đề (trùng từ nội dung) nhưng khác con số hoặc khác phủ định.
+    """Cặp câu cùng chủ đề (trùng từ nội dung) nhưng khác con số hoặc khác phủ định.
 
+    Mặc định so cặp giữa 2 tài liệu khác nhau; khi toàn bộ phát biểu đến từ duy nhất 1 tài liệu,
+    hỗ trợ kiểm tra mâu thuẫn nội bộ giữa các mục/câu khác nhau trong chính tài liệu đó.
     Độ trùng = Jaccard trên từ nội dung; khác phủ định dễ nhiễu hơn nên cần trùng gấp rưỡi ngưỡng.
     """
+    single_source = len({s.source_id for s in statements}) == 1
+    eff_overlap = max(min_overlap, 0.35) if single_source else min_overlap
     info = [(s, _topic(s.text), _numbers(_REFERENCE.sub(" ", s.text)), bool(_NEGATION.search(s.text))) for s in statements]
     pairs = []
     for i, (a, ta, na, nega) in enumerate(info):
         for b, tb, nb, negb in info[i + 1:]:
-            if a.source_id == b.source_id:
+            if not single_source and a.source_id == b.source_id:
                 continue
             shared = ta & tb
             if len(shared) < min_shared:
                 continue
             overlap = len(shared) / len(ta | tb)
-            reason = ("numbers_differ" if na and nb and na != nb and overlap >= min_overlap
-                      else "negation_differs" if nega != negb and overlap >= min_overlap * 1.5 else None)
+            reason = ("numbers_differ" if na and nb and na != nb and overlap >= eff_overlap
+                      else "negation_differs" if nega != negb and overlap >= eff_overlap * 1.5 else None)
             if reason:
                 pairs.append({"a": asdict(a), "b": asdict(b), "overlap": round(overlap, 3), "reason": reason, "shared_terms": sorted(shared)[:12]})
     pairs.sort(key=lambda p: -p["overlap"])

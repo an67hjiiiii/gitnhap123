@@ -37,7 +37,14 @@ export function StudioIntro({ name, onDone }: { name?: string; onDone: () => voi
   useLayoutEffect(() => {
     const el = root.current;
     if (!el) return;
-    introEndsAt.t = performance.now() + 1450;
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      doneRef.current();
+    };
+    introEndsAt.t = performance.now() + 1050;
+    const safetyTimer = window.setTimeout(finish, 1800);
     const ctx = gsap.context(() => {
       const q = gsap.utils.selector(el);
       const W = window.innerWidth, H = window.innerHeight;
@@ -49,20 +56,23 @@ export function StudioIntro({ name, onDone }: { name?: string; onDone: () => voi
       el.style.setProperty('--cx', `${tx}px`); el.style.setProperty('--cy', `${ty}px`);
       const R = Math.hypot(Math.max(tx, W - tx), Math.max(ty, H - ty)) + 40;
       const mark = q('.sti-mark');
-      const t = gsap.timeline({ onComplete: () => doneRef.current() });
-      t.fromTo(q('.sti-glow'), { scale: 0.5, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.45, ease: 'power2.out' }, 0)
-        .fromTo(mark, { scale: 0.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.4, ease: 'back.out(1.8)' }, 0.05)
-        .fromTo(q('.sti-word'), { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3, ease: 'power2.out' }, 0.18)
-        .to(q('.sti-word'), { opacity: 0, duration: 0.15 }, 0.48)
+      const t = gsap.timeline({ onComplete: finish });
+      t.fromTo(q('.sti-glow'), { scale: 0.5, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.34, ease: 'power2.out' }, 0)
+        .fromTo(mark, { scale: 0.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.32, ease: 'back.out(1.8)' }, 0.04)
+        .fromTo(q('.sti-word'), { y: 10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.24, ease: 'power2.out' }, 0.12)
+        .to(q('.sti-word'), { opacity: 0, duration: 0.12 }, 0.36)
         // robot bay về chỗ logo, thu nhỏ bằng logo
-        .to(mark, { x: tx - W / 2, y: ty - H / 2, scale: 0.3, duration: 0.42, ease: 'power3.inOut' }, 0.5)
-        .to(q('.sti-glow'), { x: tx - W / 2, y: ty - H / 2, scale: 0.35, opacity: 0.8, duration: 0.42, ease: 'power3.inOut' }, 0.5)
+        .to(mark, { x: tx - W / 2, y: ty - H / 2, scale: 0.3, duration: 0.32, ease: 'power3.inOut' }, 0.38)
+        .to(q('.sti-glow'), { x: tx - W / 2, y: ty - H / 2, scale: 0.35, opacity: 0.8, duration: 0.32, ease: 'power3.inOut' }, 0.38)
         // vòng tròn mở rộng từ chỗ logo để lộ Studio
-        .fromTo(el, { '--r': '0px' }, { '--r': `${R}px`, duration: 0.6, ease: 'power2.in' }, 0.86)
-        .to([mark, q('.sti-glow')], { opacity: 0, duration: 0.2 }, 0.95);
+        .fromTo(el, { '--r': '0px' }, { '--r': `${R}px`, duration: 0.42, ease: 'power2.in' }, 0.64)
+        .to([mark, q('.sti-glow')], { opacity: 0, duration: 0.16 }, 0.72);
       tl.current = t;
     }, el);
-    return () => ctx.revert();
+    return () => {
+      window.clearTimeout(safetyTimer);
+      ctx.revert();
+    };
   }, []);
 
   useEffect(() => {

@@ -15,6 +15,8 @@ from app.research.decomposer import detect_domains
 from app.research.plan_verification import (
     PlanVerification,
     _concern_text_for_coverage,
+    _meaningful_evidence_needs,
+    _requests_supporting_evidence,
     _retains_text,
     _source_text,
     _task_text,
@@ -101,6 +103,15 @@ def anchor_plan(plan: TaskPlan) -> tuple[TaskPlan, list[dict]]:
                 cur = tasks[idx]
                 tasks[idx] = replace(cur, covers_concerns=[c for c in (cur.covers_concerns or []) if c != concern.concern_id])
                 changes.append({"task_id": t.task_id, "kind": "Bỏ mối quan tâm sai mảng", "id": concern.concern_id})
+
+    # Chỉ bổ sung evidence_needs khi yêu cầu có đòi hỏi bằng chứng hoặc danh sách đang rỗng (không đụng kế hoạch đã hợp lệ)
+    if _requests_supporting_evidence(plan):
+        for idx, cur in enumerate(tasks):
+            if not _meaningful_evidence_needs(cur.evidence_needs):
+                phrase = _clean(cur.goal)[:120]
+                if phrase:
+                    tasks[idx] = replace(cur, evidence_needs=[phrase])
+                    changes.append({"task_id": cur.task_id, "kind": "Bổ sung cụm tìm kiếm", "id": cur.task_id})
 
     return replace(plan, tasks=tasks), changes
 

@@ -27,38 +27,38 @@ ScrollTrigger.defaults({ fastScrollEnd: true });
 // Nội dung bám theo chức năng đã có trong mã; không có số đo kết quả vì thực nghiệm chưa xong.
 const NAV = [['#cau-chuyen', 'Câu chuyện'], ['#chuyen-gia', 'Tác tử'], ['#kich-ban', 'Kịch bản'], ['#phuong-phap', 'Phương pháp'], ['#nghien-cuu', 'Nghiên cứu']];
 const AGENTS = [
-  { Icon: Database, label: 'Dữ liệu', name: 'Database Analyst', task: 'Lược đồ giao dịch', tone: 'db', role: 'Mô hình dữ liệu, chỉ mục, giao dịch và lưu trữ.', reads: ['Lược đồ bảng', 'Khóa và ràng buộc', 'Quy tắc giao dịch'], gives: 'Thiết kế bảng, khóa chống lặp và ranh giới giao dịch.', files: ['luoc-do-giao-dich.sql', 'bang-payments.sql', 'khoa-idempotency.sql'] },
-  { Icon: Code2, label: 'API / kiến trúc', name: 'API/Architecture Analyst', task: 'Hợp đồng API', tone: 'api', role: 'Hợp đồng API, định tuyến và luồng giao tiếp.', reads: ['Đặc tả endpoint', 'Request / response', 'Luồng gọi lại'], gives: 'Hợp đồng endpoint và cách phản hồi khi yêu cầu bị gửi lặp.', files: ['dac-ta-thanh-toan.md', 'webhook-api.md', 'rang-buoc-chung.md'] },
-  { Icon: Shield, label: 'Bảo mật', name: 'Security Analyst', task: 'Phân quyền', tone: 'sec', role: 'Xác thực, phân quyền và bảo vệ dữ liệu.', reads: ['Chính sách xác thực', 'Phân quyền', 'Chữ ký webhook'], gives: 'Quy tắc truy cập và cách kiểm tra nguồn gửi.', files: ['chinh-sach-bao-mat.md', 'phan-quyen-rbac.md', 'chu-ky-hmac.md'] },
+  { Icon: Layers, label: 'Lõi điều phối (5 Agent)', name: 'Orchestrator · RAG · Analyst · Reviewer · Integrator', task: 'Phân rã · Truy xuất · Kiểm định', tone: 'db', role: 'Tự động phân rã yêu cầu, lọc đoạn tài liệu không trùng lặp, tính toán số liệu, kiểm định bằng chứng và tổng hợp bàn giao.', reads: ['Kế hoạch & nghĩa vụ', 'Ngân sách ngữ cảnh RAG', 'Kiểm định bằng chứng'], gives: 'Điều phối đúng chuyên gia, giữ nguồn trích dẫn chặt chẽ và chống suy diễn.', files: ['ke-hoach-t1-t2.json', 'trich-dan-rag.md', 'kiem-dinh-qc.json'] },
+  { Icon: Code2, label: 'Kỹ thuật & Kinh doanh', name: 'Software & IT · Business · Marketing', task: 'Hệ thống · Chiến lược · Thị trường', tone: 'api', role: 'Phân tích kiến trúc phần mềm, API, CSDL, bảo mật cùng mô hình kinh doanh, hợp đồng và chiến dịch tăng trưởng.', reads: ['Đặc tả & mã nguồn', 'Hợp đồng & quy trình', 'Số liệu chiến dịch'], gives: 'Đánh giá kỹ thuật, lộ trình triển khai và khuyến nghị tăng trưởng bám tài liệu.', files: ['dac-ta-he-thong.md', 'hop-dong-dich-vu.docx', 'bao-cao-chien-dich.xlsx'] },
+  { Icon: Users, label: 'Tổ chức & Đào tạo', name: 'HR · Finance · Education', task: 'Nhân sự · Tài chính · Học vụ', tone: 'sec', role: 'Tra cứu nội quy lao động, phúc lợi, ngân sách, hóa đơn, quy chế học vụ, tín chỉ và đề tài nghiên cứu.', reads: ['Nội quy & chính sách HR', 'Ngân sách & chứng từ', 'Quy chế đào tạo'], gives: 'Kết luận điều kiện, hạn mức, quy trình phê duyệt rõ căn cứ theo từng điều khoản.', files: ['noi-quy-nhan-su.pdf', 'ngan-sach-quy.xlsx', 'quy-che-dao-tao.pdf'] },
 ];
 const STEPS = [
   { Icon: Search, art: 0, title: 'Hiểu yêu cầu', body: 'Đọc câu hỏi, rút ra những nghĩa vụ bắt buộc phải đáp ứng và các mối quan tâm.' },
-  { Icon: Database, art: 4, title: 'Truy xuất để lập kế hoạch', body: 'Tìm tài liệu định hướng trong kho của bạn trước khi lập kế hoạch.' },
-  { Icon: ListTree, art: 1, title: 'Lập kế hoạch', body: 'Mô hình sinh kế hoạch JSON theo cấu trúc chặt và phân rã thành nhiệm vụ.' },
-  { Icon: FileCheck2, art: 3, title: 'Kiểm tra kế hoạch', body: 'Kế hoạch được kiểm tra; sai thì sửa một lần, vẫn sai thì từ chối, không đoán bừa.' },
+  { Icon: Database, art: 4, title: 'Truy xuất để lập kế hoạch', body: 'RAG Specialist tìm tài liệu định hướng trong kho trước khi lập kế hoạch.' },
+  { Icon: ListTree, art: 1, title: 'Lập kế hoạch & chọn Agent', body: 'Orchestrator sinh kế hoạch JSON chặt và chọn đúng chuyên gia phù hợp trong đội 11 Agent.' },
+  { Icon: FileCheck2, art: 3, title: 'Kiểm tra kế hoạch', body: 'Reviewer kiểm tra kế hoạch; sai thì sửa một lần, vẫn sai thì từ chối, không đoán bừa.' },
   { Icon: Filter, art: 2, title: 'Chuẩn hóa nhiệm vụ', body: 'Gộp nhiệm vụ trùng, kiểm tra mọi nghĩa vụ đều có nhiệm vụ phủ rồi mới bàn giao.' },
-  { Icon: Layers, art: 5, title: 'Truy xuất và chia ngân sách', body: 'Mỗi nhiệm vụ truy xuất riêng; ngân sách token chia theo nhu cầu của từng nhiệm vụ.' },
-  { Icon: Cpu, art: 6, title: 'Thực thi nhiệm vụ', body: 'Tác tử bảo mật, cơ sở dữ liệu, API/kiến trúc làm phần việc của mình trên mô hình cục bộ.' },
-  { Icon: Users, art: 7, title: 'Tổng hợp', body: 'Ghép kết quả thành một câu trả lời có trích dẫn và lưu lại lượt chạy để đối chiếu.' },
+  { Icon: Layers, art: 5, title: 'Truy xuất và chia ngân sách', body: 'Mỗi nhiệm vụ truy xuất riêng; ngân sách token chia theo nhu cầu của từng chuyên gia.' },
+  { Icon: Cpu, art: 6, title: 'Thực thi chuyên môn', body: 'Các chuyên gia được đánh thức (Phần mềm, Kinh doanh, Marketing, Nhân sự, Tài chính, Giáo dục, Số liệu) xử lý phần việc của mình trên mô hình cục bộ.' },
+  { Icon: Users, art: 7, title: 'Kiểm định & Tổng hợp', body: 'Reviewer đối chiếu bằng chứng, Integrator ghép thành câu trả lời có trích dẫn và lưu lại vết lượt chạy.' },
 ];
 const METHODS = [
   { key: 'A', v: 'V', name: 'Vanilla RAG', body: 'Một lượt truy xuất rồi trả lời ngay, không lập kế hoạch. Làm mốc đối chứng.' },
   { key: 'B', v: 'M', name: 'Multi-Agent cơ bản', body: 'Có chia việc cho các tác tử, nhưng không kiểm tra kế hoạch, không chuẩn hóa và không tối ưu ngữ cảnh.' },
-  { key: 'C', v: 'A', name: 'Điều phối đầy đủ', body: 'Phương pháp đề xuất: lập kế hoạch có kiểm tra, chuẩn hóa nhiệm vụ, rồi chia ngân sách token theo nhu cầu truy xuất của từng nhiệm vụ.' },
+  { key: 'C', v: 'A', name: 'Điều phối đầy đủ', body: 'Phương pháp đề xuất: lập kế hoạch có kiểm tra, định tuyến 11 Agent theo ngữ nghĩa, chuẩn hóa nhiệm vụ và chia ngân sách token thích ứng.' },
 ];
 const CASES = [
-  { Icon: CreditCard, title: 'Cổng thanh toán', q: 'Thiết kế luồng thanh toán không xử lý trùng, có kiểm soát quyền truy cập.', tags: ['Khóa chống lặp', 'Giao dịch', 'Webhook'], tone: 'blue', files: ['dac-ta-thanh-toan.md', 'luoc-do-giao-dich.sql'] },
-  { Icon: Building2, title: 'Nền tảng nhiều tổ chức', q: 'Thiết kế dịch vụ dùng chung cho nhiều tổ chức, bảo đảm dữ liệu được cách ly.', tags: ['Cách ly dữ liệu', 'Phạm vi API', 'Phân quyền theo hàng'], tone: 'violet', files: ['mo-hinh-to-chuc.sql', 'pham-vi-api.md'] },
-  { Icon: RefreshCw, title: 'Đồng bộ sự kiện', q: 'Đồng bộ trạng thái đơn hàng khi sự kiện có thể đến trễ hoặc bị lặp.', tags: ['Outbox', 'Thử lại', 'Xác thực nguồn'], tone: 'teal', files: ['thiet-ke-outbox.md', 'hop-dong-su-kien.md'] },
-  { Icon: KeyRound, title: 'Xác thực webhook', q: 'Xác thực webhook bằng chữ ký HMAC và chống phát lại yêu cầu cũ.', tags: ['HMAC', 'Chống phát lại', 'Khóa bí mật'], tone: 'amber', files: ['chu-ky-hmac.md', 'chinh-sach-khoa.md'] },
-  { Icon: Route, title: 'API Gateway', q: 'Đặc tả API Gateway với định tuyến, token và phân quyền theo vai trò.', tags: ['Định tuyến', 'Token', 'RBAC'], tone: 'rose', files: ['dac-ta-gateway.md', 'phan-quyen-rbac.md'] },
+  { Icon: CreditCard, title: 'Hệ thống thanh toán & Bảo mật', q: 'Đánh giá kiến trúc API thanh toán chống lặp, phân quyền RBAC và chi phí hạ tầng.', tags: ['Software & IT', 'Data Analyst', 'Reviewer'], tone: 'blue', files: ['dac-ta-thanh-toan.md', 'luoc-do-giao-dich.sql'] },
+  { Icon: Building2, title: 'Phúc lợi nhân sự & Ngân sách', q: 'Đối chiếu quy định nghỉ phép, thưởng KPI với hạn mức ngân sách quý của phòng ban.', tags: ['HR & People', 'Finance', 'Data Analyst'], tone: 'violet', files: ['noi-quy-nhan-su.pdf', 'ngan-sach-quy.xlsx'] },
+  { Icon: RefreshCw, title: 'Quy chế học vụ & Học bổng', q: 'Xét điều kiện học bổng khuyến khích, ngưỡng cảnh báo học tập và quy trình phúc khảo.', tags: ['Education', 'Data Analyst', 'Reviewer'], tone: 'teal', files: ['quy-che-dao-tao.pdf', 'bang-diem-hk.xlsx'] },
+  { Icon: KeyRound, title: 'Hợp đồng & Rủi ro vận hành', q: 'Rà soát điều khoản thanh toán, phạt vi phạm và thẩm quyền ký duyệt trong hợp đồng.', tags: ['Business', 'Finance', 'Reviewer'], tone: 'amber', files: ['hop-dong-dich-vu.docx', 'quy-trinh-duyet.pdf'] },
+  { Icon: Route, title: 'Chiến dịch tăng trưởng đa kênh', q: 'Phân tích tỷ lệ chuyển đổi, chi phí chuyển đổi CPA và đề xuất phân bổ ngân sách quý tới.', tags: ['Marketing', 'Finance', 'Data Analyst'], tone: 'rose', files: ['bao-cao-ads.xlsx', 'ke-hoach-q4.md'] },
 ];
-const STACK = [['Ollama', 'chạy mô hình cục bộ'], ['Qwen3:4b', 'mô hình sinh'], ['nomic-embed-text', 'embedding'], ['Qdrant', 'kho vector'], ['FastAPI', 'điều phối'], ['SQLAlchemy', 'lưu lượt chạy'], ['PostgreSQL', 'cơ sở dữ liệu'], ['React', 'giao diện']];
+const STACK = [['Ollama', 'chạy mô hình cục bộ'], ['Qwen3:4b', 'mô hình sinh'], ['nomic-embed-text', 'embedding'], ['Qdrant', 'kho vector'], ['FastAPI', 'điều phối 11 Agent'], ['SQLAlchemy', 'lưu lượt chạy'], ['PostgreSQL', 'cơ sở dữ liệu'], ['React + Three.js', 'giao diện & 3D']];
 const FAQS = [
-  ['OrchestrIQ Studio dành cho ai?', 'Kỹ sư phần mềm, trưởng nhóm kỹ thuật và người nghiên cứu cần phân tích một yêu cầu liên quan nhiều chuyên môn, và muốn thấy tài liệu nào đứng sau câu trả lời.'],
-  ['Dữ liệu của tôi có bị gửi ra ngoài không?', 'Luồng phân tích dùng Ollama, Qdrant và PostgreSQL chạy trên máy của bạn. Việc vận hành thực tế phụ thuộc cấu hình và các dịch vụ bạn đang bật.'],
-  ['Ba tác tử có phải ba mô hình khác nhau?', 'Không. Cả ba dùng chung mô hình qwen3:4b, khác nhau ở nhiệm vụ, chỉ dẫn và phần tài liệu được giao.'],
-  ['Phương pháp mới đã được chứng minh tốt hơn chưa?', 'Chưa. Nhóm đang chạy thực nghiệm thử. Kết quả chỉ được công bố khi thực nghiệm chính hoàn tất theo quy trình đã khóa trước, kể cả khi kết quả không như kỳ vọng.'],
+  ['OrchestrIQ Studio dành cho ai?', 'Tổ chức, doanh nghiệp, trường đại học, kỹ sư và nhóm nghiên cứu cần phân tích tài liệu nội bộ liên phòng ban, và muốn đối chiếu rõ từng nguồn trích dẫn đứng sau câu trả lời.'],
+  ['Dữ liệu của tôi có bị gửi ra ngoài không?', 'Luồng phân tích dùng Ollama, Qdrant và PostgreSQL chạy hoàn toàn trên máy chủ cục bộ của bạn, đi kèm cơ chế phân quyền tổ chức theo 5 mức mật tài liệu.'],
+  ['11 Agent có phải 11 mô hình LLM riêng biệt không?', 'Không. Toàn bộ đội 11 Agent (5 lõi điều phối và 6 chuyên gia ngành) dùng chung mô hình cục bộ qwen3:4b; chỉ các chuyên gia liên quan tới câu hỏi mới được đánh thức với vai trò và ngữ cảnh tài liệu riêng.'],
+  ['Phương pháp mới đã được chứng minh tốt hơn chưa?', 'Hệ thống tích hợp sẵn Phòng đánh giá, Thực nghiệm A/B/C và Chấm mù để kiểm chứng khoa học trên dữ liệu thật — mọi chỉ số đều đo trực tiếp từ lượt chạy, không bịa số liệu.'],
   ['Tôi cần gì để chạy Studio?', 'Một máy tính có Ollama với mô hình qwen3:4b và nomic-embed-text, PostgreSQL, cùng backend FastAPI và giao diện React của dự án. Hướng dẫn cài đặt và vận hành đi kèm sản phẩm.'],
 ];
 const MARQUEE = ['Phân rã', 'Truy xuất', 'Phân bổ', 'Kiểm chứng', 'Tổng hợp'];
@@ -695,7 +695,7 @@ export function LandingPage() {
             cho từng tác tử AI.
             <svg className="lp-brush" viewBox="0 0 600 40" preserveAspectRatio="none" aria-hidden="true"><path d="M6 28 C 120 12, 260 10, 360 18 S 540 30, 594 14"/></svg>
           </p>
-          <p className="lp-hero-sub">OrchestrIQ Studio chia một câu hỏi kỹ thuật cho ba tác tử chuyên môn. Mỗi tác tử chỉ đọc phần tài liệu nó cần, rồi kết quả được ghép thành một câu trả lời có thể kiểm tra lại. Tất cả chạy trên máy của bạn.</p>
+          <p className="lp-hero-sub">OrchestrIQ Studio điều phối câu hỏi phức tạp qua đội ngũ 11 tác tử chuyên môn chạy cục bộ (5 lõi điều phối và 6 chuyên gia ngành). Chỉ những chuyên gia liên quan được đánh thức, mỗi tác tử đọc đúng phần tài liệu nó cần, rồi ghép thành câu trả lời có thể kiểm chứng.</p>
           <div className="lp-hero-actions">
             <Link to="/studio" onClick={armIntro} className="lp-btn lp-btn-lg">Mở Studio <ArrowUpRight size={18}/></Link>
             <button type="button" className="lp-link lp-play-link" onClick={() => { setVideoOpen(true); sfx.tick(); }}><span><Play size={14} fill="currentColor"/></span>Xem video 1 phút</button>
@@ -731,12 +731,12 @@ export function LandingPage() {
         <div className="lp-teaser-wrap lp-reveal"><VideoTeaser onOpen={() => { setVideoOpen(true); sfx.tick(); }}><strong>Xem OrchestrIQ Studio trong 1 phút</strong><span>Video giới thiệu · khoảng 1 phút</span></VideoTeaser></div>
       </section>
 
-      <section className="lp-film" aria-label="Một câu hỏi, ba chuyên gia, một câu trả lời">
+      <section className="lp-film" aria-label="Một câu hỏi, đúng chuyên gia, một câu trả lời">
         <div className="lp-night">
           <div className="lp-night-glow" aria-hidden="true"/>
           <div className="lp-night-grid" aria-hidden="true"/>
           <p className="lp-night-line">Một câu hỏi</p>
-          <p className="lp-night-line">Ba chuyên gia</p>
+          <p className="lp-night-line">Đúng chuyên gia</p>
           <p className="lp-night-line is-accent">Một câu trả lời</p>
         </div>
       </section>
@@ -760,8 +760,8 @@ export function LandingPage() {
       <section className="lp-agents-sec" id="chuyen-gia">
         <div className="lp-wrap">
           <div className="lp-sec-head">
-            <div><p className="lp-eyebrow">Ba tác tử chuyên môn</p><h2 className="lp-big lp-split">Mỗi tác tử, <span className="is-hl">một góc nhìn.</span></h2></div>
-            <p>Cùng chạy trên mô hình qwen3:4b, nhưng mỗi tác tử có nhiệm vụ, chỉ dẫn và phần tài liệu riêng. Nhờ vậy, chúng không giẫm lên phần việc của nhau.</p>
+            <div><p className="lp-eyebrow">Đội ngũ 11 Agent chuyên biệt</p><h2 className="lp-big lp-split">Mỗi tác tử, <span className="is-hl">một góc nhìn.</span></h2></div>
+            <p>Cùng chạy trên mô hình qwen3:4b, gồm 5 lõi điều phối và 6 chuyên gia ngành. Chỉ những chuyên gia liên quan mới được đánh thức với chỉ dẫn và phần tài liệu riêng.</p>
           </div>
           <div className="lp-stack">
             {AGENTS.map(({ Icon, label, name, tone, role, reads, gives, files }, i) => <article key={tone} className={`lp-stack-card is-${tone}`}>
@@ -803,7 +803,7 @@ export function LandingPage() {
         <div className="lp-wrap">
           <div className="lp-sec-head">
             <div><p className="lp-eyebrow">Kịch bản ví dụ</p><h2 className="lp-big lp-split">Những câu hỏi Studio <span>được xây để trả lời.</span></h2></div>
-            <p>Mỗi kịch bản chạm tới cả dữ liệu, API và bảo mật, đúng loại bài toán mà một tác tử đơn lẻ dễ bỏ sót.</p>
+            <p>Mỗi kịch bản đòi hỏi nhiều chuyên gia liên phòng ban cùng đối chiếu tài liệu — đúng loại bài toán mà một mô hình đơn lẻ dễ bỏ sót hoặc suy diễn.</p>
           </div>
           <div className="lp-cases-grid">
             {CASES.map(({ Icon, title, q, tags, tone, files }) => <article key={title} className={`lp-case is-${tone}`} onPointerMove={tilt} onPointerLeave={untilt}>

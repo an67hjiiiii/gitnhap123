@@ -69,7 +69,8 @@ def test_consistency_api():
     c = TestClient(app)
     r = c.post("/api/studio/consistency/candidates", json={"source_ids": ["a", "b"]}).json()
     assert r["statements"] >= 3 and r["pairs"][0]["reason"] == "numbers_differ"
-    assert c.post("/api/studio/consistency/candidates", json={"source_ids": ["a"]}).status_code == 422
+    assert c.post("/api/studio/consistency/candidates", json={"source_ids": []}).status_code == 422
+    assert c.post("/api/studio/consistency/candidates", json={"source_ids": ["a"]}).status_code == 200
     j = c.post("/api/studio/consistency/judge", json={"a": r["pairs"][0]["a"], "b": r["pairs"][0]["b"]}).json()
     assert j["verdict"] == "CONTRADICTION"
 

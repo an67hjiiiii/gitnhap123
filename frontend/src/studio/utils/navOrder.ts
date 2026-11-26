@@ -2,10 +2,17 @@
 // (robot rơi xuống / bật lên, trang mới trượt vào theo cùng hướng). Không gian làm việc là trang gốc, đứng đầu.
 import type { NavigationTab } from '../types';
 
-// đợt 6: Hồ sơ tài liệu, Kiểm tra mâu thuẫn nằm trong Thư viện; Bộ công cụ mở bằng "/" ở ô chat
 export const NAV_ORDER: NavigationTab[] = [
-  'orchestration', 'library', 'documents', 'consistency', 'compare', 'toolkit', 'results', 'tasks', 'organization', 'overview', 'settings',
-  'evaluation', 'benchmarks', 'rating', 'users', 'db_explorer',
+  // Nhóm 1: Làm việc
+  'orchestration', 'toolkit', 'office',
+  // Nhóm 2: Tri thức & Quản lý
+  'library', 'documents', 'consistency', 'compare', 'results', 'tasks', 'overview', 'organization',
+  // Nhóm 3: Nghiên cứu (Phòng thí nghiệm)
+  'evaluation', 'benchmarks', 'rating',
+  // Tiện ích mở từ thanh trên (Thông báo, Hướng dẫn nhanh, Cài đặt)
+  'notifications', 'guide', 'settings',
+  // Cổng quản trị (dự phòng tương thích)
+  'users', 'db_explorer',
 ];
 
 export const navIndex = (tab: string | null | undefined) => Math.max(0, NAV_ORDER.indexOf(tab as NavigationTab));

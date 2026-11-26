@@ -38,8 +38,13 @@ const MODE_INFO: Record<Mode, { label: string; hint: string }> = {
   C: { label: 'Điều phối đầy đủ', hint: 'Điều kiện C: lập kế hoạch có kiểm tra, chuẩn hóa, tối ưu ngữ cảnh.' },
 };
 const REASK = [
-  { agent: 'conditions', label: 'Xét điều kiện (ai được gì, đủ điều kiện không)' }, { agent: 'procedure', label: 'Các bước làm và cấp duyệt' },
-  { agent: 'terms', label: 'Điều khoản, quyền và nghĩa vụ' }, { agent: 'figures', label: 'Tính số liệu (bao nhiêu, tỷ lệ)' },
+  { agent: 'software', label: 'Kỹ thuật & Phần mềm (CSDL, API, bảo mật)' },
+  { agent: 'business', label: 'Kinh doanh & Hợp đồng (điều khoản, quy trình)' },
+  { agent: 'marketing', label: 'Tiếp thị & Truyền thông' },
+  { agent: 'hr', label: 'Nhân sự & Nội quy (nghỉ phép, lương thưởng)' },
+  { agent: 'finance', label: 'Tài chính & Kế toán (ngân sách, thuế, chi phí)' },
+  { agent: 'education', label: 'Giáo dục & Học vụ (quy chế, tín chỉ, học bổng)' },
+  { agent: 'analyst', label: 'Phân tích số liệu & Tổng hợp' },
 ];
 const STATUS_LABEL: Record<string, string> = { COMPLETE: 'Đủ bằng chứng', PARTIAL: 'Một phần', NO_EVIDENCE: 'Không có bằng chứng', FAILED: 'Thất bại' };
 // Viết dạng câu hỏi để CAP1 đi đường hỏi đáp trực tiếp (câu mệnh lệnh bị chuyển sang lập kế hoạch nhiều bước).
@@ -97,13 +102,26 @@ function SourceList({ cites, docs, onCite }: { cites: string[]; docs: { id?: num
 }
 const isPlanRejected = (run?: Cap1Run) => run?.status === 'FAILED' && /failed verification/i.test(String(run?.answer ?? ''));
 const isQuick = (run?: Cap1Run) => !!run?.events?.some((e: any) => e.stage === 'product_request_routing');
-const citationsOf = (run?: Cap1Run) => [...new Set((run?.task_results || []).flatMap((r: any) => r.citations || []))] as string[];
+const citationsOf = (run?: Cap1Run) => {
+  const results: any[] = run?.task_results || [];
+  // Chỉ gom nguồn tham chiếu từ các tác tử thực sự tìm thấy bằng chứng (loại bỏ tác tử NO_EVIDENCE để không gắn nhầm file khác!)
+  const grounded = results.filter((r: any) => String(r?.status || '').toUpperCase() !== 'NO_EVIDENCE');
+  return [...new Set(grounded.flatMap((r: any) => r.citations || []))] as string[];
+};
 const ago = (iso?: string) => {
   if (!iso) return '';
   const m = Math.round((Date.now() - serverDate(iso).getTime()) / 60000);
   return m < 1 ? 'vừa xong' : m < 60 ? `${m} phút trước` : m < 1440 ? `${Math.round(m / 60)} giờ trước` : `${Math.round(m / 1440)} ngày trước`;
 };
-const firstName = (name?: string) => name?.trim().split(/\s+/).slice(-1)[0];
+const firstName = (name?: string) => {
+  const cleaned = (name ?? '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  return cleaned ? cleaned.split(' ').slice(-1)[0] : undefined;
+};
+// Khi đang stream câu trả lời, ẩn tạm cú pháp tính toán nội bộ `[[= ... ]]` để không nhấp nháy trước khi backend thay bằng kết quả thật.
+const cleanLiveStream = (text: string) =>
+  text
+    .replace(/\[\[=\s*([^\]]*?)\s*\]\]/g, '…')
+    .replace(/\[\[=[^\]]*$/g, '…');
 // Văn bản để đọc to: bỏ mã đoạn, ký hiệu markdown và dòng nguồn.
 const speakable = (t: string) => stripSources(t).replace(/\[?src_[0-9a-f]+_c\d+\]?/gi, '').replace(/^\s*[#>|*-]+\s*/gm, '').replace(/[*`|_]+/g, ' ').replace(/\s+/g, ' ').trim();
 const Recognition: any = typeof window !== 'undefined' ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : undefined;
@@ -315,6 +333,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         // Tự động: câu khớp rõ một kỹ năng (hoặc chọn bằng "/") thì gọi kỹ năng, không thì để pipeline tự chọn
         const ids = await chatScope(workspaceId, scope);
         const pick = forced; setForced(null);
+        const isExplicitSkill = Boolean(pick);
         const r = await routeSkill(text, ids, pick ?? undefined).catch(() => ({ route: 'pipeline' } as SkillRoute));
         if (r.route === 'clarify') {
           setClarify({ text, question: r.question, options: r.options }); setState('idle'); speak(r.question);
@@ -324,18 +343,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
           setLive({ steps: [r.reason, `Đang chạy kỹ năng ${r.label}`], answer: '' });
           speak(`Mình dùng kỹ năng ${r.label} cho câu này…`);
           const card = { id: Date.now(), convo: conversationId ?? '', after: messages.length, question: text, label: r.label, reason: r.reason };
-          let out: SkillOutput;
+          let out: SkillOutput | null = null;
           try { out = await runSkill(r.skill, text, r.source_ids); }
-          catch (err: any) { setCards(c => [...c, { ...card, error: err.message }]); setState('error'); speak('Kỹ năng chưa chạy được.'); return; }
-          try {
-            // lưu vào cuộc trò chuyện để tải lại trang vẫn còn; lưu không được thì vẫn hiện thẻ trong phiên
-            const cid = await saveSkillCard(conversationId, text, summarizeSkill(out.skill, r.label, out.data), { skill: out.skill, label: r.label, reason: r.reason, data: out.data }, workspaceId);
-            await load(cid);
-            if (cid !== conversationId) { skipLoad.current = cid; onConversation(cid); }
-            onChanged();
-          } catch { setCards(c => [...c, { ...card, out }]); }
-          setState('completed'); speak(`Xong kỹ năng ${r.label}.`);
-          return;
+          catch (err: any) {
+            if (isExplicitSkill) {
+              setCards(c => [...c, { ...card, error: err.message }]); setState('error'); speak('Kỹ năng chưa chạy được.'); return;
+            }
+            // V9: tự động định tuyến kỹ năng không đủ điều kiện tài liệu -> rơi mượt xuống AI pipeline thay vì báo lỗi đỏ
+            out = null;
+          }
+          if (out) {
+            try {
+              // lưu vào cuộc trò chuyện để tải lại trang vẫn còn; lưu không được thì vẫn hiện thẻ trong phiên
+              const cid = await saveSkillCard(conversationId, text, summarizeSkill(out.skill, r.label, out.data), { skill: out.skill, label: r.label, reason: r.reason, data: out.data }, workspaceId);
+              await load(cid);
+              if (cid !== conversationId) { skipLoad.current = cid; onConversation(cid); }
+              onChanged();
+            } catch { setCards(c => [...c, { ...card, out }]); }
+            setState('completed'); speak(`Xong kỹ năng ${r.label}.`);
+            return;
+          }
         }
       }
       setLive({ steps: [], answer: '' });
@@ -641,7 +668,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
                     {agentsLive && <RunTimeline live groups={buildTimeline(getLive()?.events ?? [])} onSeek={() => setOffice({ kind: 'live' })} />}
                   </section>;
                 })()}
-                {live.answer && <div className="md ws-live-answer"><Markdown text={inlineCites(stripSources(live.answer), allDocs.length ? allDocs : docs)} /></div>}
+                {live.answer && <div className="md ws-live-answer"><Markdown text={inlineCites(stripSources(cleanLiveStream(live.answer)), allDocs.length ? allDocs : docs)} /></div>}
               </div>
             </>}
             <div ref={endRef} />
@@ -662,7 +689,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ workspaceId, conversationI
         {report.error ? <p className="note is-error">{report.error}</p> : !report.data ? <p className="muted-line"><span className="spin is-dark" />Đang viết báo cáo, thường mất 30–60 giây…</p>
           : <div className="md ws-report"><Markdown text={report.data.markdown} /></div>}
       </StudioModal>}
-          <input ref={fileRef} type="file" hidden multiple accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff"
+          <input ref={fileRef} type="file" hidden multiple accept=".pdf,.docx,.xlsx,.csv,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff"
             onChange={e => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; setError(null);
               void (async () => { const bad: string[] = []; for (const f of fs) { try { await onUploadFile?.(f); } catch (err: any) { bad.push(`${f.name}: ${err.message}`); } }
                 if (bad.length) setError(`Không thêm được ${bad.join('; ')}`); })(); }} />

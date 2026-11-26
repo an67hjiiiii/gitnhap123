@@ -114,8 +114,8 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({
     : failed ? { tone: 'bad', text: `${failed} tệp lỗi xử lý` }
     : busy ? { tone: 'warn', text: `Đang xử lý ${busy} tệp` }
     : documents.length ? { tone: 'ok', text: 'Sẵn sàng truy xuất' } : { tone: 'idle', text: 'Chưa có tài liệu' };
-  const upload = <button id="knowledge-upload-dropzone" className="icon-btn is-sm" onClick={() => fileInputRef.current?.click()} aria-label="Tải lên tài liệu" title="Thêm tài liệu (PDF, Word, Excel, Markdown, TXT, SQL)"><Plus size={16} /></button>;
-  const fileInput = <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff" multiple hidden onChange={async e => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; if (fs.length) await processFiles(fs); }} />;
+  const upload = <button id="knowledge-upload-dropzone" className="icon-btn is-sm" onClick={() => fileInputRef.current?.click()} aria-label="Tải lên tài liệu" title="Thêm tài liệu (PDF, Word, Excel, CSV, Markdown, TXT, SQL)"><Plus size={16} /></button>;
+  const fileInput = <input ref={fileInputRef} type="file" accept=".pdf,.docx,.xlsx,.csv,.md,.markdown,.sql,.txt,.png,.jpg,.jpeg,.tif,.tiff" multiple hidden onChange={async e => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; if (fs.length) await processFiles(fs); }} />;
 
   const docs = useMemo(() => documents.filter(doc =>
     (!softwareFilter || domain === 'all' || domainOf(doc) === domain || doc.domain_tags.some(t => t.toLowerCase().includes(domain))) &&

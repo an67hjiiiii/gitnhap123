@@ -18,12 +18,13 @@ from app.core.types import SourceChunk
 HYBRID_VERSION = "product-hybrid-bm25-rrf-v3"
 RRF_K = 60           # hằng số chuẩn của Reciprocal Rank Fusion
 HEADING_WEIGHT = 1.0  # điểm cộng tối đa cho tiêu đề mục, tính bằng đơn vị 1/RRF_K
+BM25_STRENGTH_WEIGHT = 1.25  # giữ lợi thế cho đoạn khớp từ khóa hiếm (Uptime, P95, TLS) không bị tiêu đề chung đè
 TITLE_WEIGHT = 0.5    # từ của câu hỏi có trong tên tài liệu ("CSDL" ↔ "02_Thiet_ke_CSDL...")
 LIST_WEIGHT = 0.5     # câu hỏi liệt kê ("gồm những … nào") ưu tiên mục "Danh sách …", "Các …"
 _LIST_Q = re.compile(r"\b(gom|bao gom|liet ke|danh sach|co nhung|nhung .* nao|cac .* nao)\b")
 _LIST_H = re.compile(r"\b(danh sach|gom|bao gom)")
 BM25_K1, BM25_B = 1.4, 0.75
-STRONG_BM25 = 2       # số đoạn khớp từ khóa mạnh luôn được giữ (v3)
+STRONG_BM25 = 4       # số đoạn khớp từ khóa mạnh luôn được giữ (RET-01)
 STRONG_RATIO = 0.6    # "mạnh" = điểm BM25 >= 60% điểm cao nhất
 POOL = 3              # lấy vector và BM25 mỗi bên top_k * POOL ứng viên trước khi gộp
 
@@ -38,11 +39,33 @@ def fold(text: str) -> str:
     return unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode().lower()
 
 
+_CAMEL = re.compile(r"([a-z])([A-Z])")
+
+
 def tokens(text: str) -> list[str]:
-    """Âm tiết đã bỏ dấu (bỏ từ chức năng) cộng cặp âm tiết liền nhau, vì từ tiếng Việt thường gồm hai âm tiết."""
-    words = re.findall(r"[a-z0-9_]+", fold(text))
+    """Âm tiết đã bỏ dấu (bỏ từ chức năng) cộng cặp âm tiết liền nhau; tách cả tên tệp/sheet snake_case và CamelCase (V9)."""
+    raw_text = text or ""
+    folded = fold(raw_text)
+    camel_folded = fold(_CAMEL.sub(r"\1 \2", raw_text))
+    raw = re.findall(r"[a-z0-9_]+", camel_folded)
+    # Tách thêm các từ con trong định danh có '_' (vd. '02_Bao_Cao_Tai_Chinh_Q4_2025' -> 'bao', 'cao', 'tai', 'chinh'...)
+    # đồng thời vẫn giữ nguyên định danh gốc (vd. 'user_id') cho đặc tả phần mềm/SQL.
+    words: list[str] = []
+    for tok in raw:
+        if "_" in tok:
+            parts = [p for p in tok.split("_") if p]
+            words.extend(parts)
+            if len(parts) <= 3:
+                words.append(tok)
+        else:
+            words.append(tok)
+    # Giữ thêm token liền gốc nếu CamelCase bị tách (vd. 'vietcore' vẫn còn bên cạnh 'viet', 'core')
+    for tok in re.findall(r"[a-z0-9]+", folded):
+        if tok not in words and len(tok) >= 4:
+            words.append(tok)
     out = [w for w in words if len(w) >= 2 and w not in _STOP]
-    out += [f"{a}_{b}" for a, b in zip(words, words[1:]) if a not in _STOP or b not in _STOP]
+    plain = [w for w in words if "_" not in w]
+    out += [f"{a}_{b}" for a, b in zip(plain, plain[1:]) if a not in _STOP or b not in _STOP]
     return out
 
 
@@ -99,15 +122,38 @@ def fuse(query: str, chunks: list[SourceChunk], vector_ranked: list[str], top_k:
         score[cid] = score.get(cid, 0.0) + 1.0 / (RRF_K + rank + 1)
     q_words = {t for t in tokens(query) if "_" not in t}
     listing = bool(_LIST_Q.search(fold(query)))
+    bm_max = bm[bm_ranked[0]] if bm_ranked else 0.0
     for cid in score:
         c = by_id[cid]
         bonus = HEADING_WEIGHT * heading_match(query, c)
+        if bm_max > 0 and cid in bm:
+            bonus += BM25_STRENGTH_WEIGHT * (bm[cid] / bm_max)
         if q_words:
             bonus += TITLE_WEIGHT * len(q_words & set(tokens(c.source_name))) / len(q_words)
         if listing and _LIST_H.search(fold(headings(c.text))):
             bonus += LIST_WEIGHT
         score[cid] += bonus / RRF_K
     ranked = sorted(score, key=lambda cid: (-score[cid], cid))[:top_k]
+    # BUG-B104-01: cân bằng đa tài liệu khi truy vấn trên >= 2 nguồn (không để 1 nguồn chiếm trọn top_k)
+    distinct_sources = {by_id[cid].source_id for cid in score}
+    if len(distinct_sources) >= 2 and top_k >= 4:
+        max_per_source = max(2, math.ceil(top_k * 0.65))
+        all_sorted = sorted(score, key=lambda cid: (-score[cid], cid))
+        balanced: list[str] = []
+        per_src: Counter[str] = Counter()
+        overflow: list[str] = []
+        for cid in all_sorted:
+            sid = by_id[cid].source_id
+            if per_src[sid] < max_per_source:
+                balanced.append(cid)
+                per_src[sid] += 1
+                if len(balanced) >= top_k:
+                    break
+            else:
+                overflow.append(cid)
+        if len(balanced) < top_k:
+            balanced.extend(overflow[: top_k - len(balanced)])
+        ranked = balanced
     # Đoạn khớp từ khóa rất mạnh nhưng vector bỏ qua thì RRF xếp dưới đoạn "vừa vừa" ở cả hai danh sách (bỏ sót Nội quy
     # "gửi đơn trước 03 ngày", 21/11): giữ chắc tối đa STRONG_BM25 đoạn có điểm >= STRONG_RATIO * điểm BM25 cao nhất.
     if bm_ranked:
@@ -120,8 +166,10 @@ def fuse(query: str, chunks: list[SourceChunk], vector_ranked: list[str], top_k:
     return [SourceChunk(**{**by_id[cid].__dict__, "score": round(score[cid], 6)}) for cid in ranked], trace
 
 
-_ARTICLE = re.compile(r"(?m)^\s*(?:Điều|ĐIỀU|Article)\s+\d+[.:]")
-ARTICLE_TAIL = 400  # Điều bắt đầu trong 400 ký tự cuối đoạn thì phần thân Điều nằm ở đoạn sau
+_ARTICLE = re.compile(
+    r"(?m)^\s*(?:(?:#{1,4}\s+\S+)|(?:(?:#{1,4}\s*)?(?:(?:Điều|ĐIỀU|Article|Mục|MỤC)\s+\d+|(?:Chương|CHƯƠNG)\s+(?:[IVXLCDM]+|\d+))\s*[.:–-]?))"
+)
+ARTICLE_TAIL = 400  # Điều hoặc tiêu đề Markdown bắt đầu trong 400 ký tự cuối đoạn thì phần thân/bảng nằm ở đoạn sau
 
 
 def continue_articles(found: list[SourceChunk], chunks: list[SourceChunk]) -> list[SourceChunk]:
@@ -135,7 +183,17 @@ def continue_articles(found: list[SourceChunk], chunks: list[SourceChunk]) -> li
         out.append(c)
         heads = list(_ARTICLE.finditer(c.text))
         nxt = by_pos.get((c.source_id, c.index + 1))
-        if heads and len(c.text) - heads[-1].start() <= ARTICLE_TAIL and nxt and nxt.chunk_id not in have:
+        tail_stripped = (c.text or "").rstrip()
+        mid_sentence_cut = bool(
+            len(tail_stripped) >= 500
+            and tail_stripped[-1].isalnum()
+            and "|" not in tail_stripped.splitlines()[-1]
+        )
+        if nxt and nxt.chunk_id not in have and (
+            (heads and len(c.text) - heads[-1].start() <= ARTICLE_TAIL)
+            or mid_sentence_cut
+            or (len(tail_stripped) >= 500 and len(nxt.text) <= 300)
+        ):
             out.append(SourceChunk(**{**nxt.__dict__, "score": c.score}))
             have.add(nxt.chunk_id)
     return out

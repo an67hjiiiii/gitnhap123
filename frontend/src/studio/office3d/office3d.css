@@ -29,8 +29,7 @@
 .o3d-status-pill {
   display: flex; align-items: center; gap: 10px; min-width: 0; max-width: min(640px, 100%);
   padding: 8px 16px; border-radius: 999px;
-  background: var(--o3d-glass); border: 1px solid var(--o3d-line); box-shadow: var(--o3d-shadow);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 253, 249, 0.96); border: 1px solid var(--o3d-line); box-shadow: var(--o3d-shadow);
 }
 .o3d-status-title { font-size: 13px; font-weight: 700; color: var(--o3d-ink); white-space: nowrap; }
 .o3d-mode { flex: none; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
@@ -44,8 +43,28 @@
 
 .o3d-toolbar {
   display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 14px;
-  background: var(--o3d-glass); border: 1px solid var(--o3d-line); box-shadow: var(--o3d-shadow);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 253, 249, 0.96); border: 1px solid var(--o3d-line); box-shadow: var(--o3d-shadow);
+}
+/* Tối ưu GPU cho máy cấu hình thấp/GPU tích hợp hoặc mức Thấp: tắt backdrop-filter cố định trên các lớp phủ đè trên WebGL
+   để tránh GPU readback mỗi khung hình (KHÔNG đổi style động lúc đang lăn chuột để tránh style recalc!). */
+.office3d-page[data-quality="low"] .o3d-status-pill,
+.office3d-page[data-quality="low"] .o3d-toolbar,
+.office3d-page[data-quality="low"] .o3d-dock,
+.office3d-page[data-quality="low"] .o3d-tag,
+.office3d-page[data-quality="low"] .o3d-flow-badge,
+.office3d-page[data-hw="software"] .o3d-status-pill,
+.office3d-page[data-hw="software"] .o3d-toolbar,
+.office3d-page[data-hw="software"] .o3d-dock,
+.office3d-page[data-hw="software"] .o3d-tag,
+.office3d-page[data-hw="software"] .o3d-flow-badge,
+.office3d-page[data-hw="integrated"] .o3d-status-pill,
+.office3d-page[data-hw="integrated"] .o3d-toolbar,
+.office3d-page[data-hw="integrated"] .o3d-dock,
+.office3d-page[data-hw="integrated"] .o3d-tag,
+.office3d-page[data-hw="integrated"] .o3d-flow-badge {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(255, 255, 255, 0.96);
 }
 .o3d-toolbar button,
 .o3d-toolbar select {
@@ -60,7 +79,7 @@
 .o3d-toolbar button:focus-visible,
 .o3d-toolbar select:focus-visible,
 .o3d-panel button:focus-visible,
-.o3d-tag:focus-visible { outline: 2px solid #e07a00; outline-offset: 1px; }
+.o3d-tag:focus-visible { outline: 2px solid #4f46e5; outline-offset: 1px; }
 .o3d-toolbar .is-mono { font-family: ui-monospace, SFMono-Regular, monospace; font-weight: 700; }
 .o3d-toolbar .is-on { background: var(--o3d-ink); color: #fff; }
 .o3d-toolbar .is-on:hover { background: #292524; color: #fff; }
@@ -82,13 +101,78 @@
 .o3d-tag.is-lead { border-color: color-mix(in srgb, var(--o3d-accent) 55%, transparent); box-shadow: 0 6px 20px -4px color-mix(in srgb, var(--o3d-accent) 45%, transparent); }
 .o3d-tag.is-selected { outline: 2px solid var(--o3d-accent); outline-offset: 1px; }
 
+/* nhãn đường truyền luồng điều phối 3D */
+.o3d-flow-badge {
+  position: absolute; left: 0; top: 0;
+  display: inline-flex; align-items: center; gap: 5px; max-width: 245px;
+  padding: 3px 9px 3px 7px; border-radius: 999px;
+  background: rgba(11, 18, 32, 0.90); color: #f8fafc;
+  border: 1.5px solid color-mix(in srgb, var(--flow-color) 75%, transparent);
+  box-shadow: 0 6px 16px -4px rgba(11, 18, 32, 0.55);
+  font-size: 10.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  will-change: transform;
+}
+.o3d-flow-badge.is-active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--flow-color) 28%, transparent), 0 8px 18px -4px rgba(11, 18, 32, 0.65);
+}
+.o3d-flow-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--flow-color);
+  box-shadow: 0 0 8px var(--flow-color);
+}
+.o3d-flow-route { color: #fde68a; font-weight: 700; flex: none; }
+.o3d-flow-sep { color: rgba(148, 163, 184, 0.65); flex: none; }
+.o3d-flow-text { overflow: hidden; text-overflow: ellipsis; color: #f1f5f9; }
+
+/* ngăn xếp đáy sân khấu 3D: các bong bóng nổi tự nhiên bấm xuyên vùng trống xuống 3D, không bao giờ đè lên toolbar */
+.o3d-bottom-dock {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.o3d-bottom-dock > * { pointer-events: auto; }
+.o3d-bottom-dock > .o3d-fchat { pointer-events: none; }
+.office3d-page:not(.is-live-office) .o3d-bottom-dock { bottom: 68px; z-index: 32; }
+.office3d-page.is-narrow:not(.is-live-office) .o3d-bottom-dock { bottom: 122px; z-index: 32; }
+
+/* dải tóm tắt dấu vết điều phối C1SE.27 (chế độ Trực tiếp / Xem lại) */
+.o3d-trace-bar {
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 5px 8px;
+  max-width: 100%; padding: 6px 12px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92); border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 26px -12px rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-size: 11.5px; color: #475569;
+}
+.o3d-trace-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05); color: #1e293b; font-weight: 600; white-space: nowrap;
+}
+.o3d-trace-chip.is-simple { background: #ecfdf5; color: #047857; }
+.o3d-trace-chip.is-complex { background: #eef2ff; color: #4338ca; }
+.o3d-trace-replay {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px;
+  border: 0; background: #1e293b; color: #fff; font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.o3d-trace-replay:hover { background: #0f172a; }
+
 /* khung chung: bảng chọn và thẻ Agent */
 .o3d-panel {
   position: absolute; z-index: 32; right: 12px; top: 64px;
   width: min(372px, calc(100% - 24px)); max-height: calc(100% - 140px);
   display: flex; flex-direction: column;
-  background: var(--o3d-paper); border: 1px solid var(--o3d-line); border-radius: 20px;
-  box-shadow: var(--o3d-shadow); overflow: hidden;
+  background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.09); border-radius: 22px;
+  box-shadow: 0 24px 52px -18px rgba(15, 23, 42, 0.24), 0 2px 6px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
   animation: o3dIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 @keyframes o3dIn { from { opacity: 0; transform: translateY(-6px) scale(0.985); } }
@@ -99,14 +183,7 @@
   flex: none; width: 30px; height: 30px; display: grid; place-items: center;
   border-radius: 9px; border: 0; background: transparent; color: var(--o3d-ink-2); cursor: pointer;
 }
-.o3d-icon-btn:hover { background: rgba(28, 25, 23, 0.07); color: var(--o3d-ink); }
-.o3d-avatar {
-  flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px;
-  color: #fff; font: 800 14px ui-monospace, monospace; letter-spacing: 0.02em;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--o3d-accent) 78%, #fff), var(--o3d-accent));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 14px -6px var(--o3d-accent);
-}
-.o3d-avatar.is-sm { width: 34px; height: 34px; border-radius: 11px; font-size: 12px; }
+.o3d-icon-btn:hover { background: rgba(15, 23, 42, 0.06); color: var(--o3d-ink); }
 .o3d-presence { width: 8px; height: 8px; border-radius: 50%; background: #d6d3d1; flex: none; }
 .o3d-presence.is-awake,
 .o3d-now.is-awake .o3d-presence { background: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2); }
@@ -114,69 +191,1421 @@
 /* bảng chọn */
 .o3d-roster-head { display: flex; align-items: flex-start; gap: 8px; padding: 16px 12px 10px 18px; }
 .o3d-roster-head > div { flex: 1; min-width: 0; }
-.o3d-roster-head h2 { font-size: 15px; font-weight: 800; color: var(--o3d-ink); }
-.o3d-roster-head p { margin-top: 2px; font-size: 12px; color: var(--o3d-ink-2); }
+.o3d-roster-head h2 { font-size: 15px; font-weight: 800; color: #111827; }
+.o3d-roster-head p { margin-top: 2px; font-size: 12px; color: #64748b; }
 .o3d-roster-body { overflow-y: auto; padding: 0 10px 12px; }
-.o3d-roster-body h3 { padding: 10px 8px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--o3d-ink-3); }
+.o3d-roster-body h3 { padding: 10px 8px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #94a3b8; }
 .o3d-roster-body ul { display: grid; gap: 2px; }
 .o3d-roster-item {
   width: 100%; display: flex; align-items: center; gap: 11px; padding: 7px 10px 7px 7px;
-  border-radius: 13px; border: 0; background: transparent; text-align: left; cursor: pointer;
+  border-radius: 14px; border: 0; background: transparent; text-align: left; cursor: pointer;
 }
-.o3d-roster-item:hover { background: color-mix(in srgb, var(--o3d-accent) 9%, #fff); }
+.o3d-roster-item:hover { background: color-mix(in srgb, var(--o3d-accent) 8%, #f8fafc); }
 .o3d-roster-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.o3d-roster-text b { font-size: 13px; color: var(--o3d-ink); }
-.o3d-roster-text small { font-size: 11.5px; color: var(--o3d-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o3d-roster-text b { font-size: 13px; color: #111827; }
+.o3d-roster-text small { font-size: 11.5px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* thẻ Agent */
 .o3d-card-head {
   display: flex; align-items: center; gap: 12px; padding: 18px 12px 14px 18px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--o3d-accent) 13%, #fff), var(--o3d-paper));
-  border-bottom: 1px solid var(--o3d-line);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--o3d-accent) 10%, #fff), #ffffff);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
 }
 .o3d-card-title { flex: 1; min-width: 0; }
-.o3d-card-title h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--o3d-ink); }
-.o3d-card-title p { margin-top: 1px; font-size: 12.5px; color: var(--o3d-ink-2); }
+.o3d-card-title h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: #111827; }
+.o3d-card-title p { margin-top: 1px; font-size: 12.5px; color: #64748b; }
 .o3d-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 18px 0; }
 .o3d-status { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; border: 1px solid; }
 .o3d-status.is-live { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
 .o3d-status.is-partial { background: #fffbeb; color: #b45309; border-color: #fde68a; }
 .o3d-status.is-ready { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
 .o3d-status.is-planned { background: #f5f5f4; color: #57534e; border-color: #e7e5e4; }
-.o3d-now { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--o3d-ink-2); }
+.o3d-now { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: #64748b; }
 .o3d-card-body { overflow-y: auto; padding: 12px 18px 8px; display: grid; gap: 16px; }
-.o3d-lead { font-size: 14px; line-height: 1.55; color: var(--o3d-ink); font-weight: 500; }
-.o3d-card-body h3 { margin-bottom: 7px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--o3d-ink-3); }
-.o3d-card-body section > p { font-size: 13px; line-height: 1.55; color: var(--o3d-ink-2); }
+.o3d-lead { font-size: 14px; line-height: 1.55; color: #111827; font-weight: 500; }
+.o3d-card-body h3 { margin-bottom: 7px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #94a3b8; }
+.o3d-card-body section > p { font-size: 13px; line-height: 1.55; color: #475569; }
 .o3d-checks, .o3d-examples { display: grid; gap: 7px; }
-.o3d-checks li, .o3d-examples li { display: grid; grid-template-columns: 16px 1fr; gap: 8px; font-size: 13px; line-height: 1.5; color: var(--o3d-ink); }
+.o3d-checks li, .o3d-examples li { display: grid; grid-template-columns: 16px 1fr; gap: 8px; font-size: 13px; line-height: 1.5; color: #1e293b; }
 .o3d-checks svg { margin-top: 3px; color: var(--o3d-accent); }
-.o3d-examples li { padding: 8px 10px; border-radius: 11px; background: #f6f2ec; color: var(--o3d-ink-2); }
+.o3d-examples li { padding: 8px 10px; border-radius: 12px; background: #f4f6fa; color: #475569; }
 .o3d-examples svg { margin-top: 3px; color: #d97706; }
 .o3d-flow {
   display: grid; gap: 6px; padding: 10px 12px; border-radius: 13px;
   border: 1px dashed color-mix(in srgb, var(--o3d-accent) 40%, transparent);
   background: color-mix(in srgb, var(--o3d-accent) 5%, #fff);
 }
-.o3d-flow > div { display: grid; grid-template-columns: 16px 1fr; gap: 8px; font-size: 12.5px; line-height: 1.45; color: var(--o3d-ink-2); }
+.o3d-flow > div { display: grid; grid-template-columns: 16px 1fr; gap: 8px; font-size: 12.5px; line-height: 1.45; color: #475569; }
 .o3d-flow svg { margin-top: 2px; color: var(--o3d-accent); }
-.o3d-flow b { display: inline-block; min-width: 38px; margin-right: 6px; color: var(--o3d-ink); font-weight: 700; }
+.o3d-flow b { display: inline-block; min-width: 38px; margin-right: 6px; color: #111827; font-weight: 700; }
 .o3d-limit { display: grid; grid-template-columns: 16px 1fr; gap: 8px; padding: 9px 11px; border-radius: 11px; background: #fffbeb; color: #92400e; font-size: 12.5px; line-height: 1.45; }
 .o3d-limit svg { margin-top: 2px; }
 .o3d-card-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 10px; border-top: 1px solid var(--o3d-line); font-size: 11.5px; color: var(--o3d-ink-3);
+  padding: 8px 10px; border-top: 1px solid rgba(15, 23, 42, 0.07); font-size: 11.5px; color: #94a3b8;
 }
 .o3d-card-foot button {
   display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; border-radius: 9px; border: 0;
-  background: transparent; color: var(--o3d-ink-2); font-size: 12px; font-weight: 600; cursor: pointer;
+  background: transparent; color: #475569; font-size: 12px; font-weight: 600; cursor: pointer;
 }
-.o3d-card-foot button:hover { background: rgba(28, 25, 23, 0.06); color: var(--o3d-ink); }
+.o3d-card-foot button:hover { background: rgba(15, 23, 42, 0.05); color: #111827; }
 
 @container (max-width: 767px) {
   .o3d-top { flex-direction: column; align-items: stretch; top: 8px; left: 8px; right: 8px; }
   .o3d-status-pill { max-width: none; }
   .o3d-toolbar { align-self: flex-end; }
-  .o3d-toolbar label { display: none; } /* điện thoại: chất lượng hình để Tự động */
+  .o3d-toolbar label { display: none; }
   .o3d-panel { left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 62%; }
+}
+
+/* ===== Layout thống nhất Studio ===== */
+.office3d-page.is-narrow {
+  flex-direction: column;
+}
+.o3d-workspace-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+.o3d-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.o3d-stage.is-hidden-under-chat {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Thanh chuyển đổi Segmented Control sạch sáng trên bảng hẹp */
+.o3d-narrow-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px 9px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 36;
+}
+.o3d-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 999px;
+  background: #f1f3f7;
+}
+.o3d-segmented button {
+  position: relative;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+  white-space: nowrap;
+}
+.o3d-segmented button:hover { color: #111827; }
+.o3d-segmented button.is-active {
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.14);
+}
+.o3d-seg-count {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.12);
+  color: #4f46e5;
+}
+.o3d-segmented button.is-active .o3d-seg-count {
+  background: #4f46e5;
+  color: #ffffff;
+}
+.o3d-seg-ping {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.24);
+  animation: o3dPulse 1.3s ease-in-out infinite;
+}
+.o3d-narrow-state {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.o3d-narrow-state.is-live { background: #dcfce7; color: #15803d; }
+.o3d-narrow-state.is-done { background: #eef2ff; color: #4338ca; }
+.o3d-narrow-state.is-fail { background: #ffe4e6; color: #be123c; }
+
+/* ===== V11: Avatar Robot Eilik SVG + Huy hiệu Logo Vai trò riêng (11 màu × 11 logo) ===== */
+.o3d-rava {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 50%;
+}
+.o3d-rava > svg { display: block; }
+.o3d-rava-crest {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1.8px solid #ffffff;
+  box-shadow: 0 2px 6px -1px rgba(15, 23, 42, 0.24);
+  z-index: 2;
+}
+.o3d-rava-crest svg { display: block; }
+.o3d-rava-live-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 1.6px solid var(--o3d-accent, #10b981);
+  opacity: 0.65;
+  pointer-events: none;
+  animation: o3dLiveRing 1.9s ease-out infinite;
+}
+@keyframes o3dLiveRing {
+  0% { transform: scale(0.95); opacity: 0.72; }
+  70% { transform: scale(1.1); opacity: 0; }
+  100% { transform: scale(1.1); opacity: 0; }
+}
+
+/* ===== V11: FRAMELESS FLOATING CHAT OVERLAY ON 3D (KHÔNG ĐÓNG KHUNG, SO LE TRÁI-PHẢI + 3 CHẤM & LOGO) ===== */
+.o3d-fchat {
+  width: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+.o3d-fchat-stream {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.o3d-fbubble-row {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: 100%;
+  pointer-events: none;
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.o3d-fbubble-row.is-left { justify-content: flex-start; }
+.o3d-fbubble-row.is-right { justify-content: flex-end; }
+
+/* Phân tầng mờ dần tự nhiên giữa không trung, không bị hộp chặn */
+.o3d-fbubble-row.is-oldest {
+  opacity: 0.52;
+  transform: scale(0.93);
+  transform-origin: bottom center;
+}
+.o3d-fbubble-row.is-mid {
+  opacity: 0.84;
+  transform: scale(0.97);
+  transform-origin: bottom center;
+}
+.o3d-fbubble-row.is-newest {
+  opacity: 1;
+  transform: scale(1);
+}
+.o3d-fbubble-row.is-oldest:hover,
+.o3d-fbubble-row.is-mid:hover {
+  opacity: 0.98;
+  transform: scale(1);
+}
+.o3d-fbubble-row.is-exiting {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.o3d-fbubble-ava {
+  flex: none;
+  border: 0;
+  padding: 0;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.2));
+  transition: transform 0.16s ease;
+}
+.o3d-fbubble-ava:hover { transform: scale(1.08); }
+
+.o3d-fbubble-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: min(76%, 420px);
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  min-height: 0 !important;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.o3d-fbubble-row.is-right .o3d-fbubble-wrap { align-items: flex-end; }
+.o3d-fbubble-row.is-left .o3d-fbubble-wrap { align-items: flex-start; }
+
+/* Nhãn tên người gửi siêu nhẹ nổi ngay trên bong bóng */
+.o3d-fbubble-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 2px 8px -3px rgba(15, 23, 42, 0.16);
+  font-size: 10.8px;
+  line-height: 1.25;
+}
+.o3d-fbubble-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.o3d-fbubble-who b { font-weight: 700; }
+.o3d-fbubble-to {
+  color: #64748b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.o3d-fbubble-status {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.o3d-fbubble-status.is-complete { background: #dcfce7; color: #15803d; }
+.o3d-fbubble-status.is-partial { background: #fef3c7; color: #b45309; }
+.o3d-fbubble-status.is-nodata { background: #ffe4e6; color: #be123c; }
+
+/* Bong bóng nổi không viền cứng */
+.o3d-fbubble-pill {
+  padding: 7px 13px;
+  border-radius: 20px;
+  box-shadow: 0 12px 28px -10px rgba(15, 23, 42, 0.24), 0 2px 6px rgba(15, 23, 42, 0.06);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+.o3d-fbubble-wrap:hover .o3d-fbubble-pill {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 32px -10px rgba(15, 23, 42, 0.28);
+}
+.o3d-fbubble-row.is-left .o3d-fbubble-pill { border-radius: 20px 20px 20px 6px; }
+.o3d-fbubble-row.is-right .o3d-fbubble-pill { border-radius: 20px 20px 6px 20px; }
+
+.o3d-fbubble-pill.is-glass {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(18px) saturate(1.18);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  color: #111827;
+}
+.o3d-fbubble-pill.is-orch {
+  background: rgba(79, 70, 229, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #ffffff;
+  box-shadow: 0 12px 28px -10px rgba(79, 70, 229, 0.48);
+}
+.o3d-fbubble-pill.is-integrator {
+  background: rgba(99, 91, 255, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #ffffff;
+  box-shadow: 0 12px 28px -10px rgba(99, 91, 255, 0.48);
+}
+.office3d-page[data-quality="low"] .o3d-fbubble-pill.is-glass,
+.office3d-page[data-quality="low"] .o3d-fbubble-meta,
+.office3d-page[data-quality="low"] .o3d-ftyping-bubble,
+.office3d-page[data-quality="low"] .o3d-fchat-pill {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.o3d-fbubble-text {
+  font-size: 12.6px;
+  line-height: 1.44;
+  font-weight: 450;
+  word-break: break-word;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.o3d-fbubble-row.is-mid .o3d-fbubble-text,
+.o3d-fbubble-row.is-oldest .o3d-fbubble-text {
+  -webkit-line-clamp: 1;
+  font-size: 12px;
+}
+
+/* Cụm Avatar + Logo xếp chồng + Bong bóng 3 chấm đang trả lời trên 3D & trong Khung Chat */
+.o3d-typing-stack {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  pointer-events: auto;
+}
+.o3d-typing-ava {
+  border: 0;
+  padding: 0;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  margin-left: -8px;
+  transition: transform 0.16s ease;
+}
+.o3d-typing-ava:first-child { margin-left: 0; }
+.o3d-typing-ava:hover { transform: translateY(-2px); z-index: 3; }
+
+.o3d-ftyping-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 10px 26px -10px rgba(15, 23, 42, 0.22);
+  pointer-events: auto;
+}
+.o3d-ftyping-label {
+  font-size: 11.6px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.o3d-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.o3d-typing-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6366f1;
+  display: block;
+  animation: o3dTypingWave 1.2s infinite ease-in-out;
+}
+.o3d-typing-dots i:nth-child(2) { animation-delay: 0.15s; background: #818cf8; }
+.o3d-typing-dots i:nth-child(3) { animation-delay: 0.30s; background: #a5b4fc; }
+
+/* Nút viên kính lỏng siêu gọn góc phải để mở đầy đủ cuộc trò chuyện */
+.o3d-fchat-bar {
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.o3d-fchat-pill {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 13px;
+  min-height: 0 !important;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 8px 22px -8px rgba(15, 23, 42, 0.24), 0 1px 2px rgba(15, 23, 42, 0.06);
+  color: #111827;
+  font-size: 11.6px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+.o3d-fchat-pill:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+.o3d-fchat-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+  animation: o3dPulse 1.4s ease-in-out infinite;
+}
+.o3d-fchat-pill-dot.is-done {
+  background: #4f46e5;
+  box-shadow: none;
+  animation: none;
+}
+
+/* ===== V11: CLEAN AIRY NATURAL MESSAGING (KHUNG CHAT TỰ NHIÊN, KHÔNG DẤU VẾT AI) ===== */
+.o3d-chat-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  user-select: text;
+  overflow: hidden;
+  background: #ffffff;
+  color: #111827;
+  z-index: 34;
+}
+.o3d-chat-shell.is-floating-side {
+  flex: none;
+  width: 410px;
+  height: calc(100% - 24px);
+  margin: 12px 12px 12px 0;
+  border-radius: 26px;
+  background: #ffffff;
+  box-shadow:
+    0 24px 56px -22px rgba(15, 23, 42, 0.2),
+    0 2px 10px -2px rgba(15, 23, 42, 0.05);
+}
+.o3d-chat-shell.is-full-tab {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+}
+
+/* 1. Header trắng trong trẻo, tối giản thanh thoát */
+.o3d-chat-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 15px 10px 16px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 2;
+}
+.o3d-chat-head-left {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.o3d-chat-group-stack { flex: none; }
+.o3d-chat-head-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.o3d-chat-head-meta h2 {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.o3d-chat-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11.4px;
+  font-weight: 500;
+  color: #6b7280;
+  white-space: nowrap;
+}
+.o3d-chat-presence i {
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 50%;
+  background: #9ca3af;
+  display: inline-block;
+}
+.o3d-chat-presence.is-online { color: #16a34a; font-weight: 600; }
+.o3d-chat-presence.is-online i {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+  animation: o3dPulse 1.5s ease-in-out infinite;
+}
+.o3d-chat-presence.is-done { color: #6b7280; }
+.o3d-chat-presence.is-done i { background: #10b981; }
+.o3d-chat-presence.is-fail { color: #e11d48; }
+.o3d-chat-presence.is-fail i { background: #e11d48; }
+
+.o3d-chat-head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.o3d-chat-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  min-height: 0 !important;
+  border-radius: 50%;
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: #f3f4f6;
+  color: #4b5563;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+.o3d-chat-close:hover {
+  background: #e5e7eb;
+  color: #111827;
+  transform: translateX(1px);
+}
+
+/* 2. Dải thành viên Stories tròn mượt — liền mạch không đường kẻ cứng */
+.o3d-chat-stories {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: #ffffff;
+}
+.o3d-chat-stories::-webkit-scrollbar { display: none; }
+.o3d-chat-story {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px 4px;
+  border-radius: 14px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.16s ease, background 0.16s ease;
+}
+.o3d-chat-story.is-resting { opacity: 0.72; }
+.o3d-chat-story.is-working { opacity: 1; }
+.o3d-chat-story:hover {
+  opacity: 1;
+  transform: translateY(-1.5px);
+  background: #f5f7fa;
+}
+.o3d-chat-story.is-selected {
+  opacity: 1;
+  background: color-mix(in srgb, var(--o3d-accent, #4f46e5) 10%, #ffffff);
+}
+.o3d-chat-story-ring {
+  padding: 2px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  display: grid;
+  place-items: center;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.o3d-chat-story.is-working .o3d-chat-story-ring {
+  border-color: var(--o3d-accent, #4f46e5);
+}
+.o3d-chat-story.is-resting .o3d-chat-story-ring {
+  border-color: rgba(15, 23, 42, 0.07);
+}
+.o3d-chat-story.is-selected .o3d-chat-story-ring {
+  border-color: var(--o3d-accent, #4f46e5);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--o3d-accent, #4f46e5) 16%, transparent);
+}
+.o3d-chat-story-name {
+  font-size: 10.6px;
+  font-weight: 600;
+  color: #6b7280;
+  max-width: 56px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.o3d-chat-story.is-working .o3d-chat-story-name,
+.o3d-chat-story.is-selected .o3d-chat-story-name {
+  color: #111827;
+  font-weight: 700;
+}
+
+/* 3. Dải Yêu cầu ghim thanh mảnh kiểu Telegram (KHÔNG vạch dọc thô) */
+.o3d-chat-pin-wrap {
+  flex: none;
+  padding: 0 14px 10px;
+  background: #ffffff;
+}
+.o3d-chat-pin {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: #f4f6fa;
+}
+.o3d-chat-pin-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 0;
+  min-height: 0 !important;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.o3d-chat-pin-ico {
+  flex: none;
+  margin-top: 3px;
+  color: #6366f1;
+}
+.o3d-chat-pin-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: #374151;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.o3d-chat-pin.is-expanded .o3d-chat-pin-text {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+.o3d-chat-clear-filter {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  min-height: 0 !important;
+  border-radius: 999px;
+  border: 0;
+  background: #ffffff;
+  color: #4f46e5;
+  font-size: 10.8px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+}
+.o3d-chat-clear-filter:hover { background: #eef2ff; }
+
+/* 4. Luồng hội thoại thoáng, trong trẻo, tự nhiên như ứng dụng nhắn tin di động */
+.o3d-chat-stream-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.o3d-chat-stream {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 15px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: #f7f8fb;
+}
+.o3d-chat-stream::-webkit-scrollbar { width: 5px; }
+.o3d-chat-stream::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.14);
+  border-radius: 999px;
+}
+.o3d-chat-stream::-webkit-scrollbar-track { background: transparent; }
+
+.o3d-chat-empty {
+  margin: auto 12px;
+  padding: 28px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  color: #6b7280;
+}
+.o3d-chat-empty p { font-size: 14.2px; font-weight: 700; color: #111827; }
+.o3d-chat-empty small { font-size: 12.2px; line-height: 1.5; max-width: 248px; }
+
+.o3d-chat-block {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+.o3d-chat-phase {
+  align-self: center;
+  margin: 14px 0 8px;
+}
+.o3d-chat-phase span {
+  display: inline-block;
+  padding: 3px 11px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.045);
+  font-size: 10.6px;
+  font-weight: 600;
+  color: #6b7280;
+}
+.o3d-chat-block:first-child .o3d-chat-phase { margin-top: 2px; }
+
+/* Hàng tin nhắn 2 phía — Avatar ở cả Trái & Phải */
+.o3d-chat-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 3px;
+}
+.o3d-chat-row.is-first,
+.o3d-chat-row.is-single { margin-top: 11px; }
+.o3d-chat-row.is-right { justify-content: flex-end; }
+.o3d-chat-row.is-left { justify-content: flex-start; }
+
+.o3d-chat-ava-slot {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: flex-end;
+}
+.o3d-chat-ava-btn {
+  border: 0;
+  padding: 0;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.16s ease;
+}
+.o3d-chat-ava-btn:hover { transform: scale(1.08); }
+
+.o3d-chat-col {
+  display: flex;
+  flex-direction: column;
+  max-width: 78%;
+  min-width: 0;
+}
+.o3d-chat-row.is-right .o3d-chat-col { align-items: flex-end; }
+.o3d-chat-row.is-left .o3d-chat-col { align-items: flex-start; }
+
+.o3d-chat-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  padding: 0 6px 4px;
+  min-height: 0 !important;
+  font-size: 11.2px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+}
+.o3d-chat-author:hover span { text-decoration: underline; }
+
+/* Bong bóng hữu cơ không viền cứng, không vạch dọc AI */
+.o3d-chat-bubble {
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.48;
+  word-break: break-word;
+  border-radius: 20px;
+  border: 0;
+}
+
+/* Chuyên gia bên TRÁI: xám sương mềm sạch sẽ như iMessage / Messenger */
+.o3d-chat-bubble.is-specialist {
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 2px 10px -4px rgba(15, 23, 42, 0.08);
+}
+.o3d-chat-row.is-left.is-first .o3d-chat-bubble { border-radius: 20px 20px 20px 6px; }
+.o3d-chat-row.is-left.is-mid .o3d-chat-bubble { border-radius: 6px 20px 20px 6px; }
+.o3d-chat-row.is-left.is-last .o3d-chat-bubble { border-radius: 6px 20px 20px 20px; }
+
+/* Điều phối & Tổng hợp bên PHẢI: xanh chàm & tím lam hiện đại mềm mại (như Ảnh 3–5) */
+.o3d-chat-bubble.is-orch {
+  background: #4f46e5;
+  color: #ffffff;
+  box-shadow: 0 8px 20px -10px rgba(79, 70, 229, 0.5);
+}
+.o3d-chat-bubble.is-integrator {
+  background: #635bff;
+  color: #ffffff;
+  box-shadow: 0 8px 20px -10px rgba(99, 91, 255, 0.5);
+}
+.o3d-chat-row.is-right.is-first .o3d-chat-bubble { border-radius: 20px 20px 6px 20px; }
+.o3d-chat-row.is-right.is-mid .o3d-chat-bubble { border-radius: 20px 6px 6px 20px; }
+.o3d-chat-row.is-right.is-last .o3d-chat-bubble { border-radius: 20px 6px 20px 20px; }
+
+.o3d-chat-bubble.is-error {
+  background: #fff1f2;
+  color: #9f1239;
+  box-shadow: 0 2px 10px -4px rgba(225, 29, 72, 0.14);
+}
+.o3d-chat-bubble.is-warn {
+  background: #fff7ed;
+  color: #9a3412;
+  box-shadow: 0 2px 10px -4px rgba(234, 88, 12, 0.14);
+}
+
+/* @mention tự nhiên trong dòng — KHÔNG đóng khung hộp dày */
+.o3d-chat-mention {
+  display: inline;
+  padding: 0 1px;
+  border-radius: 4px;
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: 700;
+  color: var(--o3d-mention-c, #4f46e5);
+  background: transparent;
+  vertical-align: baseline;
+}
+button.o3d-chat-mention.is-clickable {
+  appearance: none;
+  border: 0;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  height: auto !important;
+  margin: 0;
+  padding: 0 2px !important;
+  font: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+button.o3d-chat-mention.is-clickable:hover {
+  background: color-mix(in srgb, var(--o3d-mention-c, #4f46e5) 11%, transparent);
+}
+/* Trên bong bóng màu bên phải: chữ trắng sáng thanh lịch */
+.o3d-chat-bubble.is-orch .o3d-chat-mention,
+.o3d-chat-bubble.is-integrator .o3d-chat-mention {
+  color: #eef2ff;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.42);
+  text-underline-offset: 2px;
+}
+.o3d-chat-bubble.is-orch button.o3d-chat-mention.is-clickable:hover,
+.o3d-chat-bubble.is-integrator button.o3d-chat-mention.is-clickable:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Tệp đính kèm kiểu Media Bubble mềm mại (như UI Brief.docx ở Ảnh 3–4) */
+.o3d-chat-media {
+  margin-top: 5px;
+  padding: 9px 12px;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  background: #ffffff;
+  box-shadow: 0 2px 10px -4px rgba(15, 23, 42, 0.08);
+}
+.o3d-chat-media-ico {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #e0f2fe;
+  color: #0284c7;
+}
+.o3d-chat-media.is-doc .o3d-chat-media-ico { background: #e0f2fe; color: #0891b2; }
+.o3d-chat-media.is-qc_ok .o3d-chat-media-ico { background: #dcfce7; color: #16a34a; }
+.o3d-chat-media.is-qc_warn .o3d-chat-media-ico { background: #ffedd5; color: #ea580c; }
+.o3d-chat-media-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.o3d-chat-media-info b {
+  font-size: 12.2px;
+  font-weight: 600;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.o3d-chat-media-info span {
+  font-size: 11px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Nhãn xác nhận đã gửi nhẹ nhàng dưới bong bóng cuối */
+.o3d-chat-seen {
+  margin-top: 5px;
+  padding-right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+}
+.o3d-chat-seen.is-complete { color: #15803d; }
+.o3d-chat-seen.is-partial { color: #b45309; }
+.o3d-chat-seen.is-nodata { color: #be123c; }
+
+/* Bong bóng 3 chấm đang trả lời trong luồng chat */
+.o3d-chat-typing-row { margin-top: 10px; }
+.o3d-chat-typing-bubble {
+  padding: 11px 15px;
+  border-radius: 20px 20px 20px 6px;
+  background: #ffffff;
+  box-shadow: 0 2px 10px -4px rgba(15, 23, 42, 0.08);
+  display: inline-flex;
+  align-items: center;
+}
+.o3d-chat-typing-caption {
+  margin-top: 4px;
+  padding-left: 4px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* Nút nổi cuộn nhanh xuống tin mới nhất */
+.o3d-chat-jumpdown {
+  position: absolute;
+  right: 15px;
+  bottom: 14px;
+  width: 34px;
+  height: 34px;
+  min-height: 0 !important;
+  border-radius: 50%;
+  border: 0;
+  background: #ffffff;
+  color: #111827;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 22px -6px rgba(15, 23, 42, 0.24);
+  cursor: pointer;
+  z-index: 4;
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+.o3d-chat-jumpdown:hover { background: #f3f4f6; transform: translateY(1px); }
+
+/* 5. Chân khung chat kiểu Soft Composer Pill sạch sẽ */
+.o3d-chat-foot {
+  flex: none;
+  padding: 10px 14px 12px;
+  background: #ffffff;
+}
+.o3d-chat-pill-bar {
+  height: 38px;
+  padding: 0 15px;
+  border-radius: 999px;
+  background: #f3f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11.8px;
+  font-weight: 500;
+  color: #4b5563;
+}
+.o3d-chat-foot-logos {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.o3d-chat-foot-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
+}
+.o3d-chat-foot-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  flex: none;
+  animation: o3dPulse 1.5s ease-in-out infinite;
+}
+.o3d-chat-foot-dot.is-done {
+  background: #10b981;
+  animation: none;
+}
+.o3d-chat-foot-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes o3dTypingWave {
+  0%, 75%, 100% { transform: translateY(0) scale(0.92); opacity: 0.45; }
+  35% { transform: translateY(-4px) scale(1.1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .o3d-rava-live-ring,
+  .o3d-fchat-pill-dot,
+  .o3d-typing-dots i,
+  .o3d-chat-foot-dot,
+  .o3d-chat-presence.is-online i,
+  .o3d-seg-ping {
+    animation: none;
+  }
+}
+
+/* Tab Đội ngũ / Quy trình C1SE.27 trong bảng Đội Agent */
+.o3d-roster-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 6px 12px 8px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+.o3d-roster-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: rgba(15, 23, 42, 0.04);
+  color: #475569;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.o3d-roster-tabs button.is-on {
+  background: #14202e;
+  color: #fff;
+}
+.o3d-stage-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.o3d-stage-list li {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.o3d-stage-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: rgba(29, 102, 201, 0.12);
+  color: #1d5fc4;
+  font-size: 11px;
+  font-weight: 800;
+}
+.o3d-stage-list b {
+  display: block;
+  font-size: 12.5px;
+  color: #0f172a;
+}
+.o3d-stage-list em {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: #2563eb;
+  margin: 1px 0 3px;
+}
+.o3d-stage-list p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #475569;
+}
+.o3d-pack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.o3d-pack-list li {
+  padding: 8px 10px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.o3d-pack-list b {
+  display: block;
+  font-size: 12px;
+  color: #0f172a;
+}
+.o3d-pack-list small {
+  display: block;
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+
+/* ---- Thanh điều khiển gọn cho trang Văn phòng Agent độc lập: Trong văn phòng <-> Ra ngoài trường + Logo Thời tiết ---- */
+.o3d-explore-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  box-shadow: 0 14px 32px -16px rgba(15, 23, 42, 0.35), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
+}
+.o3d-scope-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.055);
+}
+.o3d-scope-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+}
+.o3d-scope-switch button:hover {
+  color: #0f172a;
+}
+.o3d-scope-switch button.is-on {
+  background: #14202e;
+  color: #fff;
+  box-shadow: 0 6px 14px -8px rgba(20, 32, 46, 0.65);
+}
+.o3d-explore-sep {
+  width: 1px;
+  height: 24px;
+  background: rgba(15, 23, 42, 0.12);
+  flex: none;
+}
+.o3d-weather-logos {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.o3d-wbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.16s, border-color 0.16s, transform 0.16s, color 0.16s;
+}
+.o3d-wbtn:hover {
+  background: rgba(15, 23, 42, 0.055);
+  transform: translateY(-1px);
+}
+.o3d-wbtn.is-on {
+  background: #eef4fd;
+  border-color: rgba(29, 102, 201, 0.35);
+  color: #1d5fc4;
+  box-shadow: 0 4px 10px -6px rgba(29, 102, 201, 0.45);
+}
+.o3d-wlogo {
+  flex: none;
+  display: block;
+}
+@media (max-width: 780px) {
+  .o3d-wbtn span {
+    display: none;
+  }
+  .o3d-wbtn {
+    padding: 0 9px;
+  }
+}
+
+/* ---- 2 nút gộp trên thanh trên + Dải Điểm mốc nhanh khi Ra ngoài trường ---- */
+.o3d-top-weather {
+  gap: 6px !important;
+}
+.o3d-landmarks-dock {
+  gap: 8px;
+  padding: 6px 10px;
+}
+.o3d-lm-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  white-space: nowrap;
+}
+.o3d-lm-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.o3d-lm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.045);
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.16s, color 0.16s, border-color 0.16s, transform 0.16s;
+}
+.o3d-lm-btn:hover {
+  background: rgba(15, 23, 42, 0.09);
+  color: #0f172a;
+  transform: translateY(-1px);
+}
+.o3d-lm-btn.is-on {
+  background: #14202e;
+  color: #fff;
+  box-shadow: 0 6px 14px -8px rgba(20, 32, 46, 0.65);
+}
+@media (max-width: 720px) {
+  .o3d-lm-label {
+    display: none;
+  }
+}
+
+/* ---- Nút Phiên làm việc 1 chạm (Làm việc / Phiên mới & Cho nghỉ) ---- */
+.o3d-toolbar button.o3d-top-work {
+  background: linear-gradient(135deg, #1d66c9, #2563eb);
+  color: #fff;
+  padding: 0 12px;
+  font-weight: 700;
+  box-shadow: 0 6px 16px -8px rgba(29, 102, 201, 0.85);
+}
+.o3d-toolbar button.o3d-top-work:hover {
+  background: linear-gradient(135deg, #1857ad, #1d4ed8);
+  color: #fff;
+}
+.o3d-toolbar button.o3d-top-work.is-busy {
+  background: #0f766e;
+  color: #fff;
+  cursor: wait;
+  box-shadow: 0 6px 14px -8px rgba(15, 118, 110, 0.8);
+}
+.o3d-toolbar button.o3d-top-work:disabled {
+  opacity: 0.92;
+}
+.o3d-toolbar button.o3d-top-sleep {
+  background: rgba(15, 23, 42, 0.06);
+  color: #334155;
+  padding: 0 10px;
+}
+.o3d-toolbar button.o3d-top-sleep:hover {
+  background: rgba(220, 38, 38, 0.11);
+  color: #b91c1c;
+}
+/* Khi mở khung chat đầy đủ bên phải: ẩn pill trạng thái (đã hiện trong khung chat) và cho toolbar co giãn gọn trong vùng 3D */
+.office3d-page.has-side-chat .o3d-top {
+  justify-content: flex-end;
+}
+.office3d-page.has-side-chat .o3d-status-pill {
+  display: none;
+}
+.office3d-page.has-side-chat .o3d-toolbar {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
 }

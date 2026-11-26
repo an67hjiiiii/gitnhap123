@@ -233,3 +233,62 @@
 .st-app .lib-flag.is-bad{background:var(--no-soft,#fcebea);color:var(--no-ink,#b23a3a)}
 .st-app .lib-flag.is-old{background:rgba(15,27,43,.07);color:var(--muted)}
 .st-app .lib-flag.is-new{background:var(--ok-soft,#e8f6ef);color:var(--ok-ink,#167a50)}
+
+/* ---- Hồ sơ, Bảo mật & Phiên đăng nhập trong Cài đặt ---- */
+.set-form{display:grid;gap:8px}
+.set-form label{font-size:13px;font-weight:600;color:var(--ink)}
+.set-form label small{font-weight:500;color:var(--muted)}
+.set-form input{height:40px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:#fff;font:inherit;font-size:13.5px;color:var(--ink);min-width:0}
+.set-form input:focus{outline:2px solid color-mix(in srgb,var(--accent,#1d66c9) 35%,transparent);border-color:var(--accent,#1d66c9)}
+.set-inline{display:flex;gap:8px;align-items:center}
+.set-inline input{flex:1}
+.set-divider{border:0;border-top:1px solid var(--line);margin:6px 0 2px}
+.set-feedback{display:flex;align-items:center;gap:6px;margin:2px 0 0;font-size:12.5px;font-weight:600}
+.set-feedback.is-ok{color:#13704a}
+.set-feedback.is-err{color:#b23a3a}
+.set-sessions{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.set-sessions li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(15,27,43,.025)}
+.set-sessions li.is-current{border-color:color-mix(in srgb,var(--accent,#1d66c9) 40%,transparent);background:var(--accent-soft,#eef4fd)}
+.set-sessions li b{display:block;font-size:13px;color:var(--ink)}
+.set-sessions li small{display:block;font-size:11.5px;color:var(--muted)}
+.set-badge-now{flex:none;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;background:#13704a;color:#fff}
+.st-app[data-theme="dark"] .set-form input{background:#0f1724;color:#dbe6f3;border-color:rgba(255,255,255,.1)}
+.st-app[data-theme="dark"] .set-sessions li{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08)}
+.st-app[data-theme="dark"] .set-feedback.is-ok{color:#6ee7b7}
+.st-app[data-theme="dark"] .set-feedback.is-err{color:#fca5a5}
+
+/* ---- Trang Hướng dẫn nhanh ---- */
+.guide-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:16px}
+.guide-step{display:grid;gap:10px;align-content:start}
+.guide-step-top{display:flex;align-items:center;justify-content:space-between}
+.guide-step-num{font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--accent,#1d66c9);background:var(--accent-soft,#eef4fd);padding:4px 10px;border-radius:999px}
+.guide-step-ico{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:var(--tile,#eef2f7);color:var(--ink)}
+.guide-step h3{margin:0;font-size:15.5px;color:var(--ink);line-height:1.35}
+.guide-step p{margin:0;font-size:13.5px;color:var(--text);line-height:1.55}
+.guide-step .btn{justify-self:start;margin-top:4px}
+.guide-block{display:grid;gap:14px;margin-bottom:16px}
+.guide-head{display:flex;align-items:flex-start;justify-content:flex-start!important;gap:10px;color:var(--accent,#1d66c9)}
+.guide-head h2{margin:0;font-size:16px;color:var(--ink)}
+.guide-head p{margin:2px 0 0;font-size:13px;color:var(--text)}
+.guide-badges{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.guide-badge{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.7)}
+.guide-badge-ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center}
+.guide-badge.is-ok .guide-badge-ico{background:#e7f6ee;color:#13704a}
+.guide-badge.is-warn .guide-badge-ico{background:#fff4e2;color:#94570c}
+.guide-badge.is-muted .guide-badge-ico{background:#eef1f5;color:#526071}
+.guide-badge b{display:block;font-size:13.5px;color:var(--ink);margin-bottom:4px}
+.guide-badge p{margin:0;font-size:12.5px;color:var(--text);line-height:1.5}
+.guide-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.guide-prompts{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.guide-prompts button{width:100%;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;text-align:left;padding:11px 14px;border-radius:13px;border:1px solid var(--line);background:#fff;color:var(--ink);font:inherit;font-size:13.5px;line-height:1.45;cursor:pointer;transition:border-color .15s,transform .15s,background .15s}
+.guide-prompts button:hover{border-color:var(--accent,#1d66c9);background:var(--accent-soft,#eef4fd);transform:translateX(2px)}
+.guide-keys{margin:0;display:grid;gap:10px}
+.guide-keys div{display:grid;grid-template-columns:76px 1fr;gap:10px;align-items:center;font-size:13.5px}
+.guide-keys dt{margin:0}
+.guide-keys dd{margin:0;color:var(--text);line-height:1.45}
+.guide-keys kbd{display:inline-flex;align-items:center;justify-content:center;min-width:54px;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--tile,#f1f5f9);font-family:var(--mono,monospace);font-size:12px;font-weight:700;color:var(--ink)}
+@media (max-width:980px){.guide-steps,.guide-badges,.guide-two{grid-template-columns:1fr}}
+.st-app[data-theme="dark"] :is(.guide-badge,.guide-prompts button){background:#16212f;border-color:rgba(255,255,255,.08);color:#dbe6f3}
+.st-app[data-theme="dark"] .guide-prompts button:hover{background:#1b2e48;border-color:#4f8ff0}
+
+.lib-tool:nth-child(3) .lib-tool-ico{background:linear-gradient(135deg,#0f766e,#14b8a6);box-shadow:0 8px 16px -8px rgba(15,118,110,.55)}

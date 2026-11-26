@@ -323,7 +323,10 @@ async def extract_procedure(provider, topic: str, evidence: list[SourceChunk]) -
                 "deadline": _present(_text(raw.get("deadline"), 160)), "outputs": _present(_text(raw.get("outputs"), 240)),
                 "citation": valid[0], "flags": []}
         source = _rule_text(by_id[valid[0]].text)
-        if step["deadline"] and _numbers(step["deadline"]) - _numbers(source):
+        if step["deadline"] and re.fullmatch(r"\s*(?:bước|step)\s+\d+\s*[.:)]?\s*", step["deadline"], re.IGNORECASE):
+            step["deadline"] = ""  # mô hình nhầm số thứ tự bước làm thời hạn
+            step["flags"].append("deadline_is_step_label")
+        elif step["deadline"] and _numbers(step["deadline"]) - _numbers(source):
             step["deadline"] = ""  # thời hạn có con số không nằm trong đoạn trích: không hiển thị
             step["flags"].append("deadline_not_in_source")
         steps.append(step)

@@ -16,19 +16,20 @@ let orgScope: string | null = null;
 export const isOrgId = (ws?: number | string | null): ws is string => typeof ws === 'string' && ws.startsWith('sp_');
 export function setOrgScope(ws?: number | string | null) { orgScope = isOrgId(ws) ? ws : null; }
 
-// Lĩnh vực của không gian (bộ tác tử ở backend app/research/registry.py, giữ khớp danh sách PACKS).
-// Câu hỏi gửi kèm lĩnh vực của không gian đang mở; trang Thực nghiệm không gửi nên vẫn chạy bộ Phần mềm như cũ.
+// Đội tác tử mặc định thống nhất: 11 Agent 3D thật (bộ `office` trong backend app/research/registry.py).
+// Giữ export DOMAIN_PACKS để tương thích kiểu dữ liệu cũ của các công cụ nội bộ.
 export const DOMAIN_PACKS = [
-  { id: 'general', label: 'Tổng quát', hint: 'Mọi loại tài liệu, một chuyên viên tổng hợp' },
-  { id: 'education', label: 'Giáo dục', hint: 'Học vụ, công tác sinh viên, giảng viên – nghiên cứu' },
-  { id: 'legal_admin', label: 'Hành chính – Pháp lý', hint: 'Căn cứ pháp lý, thủ tục hành chính, hợp đồng' },
+  { id: 'office', label: 'Đội 11 Agent', hint: 'Tự động định tuyến theo ngữ nghĩa tới 5 lõi điều phối và 6 chuyên gia ngành' },
+  { id: 'general', label: 'Tổng quát', hint: 'Mọi loại tài liệu' },
+  { id: 'education', label: 'Giáo dục', hint: 'Học vụ, đào tạo, nghiên cứu' },
+  { id: 'legal_admin', label: 'Hành chính – Pháp lý', hint: 'Căn cứ pháp lý, thủ tục, hợp đồng' },
   { id: 'business_hr', label: 'Doanh nghiệp – Nhân sự', hint: 'Chính sách nhân sự, quy trình nội bộ, khách hàng' },
-  { id: 'software', label: 'Phần mềm', hint: 'Bảo mật, cơ sở dữ liệu, API – kiến trúc' },
+  { id: 'software', label: 'Phần mềm', hint: 'Kiến trúc, API, cơ sở dữ liệu, bảo mật' },
 ] as const;
 export type DomainPack = typeof DOMAIN_PACKS[number]['id'];
-export const packLabel = (p?: string | null) => DOMAIN_PACKS.find(d => d.id === p)?.label ?? 'Phần mềm';
-let domainPack: string | null = null;
-export function setDomainPack(p?: string | null) { domainPack = p ?? null; }
+export const packLabel = (p?: string | null) => p === 'office' || !p ? 'Đội 11 Agent' : (DOMAIN_PACKS.find(d => d.id === p)?.label ?? 'Đội 11 Agent');
+let domainPack: string | null = 'office';
+export function setDomainPack(_p?: string | null) { domainPack = 'office'; }
 // Không gắn phạm vi: đăng nhập, API tổ chức (tự mang mã không gian), thư mục cá nhân, và bước tải tệp
 // (tệp vào kho cá nhân trước rồi mới được nộp vào tổ chức kèm mức mật).
 const UNSCOPED = /^\/(auth|org)\/|^\/studio\/workspaces|^\/sources\/(file|text)$|^\/shared-folder/;  // thư mục chung luôn nạp vào kho cá nhân
@@ -104,6 +105,36 @@ export async function setAvatar(avatar: string | null): Promise<User> {
   return toUser(data.user);
 }
 
+/** Tự cập nhật họ và tên hiển thị của chính tài khoản đang đăng nhập. */
+export async function updateProfile(display_name: string): Promise<User> {
+  const data = await call<any>('/auth/profile', { method: 'PUT', body: JSON.stringify({ display_name }) });
+  return toUser(data.user);
+}
+
+/** Tự đổi mật khẩu (xác nhận mật khẩu cũ) và tự động đăng xuất các thiết bị khác. */
+export async function changePassword(current_password: string, new_password: string): Promise<{ ok: boolean; revoked_sessions: number }> {
+  return post('/auth/change-password', { current_password, new_password });
+}
+
+export interface AuthSessionItem {
+  session_id: string;
+  user_id: string;
+  created_at: string;
+  expires_at: string;
+  is_current: boolean;
+}
+
+/** Danh sách phiên đăng nhập đang hoạt động của tài khoản. */
+export async function listSessions(): Promise<AuthSessionItem[]> {
+  const data = await call<{ sessions: AuthSessionItem[] }>('/auth/sessions');
+  return data.sessions ?? [];
+}
+
+/** Đăng xuất mọi thiết bị/phiên khác, giữ nguyên phiên đang dùng. */
+export async function revokeOtherSessions(): Promise<{ ok: boolean; revoked_sessions: number }> {
+  return post('/auth/sessions/revoke-others', {});
+}
+
 export async function login(identifier: string, password: string): Promise<{ user: User }> {
   const data = await post<any>('/auth/login', { identifier, password });
   return { user: toUser(data.user) };
@@ -139,7 +170,7 @@ export async function getWorkspaces(): Promise<Workspace[]> {
     domain_pack: s.domain_pack,
   }))];
 }
-export async function createWorkspace(name: string, description: string, domain_pack: DomainPack = 'general'): Promise<Workspace> {
+export async function createWorkspace(name: string, description: string, domain_pack: DomainPack = 'office'): Promise<Workspace> {
   const w = await post<any>('/studio/workspaces', { name, description, domain_pack });
   return { id: w.workspace_id, name: w.name, description: w.description, created_at: '', documents_count: 0, runs_count: 0, kind: 'personal', domain_pack: w.domain_pack };
 }
@@ -166,15 +197,15 @@ export async function getConfigs(): Promise<ExperimentConfig[]> { return []; }
 export async function createConfig(_c: Partial<ExperimentConfig>): Promise<ExperimentConfig> { throw new Error(NOT_SUPPORTED); }
 export async function toggleConfigLock(_id: number): Promise<ExperimentConfig> { throw new Error(NOT_SUPPORTED); }
 
-// ---------------- Điều phối
+// ---------------- Điều phối (thống nhất dùng đội ngũ 11 Agent 3D thật: domain_pack='office')
 export async function analyzeQuery(query: string, mode: ExecutionMode, _topK = 4, _ws?: WorkspaceId, _userId?: number | string): Promise<AnalyzeResponse> {
   const results: Record<string, ModeExecutionResult> = {};
   if (mode === 'ablation_comparison') {
     const scope = wsReady(_ws) ? (await workspaceItems(_ws!)).source_ids : undefined;
-    const data = await post<any>('/studio/compare', { message: query, conditions: ['A', 'B', 'C'], source_ids: scope });
+    const data = await post<any>('/studio/compare', { message: query, conditions: ['A', 'B', 'C'], source_ids: scope, domain_pack: 'office' });
     for (const run of data.runs as Cap1Run[]) results[modeOf(run.condition)] = adaptRun(run);
   } else {
-    const run = await post<Cap1Run>('/chat', { message: query, condition: MODE_TO_CONDITION[mode] });
+    const run = await post<Cap1Run>('/chat', { message: query, condition: MODE_TO_CONDITION[mode], domain_pack: 'office' });
     if (run.status === 'FAILED') throw new Error(explainFailure(run.answer));
     results[mode] = adaptRun(run);
   }
@@ -223,10 +254,25 @@ export const setDocType = (sourceId: string, docType: string) =>
 
 export async function getDocumentChunks(docId: number | string): Promise<ChunkInfo[]> {
   const data = await call<any>(`/sources/${encodeURIComponent(String(docId))}`);
-  return (data.chunks || []).map((c: any, i: number) => ({
-    id: c.chunk_id, document_id: docId, chunk_index: c.index ?? i, qdrant_point_id: c.chunk_id, content: c.text,
-    token_count: null, domain_tag: '',
-  })) as unknown as ChunkInfo[];
+  return (data.chunks || []).map((c: any, i: number) => {
+    const text = String(c.text || '');
+    const estTokens = typeof c.provenance?.estimated_tokens === 'number'
+      ? c.provenance.estimated_tokens
+      : text.trim() ? Math.max(1, Math.floor((text.trim().length + 2) / 3)) : 0;
+    const rawHeading = typeof c.provenance?.section_heading === 'string' && c.provenance.section_heading.trim()
+      ? c.provenance.section_heading.trim()
+      : (text.match(/^\s*#{1,6}\s+(.+)$/m)?.[1] ?? '').trim();
+    const sectionTag = rawHeading.length > 48 ? `${rawHeading.slice(0, 46).trim()}…` : rawHeading;
+    return {
+      id: c.chunk_id,
+      document_id: docId,
+      chunk_index: c.index ?? i,
+      qdrant_point_id: c.chunk_id,
+      content: text,
+      token_count: estTokens,
+      domain_tag: sectionTag,
+    };
+  }) as unknown as ChunkInfo[];
 }
 
 // Ảnh chụp nhỏ: phóng 2 lần trước khi máy chủ đọc chữ (Tesseract đọc sai dấu ở chữ nhỏ: "chi trước" → "chỉ trước", 21/11).
@@ -314,11 +360,17 @@ export async function clearDocuments(ws?: WorkspaceId): Promise<{ status: string
   return { status: 'ok', message: `Đã xóa ${docs.length} tài liệu.` };
 }
 
-const AGENT_DOMAIN: Record<string, string> = { DatabaseAgent: 'database', APIAgent: 'api_architecture', SecurityAgent: 'security' };
-const DOMAIN_TAG: Record<string, string> = { database: 'CSDL', api_architecture: 'API', security: 'Bảo mật' };
+const AGENT_DOMAIN: Record<string, string> = {
+  software: 'software', business: 'business', marketing: 'marketing', hr: 'hr', finance: 'finance', education: 'education', analyst: 'analyst',
+  DatabaseAgent: 'database', APIAgent: 'api_architecture', SecurityAgent: 'security',
+};
+const DOMAIN_TAG: Record<string, string> = {
+  software: 'Phần mềm & CNTT', business: 'Kinh doanh', marketing: 'Marketing', hr: 'Nhân sự', finance: 'Tài chính', education: 'Giáo dục', analyst: 'Số liệu',
+  database: 'CSDL', api_architecture: 'API', security: 'Bảo mật',
+};
 export async function testRetrieval(req: RetrievalTestRequest): Promise<RetrievalTestResponse> {
   const scope = wsReady(req.workspace_id) ? (await workspaceItems(req.workspace_id!)).source_ids : undefined;
-  const data = await post<any>('/studio/retrieval-test', { query: req.query, top_k: req.top_k, source_ids: scope, domain: req.domain_tag ? AGENT_DOMAIN[req.domain_tag] : undefined });
+  const data = await post<any>('/studio/retrieval-test', { query: req.query, top_k: req.top_k, source_ids: scope, domain: req.domain_tag ? (AGENT_DOMAIN[req.domain_tag] ?? req.domain_tag) : undefined });
   return {
     query: data.query, top_k: data.top_k, domain_filter: req.domain_tag ?? null, latency_ms: data.latency_ms, total_indexed_chunks: data.total_chunks,
     results: data.results.map((h: any) => ({
@@ -440,8 +492,8 @@ export const getChunk = (id: string) => call<{ chunk_id: string; source_name: st
 // only: chỉ hỏi trong các tài liệu này (ví dụ từ Hồ sơ tài liệu → Hỏi ngay), thay cho phạm vi của không gian.
 async function chatInWorkspace(body: Record<string, unknown>, ws?: WorkspaceId, conversationId?: string | null, only?: string[], onEvent?: (e: ChatStreamEvent) => void): Promise<Cap1Run> {
   const scope = only?.length ? only : wsReady(ws) ? (await workspaceItems(ws!)).source_ids : undefined;
-  // đợt 6: ô chat sản phẩm không gửi lĩnh vực (backend dùng tác tử theo loại việc); phân tích A/B/C chọn tay vẫn gửi
-  const payload = { ...body, conversation_id: conversationId ?? undefined, source_ids: scope, domain_pack: body.product_mode ? undefined : domainPack ?? undefined };
+  // Thống nhất dùng đội ngũ 11 Agent 3D thật ('office') cho cả hỏi nhanh và phân tích A/B/C
+  const payload = { ...body, conversation_id: conversationId ?? undefined, source_ids: scope, domain_pack: domainPack || 'office' };
   const run = onEvent ? await postStream(payload, onEvent) : await post<Cap1Run>('/chat', payload);
   if (run.conversation_id && run.conversation_id !== conversationId) await assignToWorkspace(ws ?? '', 'conversation', run.conversation_id);
   return run;
@@ -990,3 +1042,67 @@ export const withdrawRequest = (spaceId: string, id: string) => post<OrgRequest>
 // Thư mục chung trên máy chủ (đợt 10): quản trị đặt SHARED_FOLDER_PATH, người dùng đồng bộ vào kho cá nhân
 export const sharedFolderStatus = () => call<{ configured: boolean; folder?: string; files?: number; skipped?: number }>('/shared-folder');
 export const syncSharedFolder = () => post<{ imported: string[]; skipped: { name: string; reason: string }[] }>('/shared-folder/sync', {});
+
+// ---- Văn phòng Agent: Phiên làm việc đa tác tử tự động THẬT (LLM + RAG NDJSON stream) ----
+export interface OfficeCitation {
+  index: number;
+  chunk_id: string;
+  source_id: string;
+  source_name: string;
+  excerpt: string;
+}
+
+export type WorkSessionEvent =
+  | { type: 'session_start'; topic: string; team: string[]; specialists: string[]; has_docs: boolean; doc_names: string[] }
+  | { type: 'agent_thinking'; agent_id: string; to: string; targets: string[]; phase: 'intake' | 'work' | 'review' | 'done'; label: string }
+  | { type: 'rag_evidence'; agent_id: 'rag'; to: 'all'; targets: string[]; count: number; files: string[]; text: string }
+  | { type: 'agent_message'; agent_id: string; to: string; targets: string[]; phase: 'intake' | 'work' | 'review' | 'done'; kind: 'plan' | 'work' | 'review' | 'done'; badge: string; text: string; latency_ms: number; tokens: number }
+  | { type: 'session_done'; total_latency_ms: number; total_tokens: number; citations: OfficeCitation[] }
+  | { type: 'error'; detail: string };
+
+export async function streamOfficeWorkSession(
+  body: {
+    source_ids?: string[] | null;
+    domain_pack?: string;
+    exclude_topics?: string[];
+  },
+  onEvent: (ev: WorkSessionEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (orgScope) headers['X-Org-Space'] = orgScope;
+  const res = await fetch(`${API}/studio/office/work-session`, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const raw = await res.text();
+    let msg = 'Không thể khởi chạy phiên làm việc của đội Agent.';
+    try { msg = JSON.parse(raw).detail || msg; } catch { if (raw) msg = raw; }
+    throw new Error(msg);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return;
+  const decoder = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl = buf.indexOf('\n');
+    while (nl !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (line) {
+        try { onEvent(JSON.parse(line) as WorkSessionEvent); } catch { /* bỏ qua dòng lỗi */ }
+      }
+      nl = buf.indexOf('\n');
+    }
+  }
+  if (buf.trim()) {
+    try { onEvent(JSON.parse(buf.trim()) as WorkSessionEvent); } catch { /* bỏ qua */ }
+  }
+}

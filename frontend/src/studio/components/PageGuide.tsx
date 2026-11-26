@@ -19,7 +19,9 @@ const SAY: Partial<Record<NavigationTab, string>> = {
   toolkit: 'Chọn kỹ năng theo ngành, mở là chạy trên tài liệu của bạn.',
   compare: 'Chọn bản cũ và bản mới, mình chỉ ra Điều nào đổi.',
   library: 'Tài liệu của bạn: tải lên, phân loại, mở hồ sơ.',
-  results: 'Mở lại kết quả đã lưu và việc cần xem xét.',
+  results: 'Mở lại kết quả đã lưu, việc cần xem xét và đơn từ.',
+  notifications: 'Tất cả lời mời tổ chức và hoạt động gần đây tập trung tại đây.',
+  guide: '3 bước nhanh để làm chủ kho tài liệu, kỹ năng và văn phòng 3D.',
   consistency: 'Tìm chỗ các tài liệu đang nói ngược nhau.',
   evaluation: 'So A, B, C trên cùng một bộ câu hỏi.',
   benchmarks: 'Đặt ba cách trả lời cạnh nhau để so.',
@@ -175,11 +177,12 @@ function findSpot({ main, bottom, rank }: ScanMap): Spot & { score: number } {
 /** Điện thoại: trang kín hết chiều ngang nên robot đậu cố định ở đầu phải thanh trên cùng; bong bóng hiện bên dưới vài giây rồi ẩn. */
 function dockSpot(): Spot | null {
   if (window.innerWidth >= 640) {
-    // máy tính (20/11): đứng cố định góc dưới phải vùng trang như trợ lý nổi; tìm chỗ trống giữa nội dung hay đậu chồng
-    // lên nút ở đầu trang. Bong bóng hiện ngang bên trái robot.
+    // máy tính (20/11): đứng cố định góc dưới phải vùng trang như trợ lý nổi; chừa thêm lề 28px/24px vì canvas Robot tràn 25% ra ngoài khung BOT.
     const host = document.querySelector('.st-main')?.getBoundingClientRect();
     if (!host) return null;
-    return { x: host.right - BOT - 18, y: Math.min(host.bottom, window.innerHeight) - BOT - 18, side: 'left', vert: 'mid' };
+    const rightBound = Math.min(host.right, window.innerWidth);
+    const bottomBound = Math.min(host.bottom, window.innerHeight);
+    return { x: rightBound - BOT - 28, y: bottomBound - BOT - 24, side: 'left', vert: 'mid' };
   }
   const bar = document.querySelector('.st-mobilehead')?.getBoundingClientRect();
   if (!bar || !bar.height) return null;
@@ -315,7 +318,15 @@ export function PageGuide({ page }: { page: NavigationTab }) {
     };
     let idle = 0;
     const recheck = () => {
-      if (busy || !cur || dockSpot()) return;
+      if (busy || !cur) return;
+      const docked = dockSpot();
+      if (docked) {
+        if (Math.abs(docked.x - cur.x) > 4 || Math.abs(docked.y - cur.y) > 4) {
+          place(docked);
+          gsap.set(el, { x: docked.x, y: docked.y, scale: 1, opacity: 1 });
+        }
+        return;
+      }
       const m = look();
       if (!m || m.cost(cur) === 0) return;
       const best = findSpot(m);
@@ -403,7 +414,11 @@ export function PageGuide({ page }: { page: NavigationTab }) {
     return () => {
       cleanups.forEach(f => f());
       ctx?.kill(); // xem ghi chú ở trên
-      if (pos.current) gsap.set(el, { x: pos.current.x, y: pos.current.y, scale: 1, opacity: 1 });
+      const settle = dockSpot() ?? pos.current;
+      if (settle) {
+        pos.current = { x: settle.x, y: settle.y };
+        gsap.set(el, { x: settle.x, y: settle.y, scale: 1, opacity: 1 });
+      }
       setMoving(false);
     };
   }, [page, say]);
@@ -412,7 +427,7 @@ export function PageGuide({ page }: { page: NavigationTab }) {
 
   return (
     <div className={`pgd is-${side} is-${vert}${moving ? ' is-moving' : ''}${page === HOME ? ' is-home' : ''}`} ref={wrap} style={{ width: BOT, height: BOT }}>
-      {talk && say && <div className="pgd-say" role="status" aria-live="polite">
+      {talk && say && typed.length > 0 && <div className="pgd-say" role="status" aria-live="polite">
         <span>{typed}</span>
         <i className="pgd-tail is-1" aria-hidden="true" /><i className="pgd-tail is-2" aria-hidden="true" />
       </div>}

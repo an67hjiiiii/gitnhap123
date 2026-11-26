@@ -1,21 +1,19 @@
-// Kết quả & công việc (Đợt 6): một trang nhiều tab: Đã lưu, Cần xem xét, Đơn từ, Thông báo. Mọi số và mục lấy từ máy chủ.
+// Kết quả & công việc: một trang 3 tab gọn: Đã lưu, Cần xem xét, Đơn từ.
+// Thông báo được quản lý tập trung tại một đầu mối duy nhất (nút Chuông góc trên → trang Thông báo).
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, Archive, Bell, ClipboardList, FileWarning, GitCompareArrows, Inbox, ListChecks } from 'lucide-react';
-import { ActivityRow, getActivity, getNotifications, libraryQuality, listRequests, OrgNotification, OrgRequest } from '../services/api';
+import { Archive, Bell, ClipboardList, FileWarning, GitCompareArrows, Inbox, ListChecks } from 'lucide-react';
+import { getNotifications, libraryQuality, listRequests, OrgNotification, OrgRequest } from '../services/api';
 import type { NavigationTab } from '../types';
-import { serverDate } from '../utils/time';
 import '../styles/results-hub.css';
 
-export type HubTab = 'saved' | 'review' | 'requests' | 'notices';
+export type HubTab = 'saved' | 'review' | 'requests';
 type Review = { id: string; kind: 'approval' | 'quality' | 'watch'; title: string; detail: string; go: NavigationTab; action: string };
-const fmt = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
 
 export const ResultsHub: React.FC<{
   tab: HubTab; onTab: (t: HubTab) => void; spaceId?: string; onGo: (t: NavigationTab) => void;
   noteText: (n: OrgNotification) => string; saved: React.ReactNode; requests?: React.ReactNode;
 }> = ({ tab, onTab, spaceId, onGo, noteText, saved, requests }) => {
   const [review, setReview] = useState<Review[] | null>(null);
-  const [notices, setNotices] = useState<{ org: OrgNotification[]; activity: ActivityRow[] } | null>(null);
   const [error, setError] = useState('');
 
   // "Cần xem xét": đơn chờ tôi duyệt, tài liệu có vấn đề chất lượng, thông báo tài liệu mới thay thế/mâu thuẫn chưa đọc
@@ -40,17 +38,11 @@ export const ResultsHub: React.FC<{
     }).catch(e => alive && setError(e.message));
     return () => { alive = false; };
   }, [spaceId]);
-  useEffect(() => {
-    if (tab !== 'notices' || notices) return;
-    Promise.all([getNotifications().catch(() => ({ items: [] as OrgNotification[] })), getActivity(30).catch(() => [] as ActivityRow[])])
-      .then(([o, a]) => setNotices({ org: o.items, activity: a })).catch(e => setError(e.message));
-  }, [tab]);
 
   const TABS: { id: HubTab; label: string; Icon: typeof Archive; count?: number }[] = [
     { id: 'saved', label: 'Đã lưu', Icon: Archive },
     { id: 'review', label: 'Cần xem xét', Icon: ListChecks, count: review?.length },
     { id: 'requests', label: 'Đơn từ', Icon: ClipboardList },
-    { id: 'notices', label: 'Thông báo', Icon: Bell },
   ];
   const ICON = { approval: ClipboardList, quality: FileWarning, watch: GitCompareArrows };
 
@@ -59,6 +51,9 @@ export const ResultsHub: React.FC<{
       <nav className="rh-tabs" role="tablist" aria-label="Kết quả và công việc">
         {TABS.map(t => <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'is-on' : ''} onClick={() => onTab(t.id)}>
           <t.Icon size={16} />{t.label}{t.count ? <em>{t.count}</em> : null}</button>)}
+        <button type="button" className="rh-notif-link" onClick={() => onGo('notifications')} title="Mở trung tâm Thông báo tập trung">
+          <Bell size={15} />Thông báo
+        </button>
       </nav>
       {error && <p className="note is-error rh-pad" role="alert">{error}</p>}
       {tab === 'saved' && saved}
@@ -71,16 +66,6 @@ export const ResultsHub: React.FC<{
           : review.map(r => { const I = ICON[r.kind]; return <article key={r.id} className={`rh-item is-${r.kind}`}>
             <span className="rh-ico"><I size={17} /></span><div><b>{r.title}</b><small>{r.detail}</small></div>
             <button className="btn btn-ghost is-sm" onClick={() => r.kind === 'approval' ? onTab('requests') : onGo(r.go)}>{r.action}</button></article>; })}
-      </section>}
-      {tab === 'notices' && <section className="rh-list" aria-label="Thông báo">
-        {!notices ? <p className="muted-line"><span className="spin is-dark" />Đang tải…</p> : <>
-          <h3 className="rh-h">Tổ chức</h3>
-          {notices.org.length === 0 ? <p className="rh-note">Chưa có thông báo tổ chức.</p> : notices.org.map(n => <article key={n.notification_id} className={`rh-item${n.read ? '' : ' is-unread'}`}>
-            <span className="rh-ico"><Bell size={16} /></span><div><b>{noteText(n)}</b><small>{fmt.format(serverDate(n.created_at))}</small></div></article>)}
-          <h3 className="rh-h">Hoạt động của bạn</h3>
-          {notices.activity.length === 0 ? <p className="rh-note">Chưa có hoạt động.</p> : notices.activity.map((a, i) => <article key={i} className={`rh-item${a.status >= 400 ? ' is-bad' : ''}`}>
-            <span className="rh-ico">{a.status >= 400 ? <AlertTriangle size={16} /> : <Archive size={16} />}</span><div><b>{a.action}</b><small>{fmt.format(serverDate(a.created_at))}</small></div></article>)}
-        </>}
       </section>}
     </div>
   );

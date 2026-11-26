@@ -137,7 +137,7 @@ function OrgHome({ onOpenSpace, onChanged, currentId, onBack }: Pick<OrgViewProp
               return `Đã gửi yêu cầu vào "${r.space_name}". Bạn vào được sau khi người quản lý của tổ chức duyệt.`;
             }); }}>
               <KeyRound size={16} aria-hidden="true" />
-              <input value={token} onChange={e => setToken(e.target.value)} placeholder="Có mã mời? Nhập mã, ví dụ ABCD-EFGH" autoComplete="off" aria-label="Mã mời hoặc phần cuối của link" />
+              <input value={token} onChange={e => setToken(e.target.value)} placeholder="Nhập mã mời (VD: ABCD-EFGH)" autoComplete="off" aria-label="Mã mời hoặc phần cuối của link" />
               <button className="btn btn-dark is-sm" disabled={busy || token.trim().length < 4}><LogIn size={14} />Tham gia</button>
             </form>
           </div>

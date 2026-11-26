@@ -95,6 +95,7 @@ class SourceStore:
                     **chunk.__dict__,
                     "provenance": {
                         **source_provenance,
+                        **chunk.provenance,
                         "chunk_id": chunk.chunk_id,
                         "chunk_index": chunk.index,
                     },

@@ -86,13 +86,23 @@ def _walk(node: dict):
 
 
 async def mindmap_ai(provider, source_name: str, chunks) -> dict:
-    # Mã đoạn thật dài (src_<16 hex>_c0001) làm mô hình hết token trước khi đóng JSON: dùng mã ngắn D1, D2... rồi đổi lại.
+    # B111-MINDMAP-01: giữ ngân sách 6000 ký tự ổn định cho qwen3:4b nhưng lấy mẫu phân tầng đều toàn văn bản
+    # (luôn phủ từ đoạn đầu đến đoạn cuối thay vì chỉ đọc 23 đoạn đầu).
     ordered = sorted(chunks, key=lambda c: c.index)
-    per = max(250, 6000 // max(1, len(ordered)))
+    max_budget_chars = 6000
+    min_per_chunk = 250
+    max_samples = max(1, max_budget_chars // (min_per_chunk + 12))
+    if len(ordered) <= max_samples:
+        sampled = ordered
+    else:
+        step = (len(ordered) - 1) / (max_samples - 1)
+        picked_idx = sorted({min(len(ordered) - 1, round(i * step)) for i in range(max_samples)})
+        sampled = [ordered[idx] for idx in picked_idx]
+    per = max(min_per_chunk, max_budget_chars // max(1, len(sampled)) - 12)
     alias, parts, size = {}, [], 0
-    for i, c in enumerate(ordered, 1):
+    for i, c in enumerate(sampled, 1):
         part = f"[D{i}] {c.text[:per]}"
-        if parts and size + len(part) > 6000:
+        if parts and size + len(part) > max_budget_chars + 300:
             break
         alias[f"D{i}"] = c.chunk_id
         parts.append(part)
@@ -152,6 +162,10 @@ async def mindmap_ai(provider, source_name: str, chunks) -> dict:
             continue
         seen_links.add(key)
         links.append({"from": a["id"], "to": b["id"], "label": _label(link.get("label"), 40)})
+    if len(root["children"]) < 2:
+        # Dự phòng an toàn khi mô hình nhỏ cắt JSON hoặc gom về 1 nhánh: dựng từ cấu trúc toàn văn bản thay vì lỗi 502
+        outline = mindmap_outline(source_name, ordered)
+        return {**outline, "mode": "ai", "fallback": "outline", "chunks_read": used, "chunks_total": len(chunks), **measured}
     return {"mode": "ai", "root": root, "links": links[:6], "nodes": count, "chunks_read": used, "chunks_total": len(chunks), **measured}
 
 
@@ -160,8 +174,11 @@ async def explain_selection(provider, source_name: str, selection: str, context:
     schema = _obj({"explanation": _STR, "example": _STR})
     system = ("PLAIN_EXPLAINER. Explain the highlighted passage to a colleague who is not a specialist, in simple words. "
               "Use the surrounding document context to understand what it means in THIS document. If it is a technical "
-              "term, say what it is and why it matters here. Do not invent rules, numbers or facts that are not in the "
-              "context; general well-known meaning of a term is allowed. Return JSON only.")
+              "term, say what it is and why it matters here. MANDATORY QUALIFIERS: Preserve every statutory/technical "
+              "condition, qualifier, exception, deadline, and safety requirement verbatim (such as 'bảo đảm an toàn', "
+              "'chậm nhất', 'tối thiểu', 'trừ trường hợp'); never omit a required legal qualifier when simplifying. "
+              "Do not invent rules, numbers or facts that are not in the context; general well-known meaning of a term "
+              "is allowed. Return JSON only.")
     user = (f"DOCUMENT: {source_name}\n\nCONTEXT:\n{context[:2400]}\n\nHIGHLIGHTED:\n{selection}\n\n"
             'Schema: {"explanation":"giải thích dễ hiểu, 2-4 câu","example":"một ví dụ đời thường ngắn, để trống nếu không cần"}\n'
             "NGÔN NGỮ: tiếng Việt.")

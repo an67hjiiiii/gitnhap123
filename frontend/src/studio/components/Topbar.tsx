@@ -2,9 +2,9 @@
 // menu ảnh đại diện (Cài đặt, giao diện sáng/tối, đăng xuất). Thanh bên giờ chỉ để điều hướng.
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Bell, Building2, Check, ChevronsUpDown, CircleHelp, FileText, History, ImageUp, LogOut, Menu, MessagesSquare, Palette, Plus, Search, Settings2, Sun, Moon, Trash2, UserCheck, X } from 'lucide-react';
+import { AlertCircle, Bell, BookOpen, Building2, Check, ChevronsUpDown, CircleHelp, FileText, History, ImageUp, LogOut, Menu, MessagesSquare, Palette, Pencil, Plus, Search, Settings2, Sun, Moon, Trash2, UserCheck, X } from 'lucide-react';
 import { NavigationTab, User, Workspace } from '../types';
-import { ActivityRow, answerInvite, DOMAIN_PACKS, DomainPack, getActivity, getNotifications, markNotificationsRead, myInvites, OrgNotification, orgTerms } from '../services/api';
+import { ActivityRow, answerInvite, DomainPack, getActivity, getNotifications, markNotificationsRead, myInvites, OrgNotification, orgTerms } from '../services/api';
 import { noteIcon, orgNoteText, useDismiss } from './Header';
 import { Avatar, AvatarDialog } from './Avatar';
 import { StudioModal } from './StudioModal';
@@ -12,7 +12,7 @@ import { pageMeta } from '../utils/pageMeta';
 import { NAV_ICONS } from './NavIcons';
 
 // trang con dùng biểu tượng của mục cha
-const ICON_OF: Partial<Record<NavigationTab, string>> = { documents: 'library', consistency: 'library', tasks: 'results' };
+const ICON_OF: Partial<Record<NavigationTab, string>> = { documents: 'library', consistency: 'library', compare: 'library', tasks: 'results' };
 
 const fold = (v: string) => v.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi, 'd').toLowerCase();
 const ROLE_LABEL: Record<string, string> = { tech_lead: 'Trưởng nhóm', researcher: 'Nghiên cứu', developer: 'Người dùng', admin: 'Quản trị' };
@@ -41,6 +41,7 @@ interface TopbarProps {
   currentWorkspaceId: number | string;
   onWorkspaceChange: (wsId: number | string) => void;
   onCreateWorkspace?: (name: string, description: string, pack: DomainPack) => Promise<void>;
+  onEditWorkspace?: (wsId: number | string, name: string, description: string, pack: DomainPack) => Promise<void>;
   onDeleteWorkspace?: (wsId: number | string, deleteSources: boolean) => Promise<void>;
   onLogout: () => void;
   onUserChange?: (u: User) => void;
@@ -61,7 +62,7 @@ interface TopbarProps {
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
-  activeTab, onTabChange, user, workspaces, currentWorkspaceId, onWorkspaceChange, onCreateWorkspace, onDeleteWorkspace, onLogout, onUserChange,
+  activeTab, onTabChange, user, workspaces, currentWorkspaceId, onWorkspaceChange, onCreateWorkspace, onEditWorkspace, onDeleteWorkspace, onLogout, onUserChange,
   theme = 'light', onThemeChange, onOpenPalette, onOpenMenu, menuOpen, onOrgChanged, history, historyOpen, onHistoryOpen, slot,
 }) => {
   const [menu, setMenu] = useState<'ws' | 'profile' | 'notif' | 'help' | null>(null);
@@ -89,8 +90,27 @@ export const Topbar: React.FC<TopbarProps> = ({
   const [wsToDelete, setWsToDelete] = useState<Workspace | null>(null);
   const [deleteDocs, setDeleteDocs] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [wsToEdit, setWsToEdit] = useState<Workspace | null>(null);
+  const [editWs, setEditWs] = useState({ name: '', desc: '', pack: 'office' as DomainPack });
+  const [savingWs, setSavingWs] = useState(false);
+  const [editWsError, setEditWsError] = useState<string | null>(null);
+  const openEditWs = (ws: Workspace) => {
+    setMenu(null);
+    setEditWsError(null);
+    setEditWs({ name: ws.name, desc: ws.description || '', pack: 'office' });
+    setWsToEdit(ws);
+  };
+  const submitEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wsToEdit || !onEditWorkspace) return;
+    if (!editWs.name.trim()) { setEditWsError('Vui lòng nhập tên không gian làm việc.'); return; }
+    setSavingWs(true); setEditWsError(null);
+    try { await onEditWorkspace(wsToEdit.id, editWs.name.trim(), editWs.desc.trim(), 'office'); setWsToEdit(null); }
+    catch (err: any) { setEditWsError(err.message || 'Không thể cập nhật không gian làm việc.'); }
+    finally { setSavingWs(false); }
+  };
   const [createOpen, setCreateOpen] = useState(false);
-  const [newWs, setNewWs] = useState({ name: '', desc: '', pack: 'general' as DomainPack });
+  const [newWs, setNewWs] = useState({ name: '', desc: '', pack: 'office' as DomainPack });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const submitCreate = async (e: React.FormEvent) => {
@@ -192,6 +212,8 @@ export const Topbar: React.FC<TopbarProps> = ({
                           </span>
                           {on && <span className="wsp-now"><Check size={12} strokeWidth={3} />Đang mở</span>}
                         </button>
+                        {onEditWorkspace && ws.kind !== 'org' && <button className="wsp-edit" aria-label={`Chỉnh sửa không gian ${ws.name}`} title="Chỉnh sửa tên và mô tả"
+                          onClick={() => openEditWs(ws)}><Pencil size={13} /></button>}
                         {canDelete && ws.kind !== 'org' && <button className="wsp-del" aria-label={`Xóa không gian ${ws.name}`} title="Xóa không gian"
                           onClick={() => { setMenu(null); setDeleteDocs(false); setWsToDelete(ws); }}><Trash2 size={14} /></button>}
                       </div>;
@@ -237,6 +259,8 @@ export const Topbar: React.FC<TopbarProps> = ({
                           </span>
                           {on && <span className="wsp-now"><Check size={12} strokeWidth={3} />Đang mở</span>}
                         </button>
+                        {onEditWorkspace && ws.kind !== 'org' && <button className="wsp-edit" aria-label={`Chỉnh sửa không gian ${ws.name}`} title="Chỉnh sửa tên và mô tả"
+                          onClick={() => openEditWs(ws)}><Pencil size={13} /></button>}
                         {canDelete && ws.kind !== 'org' && <button className="wsp-del" aria-label={`Xóa không gian ${ws.name}`} title="Xóa không gian"
                           onClick={() => { setMenu(null); setDeleteDocs(false); setWsToDelete(ws); }}><Trash2 size={14} /></button>}
                       </div>;
@@ -267,7 +291,10 @@ export const Topbar: React.FC<TopbarProps> = ({
                 <li><kbd>/</kbd>Trong ô chat: chọn kỹ năng</li>
                 <li><kbd>Ctrl B</kbd>Thu gọn thanh bên</li>
               </ul>
-              {onOpenPalette && <button type="button" className="btn btn-ghost is-sm" onClick={() => { setMenu(null); onOpenPalette(); }}><Search size={14} />Mở tìm nhanh</button>}
+              <div className="tb-help-acts">
+                <button type="button" className="btn btn-dark is-sm" onClick={() => go('guide')}><BookOpen size={14} />Hướng dẫn nhanh</button>
+                {onOpenPalette && <button type="button" className="btn btn-ghost is-sm" onClick={() => { setMenu(null); onOpenPalette(); }}><Search size={14} />Tìm nhanh</button>}
+              </div>
             </div>}
           </div>
 
@@ -357,7 +384,10 @@ export const Topbar: React.FC<TopbarProps> = ({
                 <li><kbd>/</kbd>Trong ô chat: chọn kỹ năng</li>
                 <li><kbd>Ctrl B</kbd>Thu gọn thanh bên</li>
               </ul>
-              {onOpenPalette && <button type="button" className="btn btn-ghost is-sm" onClick={() => { setMenu(null); onOpenPalette(); }}><Search size={14} />Mở tìm nhanh</button>}
+              <div className="tb-help-acts">
+                <button type="button" className="btn btn-dark is-sm" onClick={() => go('guide')}><BookOpen size={14} />Hướng dẫn nhanh</button>
+                {onOpenPalette && <button type="button" className="btn btn-ghost is-sm" onClick={() => { setMenu(null); onOpenPalette(); }}><Search size={14} />Tìm nhanh</button>}
+              </div>
             </div>}
           </div>
 
@@ -392,23 +422,32 @@ export const Topbar: React.FC<TopbarProps> = ({
         </StudioModal>
       )}
 
+      {(slot === 'top' || slot === 'cluster') && wsToEdit && onEditWorkspace && (
+        <StudioModal labelId="ws-edit-title" size="md" icon={<Pencil size={17} />} title="Chỉnh sửa không gian làm việc"
+          subtitle="Đổi tên hoặc mô tả cho không gian này. Hệ thống tự động điều phối bằng đội ngũ 11 Agent." onClose={() => setWsToEdit(null)}>
+          {editWsError && <div className="note is-error"><AlertCircle size={16} /><span>{editWsError}</span></div>}
+          <form onSubmit={submitEdit} className="form">
+            <label htmlFor="ws-edit-name">Tên không gian</label>
+            <input id="ws-edit-name" data-autofocus type="text" maxLength={120} value={editWs.name} onChange={e => setEditWs(v => ({ ...v, name: e.target.value }))} required />
+            <label htmlFor="ws-edit-desc">Mô tả ngắn <small>(không bắt buộc)</small></label>
+            <textarea id="ws-edit-desc" maxLength={500} value={editWs.desc} onChange={e => setEditWs(v => ({ ...v, desc: e.target.value }))} rows={3} placeholder="Phạm vi, nội dung chính của bộ tài liệu…" />
+            <div className="dlg-actions">
+              <button type="button" onClick={() => setWsToEdit(null)} className="btn btn-ghost">Hủy</button>
+              <button type="submit" disabled={savingWs} className="btn btn-dark">{savingWs ? 'Đang lưu…' : 'Lưu thay đổi'}</button>
+            </div>
+          </form>
+        </StudioModal>
+      )}
+
       {(slot === 'top' || slot === 'cluster') && createOpen && (
         <StudioModal labelId="workspace-dialog-title" size="md" icon={<Plus size={18} />} title="Tạo không gian làm việc"
-          subtitle="Mỗi không gian có kho tài liệu và lịch sử trò chuyện riêng." onClose={() => setCreateOpen(false)}>
+          subtitle="Mỗi không gian có kho tài liệu, lịch sử trò chuyện riêng và được điều phối tự động bởi 11 Agent." onClose={() => setCreateOpen(false)}>
           {createError && <div className="note is-error"><AlertCircle size={16} /><span>{createError}</span></div>}
           <form onSubmit={submitCreate} className="form">
             <label htmlFor="workspace-name">Tên không gian</label>
             <input id="workspace-name" data-autofocus type="text" value={newWs.name} onChange={e => setNewWs(v => ({ ...v, name: e.target.value }))} placeholder="ví dụ: Quy chế đào tạo, Nội quy công ty" required />
             <label htmlFor="workspace-description">Mô tả ngắn <small>(không bắt buộc)</small></label>
             <textarea id="workspace-description" value={newWs.desc} onChange={e => setNewWs(v => ({ ...v, desc: e.target.value }))} placeholder="Phạm vi, nội dung chính của bộ tài liệu…" rows={3} />
-            {/* Mặc định Tổng quát; chỉ người cần chuyên gia theo ngành mới mở ra chọn */}
-            <details className="ws-advanced">
-              <summary>Tùy chọn nâng cao <small>(không bắt buộc)</small></summary>
-              <label htmlFor="workspace-pack">Lĩnh vực <small>(trợ lý chia việc cho chuyên gia của ngành này)</small></label>
-              <select id="workspace-pack" value={newWs.pack} onChange={e => setNewWs(v => ({ ...v, pack: e.target.value as DomainPack }))}>
-                {DOMAIN_PACKS.map(p => <option key={p.id} value={p.id}>{p.label}: {p.hint}</option>)}
-              </select>
-            </details>
             <div className="dlg-actions">
               <button type="button" onClick={() => setCreateOpen(false)} className="btn btn-ghost">Hủy</button>
               <button type="submit" disabled={creating} className="btn btn-dark">{creating ? 'Đang tạo…' : 'Tạo không gian'}</button>

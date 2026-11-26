@@ -17,10 +17,10 @@ SKILLS: dict[str, tuple[str, str, frozenset[str] | None]] = {
         r"\b(ra soat|kiem tra|xem xet|danh gia)\b.{0,30}\bhop dong\b|\bdieu khoan\b.{0,25}\b(bat loi|rui ro|phat|nguy hiem)\b",
         frozenset({"contract"}),
     ),
-    # Đợt 4: so sánh hai phiên bản (bản cũ/bản mới) theo Điều/Khoản; trang So sánh xem chi tiết
+    # Đợt 4 + V9: chỉ kích hoạt so sánh phiên bản khi câu hỏi rõ ràng so sánh 2 văn bản/phiên bản (không bắt nhầm "so sánh chi phí năm 2026...")
     "compare": (
         "So sánh phiên bản",
-        r"\b(so sanh|doi chieu)\b.{0,60}\b(ban|phien ban|quy che|quy dinh|van ban|cu|moi|nam)\b|\b(ban moi|phien ban moi)\b.{0,40}\b(khac|thay doi|diem moi)\b|\bthay doi gi\b.{0,40}\b(so voi|ban cu)\b",
+        r"\b(so sanh|doi chieu)\b.{0,60}\b(phien ban|ban cu|ban moi|hai ban|2 ban|hai tai lieu|2 tai lieu|hai van ban|2 van ban|hai hop dong|2 hop dong|quy che|quy dinh|van ban)\b|\b(ban moi|phien ban moi)\b.{0,40}\b(khac|thay doi|diem moi)\b|\bthay doi gi\b.{0,40}\b(so voi|ban cu)\b",
         None,
     ),
     # Đợt 5 (P1-3): câu hỏi trắc nghiệm có phương án, đáp án, nguồn (dùng công cụ tạo câu hỏi sẵn có)
@@ -60,10 +60,16 @@ COMPOSE = r"\b(tao|soan|viet|lap)\b.{0,30}\b(cau hoi|de thi|bai kiem tra|trac ng
 # Đợt 8 Văn phòng 3D: câu có từ hai vế hỏi trở lên ("ai duyệt … và được trả bao nhiêu") để bộ điều phối chia việc;
 # trước đây kỹ năng chỉ trả lời vế đầu và bỏ mất vế sau.
 _ASKS = (r"\bbao nhieu\b", r"\bai\b", r"\bbao lau\b", r"\bthe nao\b", r"\bnhung gi\b", r"\bo dau\b", r"\bngay nao\b",
-         r"\bkhi nao\b", r"\bla gi\b", r"\bco\b[^?,]{0,60}\bkhong\b")
+         r"\bkhi nao\b", r"\bla gi\b", r"\bco\b[^?,]{0,60}\bkhong\b",
+         r"\b(?:hang muc|khoan|muc|co che|loai|truong hop|dieu khoan|bang|kenh|phuong an|cach|tai lieu)\s+(?:[a-z0-9]+\s+){0,2}nao\b")
+
+
+_ENUM_PARTS = re.compile(r"(?:^|\s)(?:\(\s*[1-9]\s*\)|[1-9]\))\s+")
 
 
 def is_multi_part(text: str) -> bool:
+    if len(_ENUM_PARTS.findall(text)) >= 2 or text.count("?") >= 2:
+        return True
     return sum(1 for p in _ASKS if re.search(p, text)) >= 2
 
 

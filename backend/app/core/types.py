@@ -32,7 +32,7 @@ class SourceChunk:
 class Task:
     task_id: str
     goal: str
-    domain: str = "api_architecture"
+    domain: str = "general"
     depends_on: list[str] = field(default_factory=list)
     evidence_needs: list[str] = field(default_factory=list)
     covers_obligations: list[str] | None = None
@@ -90,6 +90,7 @@ class TaskResult:
     invalid_citations: list[str] = field(default_factory=list)
     missing_information: list[str] = field(default_factory=list)
     source: str = "documents"  # nguồn tri thức (ô chat sản phẩm): documents | general | both
+    computed_numbers: list[str] = field(default_factory=list)  # các số do máy tính Python tính từ [[= ... ]] ở worker
 
 @dataclass
 class RunMetrics:

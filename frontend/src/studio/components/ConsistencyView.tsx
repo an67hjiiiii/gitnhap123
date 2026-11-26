@@ -61,7 +61,7 @@ export const ConsistencyView: React.FC<{ workspaceId: number | string; docs: Doc
   })();
 
   const find = async () => {
-    if (ids.length < 2) { setError('Chọn ít nhất hai tài liệu để so sánh.'); return; }
+    if (ids.length < 1) { setError('Chọn ít nhất một tài liệu để kiểm tra mâu thuẫn.'); return; }
     setBusy(true); setError(null); setNote(null);
     try {
       const r = await consistencyCandidates(ids, 20);

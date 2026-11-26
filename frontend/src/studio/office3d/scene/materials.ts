@@ -5,7 +5,11 @@ export interface StudioMaterialLibrary {
   oakFloor: THREE.MeshStandardMaterial;
   oakDesk: THREE.MeshStandardMaterial;
   darkWalnutWood: THREE.MeshStandardMaterial;
+  oakSlatWood: THREE.MeshStandardMaterial;
   plasterWall: THREE.MeshStandardMaterial;
+  featureWallSlate: THREE.MeshStandardMaterial;
+  podiumSlate: THREE.MeshStandardMaterial;
+  travertineFloor: THREE.MeshStandardMaterial;
   cutawayWallCap: THREE.MeshStandardMaterial;
   basePlinth: THREE.MeshStandardMaterial;
   rugBlue: THREE.MeshStandardMaterial;
@@ -16,11 +20,14 @@ export interface StudioMaterialLibrary {
   darkMonitorFrame: THREE.MeshStandardMaterial;
   whiteChairShell: THREE.MeshStandardMaterial;
   fabricChairBlue: THREE.MeshPhysicalMaterial;
+  cognacLeather: THREE.MeshStandardMaterial;
   glassPanel: THREE.MeshPhysicalMaterial;
   planningBoardMat: THREE.MeshStandardMaterial;
   draftingPaperMat: THREE.MeshStandardMaterial;
   easelChartMat: THREE.MeshStandardMaterial;
   missionWallMat: THREE.MeshBasicMaterial;
+  hubMapMat: THREE.MeshStandardMaterial;
+  screenUltrawideMat: THREE.MeshStandardMaterial;
   screenSleepMat: THREE.MeshStandardMaterial;
   plantLeafRich: THREE.MeshStandardMaterial;
   plantLeafLight: THREE.MeshStandardMaterial;
@@ -29,8 +36,12 @@ export interface StudioMaterialLibrary {
   eilikCeramicShell: THREE.MeshPhysicalMaterial;
   visorBlack: THREE.MeshPhysicalMaterial;
   lampShadeGlow: THREE.MeshStandardMaterial;
+  warmLedStrip: THREE.MeshStandardMaterial;
   contactShadow: THREE.MeshBasicMaterial;
   zzzSpriteMat: THREE.SpriteMaterial;
+  coveLightMat: THREE.MeshStandardMaterial;
+  deskMatDark: THREE.MeshStandardMaterial;
+  sofaFabric: THREE.MeshStandardMaterial;
   createSoftRobotMat: (hex: number) => THREE.MeshPhysicalMaterial;
   createScreenMat: (map: THREE.CanvasTexture) => THREE.MeshStandardMaterial;
   createAccentGlow: (hex: number, intensity?: number) => THREE.MeshStandardMaterial;
@@ -47,76 +58,117 @@ export function createStudioMaterials(
     return m;
   };
 
-  // Tactile Honey-Walnut Hardwood Plank Floor with real bump grain (never plasticky!)
+  // Sàn gỗ sồi mật ong sâu ấm (Command Atrium V3) — tương phản cực nổi với Trục đá sáng & 11 Robot trắng sứ V12
   const oakFloor = track(
     new THREE.MeshStandardMaterial({
       map: textures.oakPlankFloorMap,
       bumpMap: textures.woodBumpMap,
-      bumpScale: 0.028,
+      bumpScale: 0.02,
       color: 0xffffff,
-      roughness: 0.72,
+      roughness: 0.52,
       metalness: 0.02,
     }),
   );
 
-  // Rich Natural Walnut Desk Surface with micro-wood bump
+  // Mặt bàn gỗ óc chó nâu đậm tự nhiên
   const oakDesk = track(
     new THREE.MeshStandardMaterial({
       map: textures.oakDeskMap,
       bumpMap: textures.woodBumpMap,
       bumpScale: 0.018,
       color: 0xffffff,
-      roughness: 0.65,
+      roughness: 0.46,
       metalness: 0.03,
     }),
   );
 
-  // Deep Espresso Walnut Cabinetry & Bookshelves
+  // Gỗ óc chó nâu ấm tự nhiên cho bàn làm việc, tủ kệ, bậc thang (nhân với oakDeskMap nên dùng tông sáng ấm để giữ rõ vân gỗ)
   const darkWalnutWood = track(
     new THREE.MeshStandardMaterial({
       map: textures.oakDeskMap,
       bumpMap: textures.woodBumpMap,
       bumpScale: 0.02,
-      color: 0x6b472b,
-      roughness: 0.68,
-      metalness: 0.03,
+      color: 0xa6764c,
+      roughness: 0.48,
+      metalness: 0.02,
     }),
   );
 
-  // Warm Architectural Matte Stucco Wall with fine tactile plaster grain
+  // Lam gỗ sồi vàng mật trang trí tường chính diện, giá vẽ, thang thư viện
+  const oakSlatWood = track(
+    new THREE.MeshStandardMaterial({
+      color: 0xc99660,
+      bumpMap: textures.woodBumpMap,
+      bumpScale: 0.014,
+      roughness: 0.48,
+      metalness: 0.02,
+    }),
+  );
+
+  // Tường hông xám ấm kiến trúc (không chói trắng gắt, hài hòa với tường Slate đậm phía bắc)
   const plasterWall = track(
     new THREE.MeshStandardMaterial({
-      color: 0xeae3d8,
+      color: 0xd8d1c7,
       bumpMap: textures.plasterBumpMap,
-      bumpScale: 0.014,
-      roughness: 0.92,
+      bumpScale: 0.009,
+      roughness: 0.88,
       metalness: 0.0,
+    }),
+  );
+
+  // Tường chính diện phía Bắc: Xanh Slate kiến trúc đậm tạo chiều sâu & tôn bật Màn hình 2K
+  const featureWallSlate = track(
+    new THREE.MeshStandardMaterial({
+      color: 0x263140,
+      bumpMap: textures.plasterBumpMap,
+      bumpScale: 0.008,
+      roughness: 0.78,
+      metalness: 0.06,
+    }),
+  );
+
+  // Bục Chỉ Huy nâng cao +0.28m lát đá Xám Than kiến trúc
+  const podiumSlate = track(
+    new THREE.MeshStandardMaterial({
+      map: textures.darkSlateStoneMap,
+      roughness: 0.54,
+      metalness: 0.08,
+    }),
+  );
+
+  // Trục Lối Đi Chính & Sảnh Hội Ý Tròn lát đá Travertine sáng ấm
+  const travertineFloor = track(
+    new THREE.MeshStandardMaterial({
+      map: textures.travertineStoneMap,
+      roughness: 0.56,
+      metalness: 0.02,
     }),
   );
 
   const cutawayWallCap = track(
     new THREE.MeshStandardMaterial({
-      color: 0x202630,
-      roughness: 0.82,
-      metalness: 0.05,
+      color: 0x1a212b,
+      roughness: 0.62,
+      metalness: 0.24,
     }),
   );
 
   const basePlinth = track(
     new THREE.MeshStandardMaterial({
-      color: 0x8e8377,
-      roughness: 0.88,
-      metalness: 0.02,
+      color: 0x625a52,
+      roughness: 0.84,
+      metalness: 0.04,
     }),
   );
 
-  // Tactile Woven Wool Area Rugs with fabric bump
+  // Thảm dệt cho 2 khu Analyst & Reviewer (tông đá xanh xám sang trọng)
   const rugBlue = track(
     new THREE.MeshStandardMaterial({
       map: textures.wovenRugBlueMap,
       bumpMap: textures.fabricBumpMap,
-      bumpScale: 0.022,
-      roughness: 0.96,
+      bumpScale: 0.02,
+      color: 0x4b5769,
+      roughness: 0.92,
       metalness: 0.0,
     }),
   );
@@ -125,70 +177,83 @@ export function createStudioMaterials(
     new THREE.MeshStandardMaterial({
       map: textures.wovenRugSandMap,
       bumpMap: textures.fabricBumpMap,
-      bumpScale: 0.022,
-      roughness: 0.96,
+      bumpScale: 0.02,
+      color: 0x5c6470,
+      roughness: 0.92,
       metalness: 0.0,
     }),
   );
 
   const brushedSteel = track(
     new THREE.MeshPhysicalMaterial({
-      color: 0xadb6c2,
-      roughness: 0.38,
-      metalness: 0.82,
-      clearcoat: 0.1,
+      color: 0xcbd4df,
+      roughness: 0.26,
+      metalness: 0.72,
+      clearcoat: 0.2,
     }),
   );
 
   const chromeMetal = track(
     new THREE.MeshPhysicalMaterial({
-      color: 0xdce3eb,
-      roughness: 0.18,
-      metalness: 0.92,
+      color: 0xe6edf5,
+      roughness: 0.2,
+      metalness: 0.78,
     }),
   );
 
+  // Đồng thau ấm sáng làm viền bục, viền sảnh đá, khung màn hình, tay đỡ kính & bánh lái Vault
   const brassAccent = track(
     new THREE.MeshPhysicalMaterial({
-      color: 0xc48b32,
-      roughness: 0.32,
+      color: 0xe0b05e,
+      roughness: 0.28,
       metalness: 0.86,
     }),
   );
 
   const darkMonitorFrame = track(
     new THREE.MeshStandardMaterial({
-      color: 0x1a2029,
-      roughness: 0.52,
-      metalness: 0.22,
+      color: 0x1b222c,
+      roughness: 0.38,
+      metalness: 0.62,
     }),
   );
 
   const whiteChairShell = track(
     new THREE.MeshStandardMaterial({
-      color: 0xece8e1,
-      roughness: 0.68,
-      metalness: 0.02,
+      color: 0xf1f5f9,
+      roughness: 0.54,
+      metalness: 0.04,
     }),
   );
 
   const fabricChairBlue = track(
     new THREE.MeshPhysicalMaterial({
-      color: 0x3b5c7a,
+      color: 0x384252,
       bumpMap: textures.fabricBumpMap,
-      bumpScale: 0.015,
-      roughness: 0.94,
+      bumpScale: 0.014,
+      roughness: 0.88,
       metalness: 0.0,
-      sheen: 0.55,
-      sheenRoughness: 0.85,
-      sheenColor: new THREE.Color(0x88aac8),
+      sheen: 0.35,
+      sheenRoughness: 0.82,
+      sheenColor: new THREE.Color(0x94a3b8),
+    }),
+  );
+
+  // Da bò Cognac cao cấp cho 2 ghế băng cong tại Sảnh Hội Ý Trung Tâm
+  const cognacLeather = track(
+    new THREE.MeshStandardMaterial({
+      color: 0xae6636,
+      bumpMap: textures.fabricBumpMap,
+      bumpScale: 0.01,
+      roughness: 0.5,
+      metalness: 0.04,
     }),
   );
 
   const glassPanel = track(
     new THREE.MeshPhysicalMaterial({
-      color: 0xcfe4f5,
-      roughness: 0.12,
+      color: 0xdbeafe,
+      roughness: 0.1,
       metalness: 0.04,
       transparent: true,
       opacity: isSoftwareGl ? 0.3 : 0.24,
@@ -203,7 +268,7 @@ export function createStudioMaterials(
       metalness: 0.03,
       emissive: new THREE.Color(0xffffff),
       emissiveMap: textures.planningBoardMap,
-      emissiveIntensity: 0.14,
+      emissiveIntensity: 0.16,
     }),
   );
 
@@ -222,13 +287,38 @@ export function createStudioMaterials(
       metalness: 0.0,
       emissive: new THREE.Color(0xffffff),
       emissiveMap: textures.easelChartMap,
-      emissiveIntensity: 0.12,
+      emissiveIntensity: 0.14,
     }),
   );
 
   const missionWallMat = track(
     new THREE.MeshBasicMaterial({
       map: textures.missionWallMap,
+    }),
+  );
+
+  // Mặt kính Bản Đồ Mạng 11 Agent C27 trên bàn tròn trung tâm
+  const hubMapMat = track(
+    new THREE.MeshStandardMaterial({
+      map: textures.hubMapTex,
+      emissiveMap: textures.hubMapTex,
+      emissive: new THREE.Color(0xffffff),
+      emissiveIntensity: 0.82,
+      roughness: 0.16,
+      metalness: 0.08,
+    }),
+  );
+
+  // Màn hình cong Ultrawide cho Studio Xuất bản (05. Integrator)
+  const screenUltrawideMat = track(
+    new THREE.MeshStandardMaterial({
+      map: textures.screenUltrawideMap,
+      emissiveMap: textures.screenUltrawideMap,
+      emissive: new THREE.Color(0xffffff),
+      emissiveIntensity: 0.78,
+      roughness: 0.22,
+      metalness: 0.08,
+      side: THREE.DoubleSide,
     }),
   );
 
@@ -242,29 +332,29 @@ export function createStudioMaterials(
     }),
   );
 
-  // Rich Deep Botanical Foliage Greens (real matte organic leaves, zero plastic shine!)
+  // Tán lá cây kiến trúc xanh sâu tự nhiên
   const plantLeafRich = track(
     new THREE.MeshStandardMaterial({
-      color: 0x2c5c34,
-      roughness: 0.78,
+      color: 0x1e563a,
+      roughness: 0.62,
       metalness: 0.01,
     }),
   );
 
   const plantLeafLight = track(
     new THREE.MeshStandardMaterial({
-      color: 0x447c45,
-      roughness: 0.74,
+      color: 0x357c55,
+      roughness: 0.58,
       metalness: 0.01,
     }),
   );
 
   const terracottaPot = track(
     new THREE.MeshStandardMaterial({
-      color: 0xa65e3e,
+      color: 0xe0d8cc,
       bumpMap: textures.plasterBumpMap,
-      bumpScale: 0.016,
-      roughness: 0.86,
+      bumpScale: 0.012,
+      roughness: 0.64,
       metalness: 0.0,
     }),
   );
@@ -277,35 +367,44 @@ export function createStudioMaterials(
     }),
   );
 
-  // Eilik Signature Soft-Touch Satin Warm-Pearl Ceramic Body Shell (clean & velvety, zero chalky wash!)
+  // Vỏ sứ trắng ngà mịn chuẩn Mẫu Robot V12 (độ nhám 0.60, không bị chói nhựa giả)
   const eilikCeramicShell = track(
     new THREE.MeshPhysicalMaterial({
-      color: 0xf0eee9,
-      roughness: 0.42,
-      metalness: 0.02,
-      clearcoat: 0.16,
-      clearcoatRoughness: 0.35,
+      color: 0xf6f5f1,
+      roughness: 0.6,
+      metalness: 0.01,
+      clearcoat: 0.08,
+      clearcoatRoughness: 0.42,
     }),
   );
 
-  // Glossy Curved Black Glass OLED Face Visor (deep mirror black like Eilik photos!)
+  // Mặt kính đen bóng sâu cho OLED Face Visor V12
   const visorBlack = track(
     new THREE.MeshPhysicalMaterial({
       color: 0x040508,
-      roughness: 0.04,
-      metalness: 0.06,
+      roughness: 0.05,
+      metalness: 0.05,
       clearcoat: 1.0,
       clearcoatRoughness: 0.04,
     }),
   );
 
-  // Warm Interior Architectural Lamp Shade (lights up cozily at sunset, night & storm!)
   const lampShadeGlow = track(
     new THREE.MeshStandardMaterial({
       color: 0xfbf4e4,
       emissive: new THREE.Color(0xffb85c),
-      emissiveIntensity: 0.15,
+      emissiveIntensity: 0.2,
       roughness: 0.5,
+    }),
+  );
+
+  // Dải LED vàng ấm hắt gầm Bục Chỉ Huy, hắt sau Màn hình 2K & kệ sách/báo cáo
+  const warmLedStrip = track(
+    new THREE.MeshStandardMaterial({
+      color: 0xffedd5,
+      emissive: new THREE.Color(0xfbbf24),
+      emissiveIntensity: 1.45,
+      roughness: 0.25,
     }),
   );
 
@@ -327,15 +426,41 @@ export function createStudioMaterials(
     }),
   );
 
-  // Deep Rich Saturated Enamel Accent Material for Eilik's V-Collar, Crown Cap, Ear-Cups & Arms!
+  const coveLightMat = track(
+    new THREE.MeshStandardMaterial({
+      color: 0xe0f2fe,
+      emissive: new THREE.Color(0xbae6fd),
+      emissiveIntensity: 0.9,
+      roughness: 0.25,
+    }),
+  );
+
+  const deskMatDark = track(
+    new THREE.MeshStandardMaterial({
+      color: 0x262c36,
+      roughness: 0.88,
+      metalness: 0.04,
+    }),
+  );
+
+  const sofaFabric = track(
+    new THREE.MeshStandardMaterial({
+      color: 0xf4f1ec,
+      bumpMap: textures.fabricBumpMap,
+      bumpScale: 0.012,
+      roughness: 0.92,
+      metalness: 0.0,
+    }),
+  );
+
   const createSoftRobotMat = (hex: number) =>
     track(
       new THREE.MeshPhysicalMaterial({
         color: hex,
-        roughness: 0.38,
-        metalness: 0.04,
-        clearcoat: 0.24,
-        clearcoatRoughness: 0.28,
+        roughness: 0.52,
+        metalness: 0.03,
+        clearcoat: 0.12,
+        clearcoatRoughness: 0.36,
       }),
     );
 
@@ -343,11 +468,11 @@ export function createStudioMaterials(
     track(
       new THREE.MeshStandardMaterial({
         map,
-        roughness: 0.25,
+        roughness: 0.24,
         metalness: 0.06,
         emissive: new THREE.Color(0xffffff),
         emissiveMap: map,
-        emissiveIntensity: 0.85,
+        emissiveIntensity: 0.82,
       }),
     );
 
@@ -366,7 +491,11 @@ export function createStudioMaterials(
     oakFloor,
     oakDesk,
     darkWalnutWood,
+    oakSlatWood,
     plasterWall,
+    featureWallSlate,
+    podiumSlate,
+    travertineFloor,
     cutawayWallCap,
     basePlinth,
     rugBlue,
@@ -377,11 +506,14 @@ export function createStudioMaterials(
     darkMonitorFrame,
     whiteChairShell,
     fabricChairBlue,
+    cognacLeather,
     glassPanel,
     planningBoardMat,
     draftingPaperMat,
     easelChartMat,
     missionWallMat,
+    hubMapMat,
+    screenUltrawideMat,
     screenSleepMat,
     plantLeafRich,
     plantLeafLight,
@@ -390,8 +522,12 @@ export function createStudioMaterials(
     eilikCeramicShell,
     visorBlack,
     lampShadeGlow,
+    warmLedStrip,
     contactShadow,
     zzzSpriteMat,
+    coveLightMat,
+    deskMatDark,
+    sofaFabric,
     createSoftRobotMat,
     createScreenMat,
     createAccentGlow,

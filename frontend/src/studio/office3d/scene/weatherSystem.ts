@@ -35,7 +35,7 @@ const WEATHER_PALETTES: Record<WeatherMode, WeatherPalette> = {
     indoorBg: 0xe6dfd3,
     bg: 0xcbe0f2,
     indoorFogDensity: 0.0064,
-    fogDensity: 0.0024,
+    fogDensity: 0.0011,
     hemiSky: 0xfff9ee,
     hemiGround: 0xbba890,
     hemiIntensity: 0.96,
@@ -51,15 +51,15 @@ const WEATHER_PALETTES: Record<WeatherMode, WeatherPalette> = {
   },
   sunset: {
     indoorBg: 0xd9b39a,
-    bg: 0xd99b7a,
+    bg: 0xe6a67c,
     indoorFogDensity: 0.0072,
-    fogDensity: 0.003,
+    fogDensity: 0.0014,
     hemiSky: 0xffb884,
     hemiGround: 0x62423a,
     hemiIntensity: 0.85,
     keyColor: 0xff823a,
     keyIntensity: 2.25,
-    keyPos: [-26, 14, 16],
+    keyPos: [-36, 13, -32],
     fillColor: 0x7e8fd1,
     fillIntensity: 0.48,
     envIntensity: 0.54,
@@ -151,7 +151,7 @@ export function createWeatherSystem(params: {
     if (nearOffice && Math.abs(x) < 7.2 && Math.abs(z) < 5.4 && Math.random() < 0.55) {
       x += x >= 0 ? 8.8 : -8.8;
     }
-    const y = randomY ? -22 + Math.random() * 52 : 24 + Math.random() * 8;
+    const y = randomY ? -13 + Math.random() * 42 : 24 + Math.random() * 8;
     const len = nearOffice ? 0.8 + Math.random() * 0.5 : 1.5 + Math.random() * 0.8;
     const idx = i * 6;
     rainPositions[idx] = x;
@@ -194,8 +194,8 @@ export function createWeatherSystem(params: {
     new THREE.Vector3(-15, 31, -27),
     new THREE.Vector3(-20, 21, -28),
     new THREE.Vector3(-15, 9, -26),
-    new THREE.Vector3(-19, -5, -27),
-    new THREE.Vector3(-16, -23, -26),
+    new THREE.Vector3(-19, -3, -27),
+    new THREE.Vector3(-16, -13.2, -26),
   ];
   const boltCurve = new THREE.CatmullRomCurve3(boltPoints);
   const boltGeo = new THREE.TubeGeometry(boltCurve, 20, 0.28, 6, false);
@@ -277,6 +277,8 @@ export function createWeatherSystem(params: {
 
   let currentWarmLamp = WEATHER_PALETTES.sunny.warmLampIntensity;
   let currentCityNightGlow = WEATHER_PALETTES.sunny.cityNightGlow;
+  let lastSentWarmLamp = -1;
+  let lastSentNightGlow = -1;
   let lightningTimer = 2.4;
   let lightningFlash = 0;
 
@@ -369,8 +371,14 @@ export function createWeatherSystem(params: {
         3.2,
         dt,
       );
-      onWarmLampUpdate(currentWarmLamp);
-      onCityNightGlow(currentCityNightGlow);
+      if (Math.abs(currentWarmLamp - lastSentWarmLamp) > 0.001) {
+        lastSentWarmLamp = currentWarmLamp;
+        onWarmLampUpdate(currentWarmLamp);
+      }
+      if (Math.abs(currentCityNightGlow - lastSentNightGlow) > 0.001) {
+        lastSentNightGlow = currentCityNightGlow;
+        onCityNightGlow(currentCityNightGlow);
+      }
 
       // Storm Lightning Strobe Logic
       if (currentMode === 'storm') {
@@ -432,7 +440,7 @@ export function createWeatherSystem(params: {
           arr[idx + 4] -= dy;
           arr[idx + 5] += dz;
 
-          if (arr[idx + 4] < -24) {
+          if (arr[idx + 4] < -13.2) {
             resetDrop(i, false);
           }
         }

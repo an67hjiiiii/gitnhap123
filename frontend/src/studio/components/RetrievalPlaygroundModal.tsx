@@ -13,18 +13,22 @@ interface RetrievalPlaygroundModalProps {
 }
 
 const SAMPLE_PROMPTS = [
-  { title: 'Sổ cái & khóa idempotency', query: 'Idempotency key và transaction version trong bảng payment_transactions', domain: 'DatabaseAgent' },
-  { title: 'Xác thực webhook HMAC', query: 'Xác thực webhook Stripe-Signature sử dụng HMAC SHA256', domain: 'SecurityAgent' },
-  { title: 'Đặc tả API thanh toán', query: 'Đặc tả endpoint API thanh toán đơn hàng và phản hồi JSON', domain: 'APIAgent' },
-  { title: 'Phân quyền RBAC & token', query: 'Cơ chế xác thực JWT và kiểm tra quyền RBAC của người dùng', domain: 'SecurityAgent' },
+  { title: 'Kiến trúc & bảo mật hệ thống', query: 'Cơ chế xác thực, phân quyền truy cập và thiết kế API, cơ sở dữ liệu', domain: 'software' },
+  { title: 'Quy chế nhân sự & nghỉ phép', query: 'Điều kiện nghỉ phép năm, giờ làm thêm và chế độ phúc lợi nhân viên', domain: 'hr' },
+  { title: 'Ngân sách & chi phí', query: 'Quy định thanh toán, tạm ứng, công tác phí và kiểm soát ngân sách', domain: 'finance' },
+  { title: 'Quy chế học vụ & tín chỉ', query: 'Điều kiện xét học bổng, cảnh báo học tập và chuẩn đầu ra tốt nghiệp', domain: 'education' },
 ];
 const DOMAINS = [
   { id: 'all', label: 'Tất cả', dot: '' },
-  { id: 'DatabaseAgent', label: 'Dữ liệu', dot: 'db' },
-  { id: 'APIAgent', label: 'API', dot: 'api' },
-  { id: 'SecurityAgent', label: 'Bảo mật', dot: 'sec' },
+  { id: 'software', label: 'Phần mềm', dot: 'api' },
+  { id: 'business', label: 'Kinh doanh', dot: 'db' },
+  { id: 'marketing', label: 'Marketing', dot: 'sec' },
+  { id: 'hr', label: 'Nhân sự', dot: 'db' },
+  { id: 'finance', label: 'Tài chính', dot: 'api' },
+  { id: 'education', label: 'Giáo dục', dot: 'sec' },
+  { id: 'analyst', label: 'Số liệu', dot: 'db' },
 ];
-const tagDot = (t: string) => /data|csdl/i.test(t) ? 'db' : /api/i.test(t) ? 'api' : /sec|bảo mật/i.test(t) ? 'sec' : 'none';
+const tagDot = (t: string) => /phần mềm|cntt|api|tài chính/i.test(t) ? 'api' : /kinh doanh|nhân sự|số liệu|csdl/i.test(t) ? 'db' : /marketing|giáo dục|bảo mật/i.test(t) ? 'sec' : 'none';
 
 export const RetrievalPlaygroundModal: React.FC<RetrievalPlaygroundModalProps> = ({ isOpen, onClose, workspaceId, initialQuery = '', onSearchingState }) => {
   const [query, setQuery] = useState(initialQuery);

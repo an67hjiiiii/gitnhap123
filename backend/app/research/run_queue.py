@@ -20,35 +20,44 @@ class FairQueue:
         self.limit = max(1, int(limit))
         self.active = 0
         self._waiters: list[tuple[asyncio.Future, PositionCallback]] = []
+        self._tokens: set[object] = set()
 
     @property
     def waiting(self) -> int:
         return len(self._waiters)
 
     def _notify(self) -> None:
-        for i, (_, cb) in enumerate(self._waiters):
+        for i, (_, cb) in enumerate(list(self._waiters)):
             if cb is not None:
-                cb(i + 1)
+                try:
+                    cb(i + 1)
+                except Exception:
+                    # Callback phía client ngắt kết nối hoặc lỗi không được làm treo hàng đợi (FQ-02)
+                    pass
 
-    async def acquire(self, on_position: PositionCallback = None) -> None:
+    async def acquire(self, on_position: PositionCallback = None) -> object:
+        token = object()
         if self.active < self.limit and not self._waiters:
             self.active += 1
-            return
+            self._tokens.add(token)
+            return token
         fut = asyncio.get_running_loop().create_future()
         entry = (fut, on_position)
         self._waiters.append(entry)
-        self._notify()
         try:
+            self._notify()
             await fut  # release() chuyển thẳng chỗ cho người đầu hàng (active giữ nguyên)
         except BaseException:
             if entry in self._waiters:  # bỏ đi khi đang chờ: rời hàng, người sau lên một bậc
                 self._waiters.remove(entry)
                 self._notify()
             elif fut.done() and not fut.cancelled():  # vừa được chỗ thì bị hủy: trả chỗ lại
-                self.release()
+                self._release_slot()
             raise
+        self._tokens.add(token)
+        return token
 
-    def release(self) -> None:
+    def _release_slot(self) -> None:
         while self._waiters:
             fut, _ = self._waiters.pop(0)
             if not fut.done():
@@ -57,13 +66,24 @@ class FairQueue:
                 return
         self.active = max(0, self.active - 1)
 
+    def release(self, token: object | None = None) -> None:
+        if token is not None:
+            if token not in self._tokens:
+                return  # đã trả chỗ rồi: chống double-release (FQ-01)
+            self._tokens.discard(token)
+        elif self._tokens:
+            # giữ tương thích ngược cho caller cũ không truyền token, chỉ giảm nếu còn slot đang hoạt động
+            if self.active <= 0:
+                return
+        self._release_slot()
+
     @asynccontextmanager
     async def slot(self, on_position: PositionCallback = None) -> AsyncIterator[None]:
-        await self.acquire(on_position)
+        token = await self.acquire(on_position)
         try:
             yield
         finally:
-            self.release()
+            self.release(token)
 
 
 product_runs = FairQueue(int(os.getenv("PRODUCT_MAX_CONCURRENT_RUNS", "1") or 1))

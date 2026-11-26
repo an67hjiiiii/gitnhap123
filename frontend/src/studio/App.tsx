@@ -10,7 +10,7 @@ import { Command, CommandPalette } from './components/CommandPalette';
 import { armIntro, shouldPlayIntro, StudioIntro } from './components/StudioIntro';
 import { PageGuide } from './components/PageGuide';
 import gsap from 'gsap';
-import { Users, BarChart3, ClipboardCheck, Database, EyeOff, FileSearch, FlaskConical, GitCompareArrows, MessageSquarePlus, MessagesSquare, Sparkles } from 'lucide-react';
+import { Bell, BookOpen, Bot, FolderOpen, Inbox, Users, BarChart3, ClipboardCheck, Shield, EyeOff, FileSearch, FlaskConical, GitCompareArrows, MessageSquarePlus, MessagesSquare, Sparkles } from 'lucide-react';
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Link } from 'react-router-dom';
 import { Wrench } from 'lucide-react';
@@ -39,6 +39,7 @@ import { SettingsView } from './components/SettingsView';
 import { CompareView } from './components/CompareView';
 import { NotificationsView } from './components/NotificationsView';
 import { ResultsHub, HubTab } from './components/ResultsHub';
+import { QuickGuideView } from './components/QuickGuideView';
 import { OverviewActions } from './components/OverviewActions';
 import { orgNoteText } from './components/Header';
 const LandingPage = lazy(() => import('./pages/LandingPage').then(module => ({default: module.LandingPage}))); 
@@ -178,9 +179,9 @@ function DashboardWorkspace({
   const [profileSource, setProfileSource] = useState('');  // Thư viện → Hồ sơ tài liệu của đúng tài liệu
   // Việc cần làm chỉ có trong tổ chức: đổi sang không gian cá nhân thì về Không gian làm việc
   const inOrg = isOrgId(currentWorkspaceId);
-  setDomainPack(currentWs?.domain_pack);
-  // thiếu lĩnh vực (dữ liệu cũ) = Phần mềm; quyết định bộ lọc kho tài liệu và nội dung trang Bộ công cụ
-  const isSoftware = (currentWs?.domain_pack ?? 'software') === 'software';
+  setDomainPack('office');
+  // Đội ngũ 11 Agent 3D tự động định tuyến đa ngành, không khóa bộ lọc theo gói Phần mềm cũ
+  const isSoftware = false;
 
   const overviewActions = React.useMemo(() => <OverviewActions recent={conversations} spaceId={inOrg ? String(currentWorkspaceId) : undefined}
     onOpenConversation={id => { setActiveConversationId(id); setActiveTab('orchestration'); }} onGo={setActiveTab} />, [conversations, inOrg, currentWorkspaceId]);
@@ -229,7 +230,7 @@ function DashboardWorkspace({
   useStudioMotion(activeTab, !intro);
   const endIntro = () => {
     setIntro(false);
-    if (!!motionAllowed())
+    if (!!motionAllowed() && window.innerWidth >= 1024)
       gsap.fromTo('.st-app > .sb', { x: -36, opacity: 0 }, { x: 0, opacity: 1, duration: 0.7, ease: 'power3.out', clearProps: 'transform,opacity' });
   };
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -336,7 +337,7 @@ function DashboardWorkspace({
     setWorkspaces(prev => prev.map(w => w.id === currentWs.id ? { ...w, domain_pack: pack } : w));
   };
 
-  const handleCreateWorkspace = async (name: string, description: string, pack: DomainPack = 'general') => {
+  const handleCreateWorkspace = async (name: string, description: string, pack: DomainPack = 'office') => {
     try {
       const newWs = await createWorkspace(name, description, pack);
       setWorkspaces(prev => [...prev, newWs]);
@@ -437,9 +438,15 @@ function DashboardWorkspace({
     }
   };
 
+  const handleEditWorkspace = async (wsId: number | string, name: string, description: string, pack: DomainPack) => {
+    await renameWorkspace(wsId, name, description, pack);
+    await refreshState();
+    setToast({ text: `Đã cập nhật không gian "${name}".`, tone: 'ok' });
+  };
+
   // thanh trên đã bỏ (20/11): các thành phần chia vào đầu/chân thanh bên; điện thoại còn dải mỏng
   const topbar = (slot: 'top' | 'bottom' | 'mobile' | 'cluster') => <Topbar activeTab={activeTab} onTabChange={setActiveTab} user={user} workspaces={workspaces} currentWorkspaceId={currentWorkspaceId}
-          onWorkspaceChange={handleWorkspaceChange} onCreateWorkspace={handleCreateWorkspace} onDeleteWorkspace={handleDeleteWorkspace}
+          onWorkspaceChange={handleWorkspaceChange} onCreateWorkspace={handleCreateWorkspace} onEditWorkspace={handleEditWorkspace} onDeleteWorkspace={handleDeleteWorkspace}
           onLogout={onLogout} onUserChange={onUserChange} theme={theme} onThemeChange={changeTheme}
           onOpenPalette={() => setPaletteOpen(true)} onOpenMenu={() => setIsMobileDrawerOpen(true)} menuOpen={isMobileDrawerOpen}
           onOrgChanged={() => { void refreshState(); }} historyOpen={historyOpen} onHistoryOpen={setHistoryOpen}
@@ -455,20 +462,35 @@ function DashboardWorkspace({
     </div>
   );
 
+  const shortName = (raw?: string | null) => {
+    const cleaned = (raw ?? '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    return cleaned ? cleaned.split(' ').slice(-1)[0] : undefined;
+  };
+
   return (
     <div className="st-app" data-theme={theme} data-motion={motionAllowed() ? 'full' : 'reduced'}>
-      <StudioBackdrop />
-      {intro && user && <StudioIntro name={user.full_name?.trim().split(/\s+/).slice(-1)[0]} onDone={endIntro} />}
+      {activeTab !== 'office' && <StudioBackdrop />}
+      {intro && user && <StudioIntro name={shortName(user.full_name)} onDone={endIntro} />}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={[
         ...([
-          ['orchestration', 'Không gian làm việc', MessagesSquare], ['library', 'Thư viện tài liệu', FileSearch], ['results', 'Kết quả đã lưu', FileSearch],
-          ...(currentWs?.kind === 'org' ? [['tasks', 'Việc cần làm', ClipboardCheck]] : []), ['organization', 'Tổ chức', Users], ['overview', 'Tổng quan', BarChart3],
-          ['settings', 'Cài đặt', Wrench], ['documents', 'Hồ sơ tài liệu', FileSearch], ['consistency', 'Kiểm tra mâu thuẫn', GitCompareArrows],
-          ['toolkit', 'Bộ công cụ theo ngành', Wrench],
-          ['office', 'Văn phòng Agent', Sparkles],
-          ['evaluation', 'Phòng đánh giá', ClipboardCheck], ['benchmarks', 'Thực nghiệm', FlaskConical],
-          ['rating', 'Chấm mù', EyeOff], ...(user?.role === 'admin' ? [['users', 'Người dùng', Users], ['db_explorer', 'Cơ sở dữ liệu', Database]] : []),
+          ['orchestration', 'Không gian làm việc', MessagesSquare],
+          ['toolkit', 'Kỹ năng', Sparkles],
+          ['office', 'Văn phòng Agent', Bot],
+          ['library', 'Tài liệu', FolderOpen],
+          ['results', 'Kết quả & công việc', Inbox],
+          ['overview', 'Tổng quan', BarChart3],
+          ['organization', 'Tổ chức', Users],
+          ['documents', 'Hồ sơ tài liệu', FileSearch],
+          ['consistency', 'Kiểm tra mâu thuẫn', GitCompareArrows],
+          ['compare', 'So sánh phiên bản', GitCompareArrows],
+          ['notifications', 'Thông báo', Bell],
+          ['guide', 'Hướng dẫn nhanh', BookOpen],
+          ['settings', 'Cài đặt', Wrench],
+          ['evaluation', 'Phòng đánh giá', ClipboardCheck],
+          ['benchmarks', 'Thực nghiệm', FlaskConical],
+          ['rating', 'Chấm mù', EyeOff],
         ] as [NavigationTab, string, Command['Icon']][]).map(([id, label, Icon]) => ({ id: `go-${id}`, label, group: 'Đi đến', Icon, run: () => setActiveTab(id) })),
+        ...(user?.role === 'admin' ? [{ id: 'go-admin-portal', label: 'Mở Cổng quản trị hệ thống (AdminPortal)', group: 'Quản trị', Icon: Shield, run: () => switchPortal('admin') }] : []),
         { id: 'new-chat', label: 'Cuộc trò chuyện mới', group: 'Thao tác', Icon: MessageSquarePlus, run: () => { setActiveConversationId(null); setActiveTab('orchestration'); } },
         ...Object.entries(SAMPLE_PACKS).map(([k, p]) => ({ id: `seed-${k}`, label: `Nạp bộ tài liệu mẫu: ${p.label}`, group: 'Thao tác', Icon: Sparkles, run: () => { void handleSeedDocs(k); } })),
         ...conversations.slice(0, 12).map(c => ({ id: `conv-${c.conversation_id}`, label: c.title || 'Không tên', group: 'Cuộc trò chuyện gần đây', Icon: MessagesSquare,
@@ -491,7 +513,7 @@ function DashboardWorkspace({
       />
 
       <div className="st-main">
-        {!intro && <PageGuide page={activeTab} />}
+        {!intro && activeTab !== 'office' && <PageGuide page={activeTab} />}
         {topbar('mobile')}
         {topbar('cluster')}
         {!currentWorkspaceId && <div className="st-banner is-info">Bạn chưa chọn không gian làm việc. <button onClick={() => { const name = window.prompt('Tên không gian làm việc mới'); if (name?.trim()) void handleCreateWorkspace(name.trim(), ''); }}>Tạo không gian đầu tiên</button></div>}
@@ -513,6 +535,7 @@ function DashboardWorkspace({
           onAsk={(q, sourceId, sourceName) => { setActiveConversationId(null); setPrefill({ text: q, key: Date.now(), sourceId, sourceName }); setActiveTab('orchestration'); }} />}
         {activeTab === 'library' && <LibraryView docs={documents} onUploadFile={async f => { await handleUpload(f); }}
           onOpenProfile={id => { setProfileSource(id); setActiveTab('documents'); }} onOpenConsistency={() => setActiveTab('consistency')}
+          onOpenCompare={() => setActiveTab('compare')}
           onAsk={(sourceId, name) => { setActiveConversationId(null); setPrefill({ text: `Nội dung chính của tài liệu ${name} là gì?`, key: Date.now(), sourceId, sourceName: name }); setActiveTab('orchestration'); }} />}
         {(activeTab === 'results' || activeTab === 'tasks') && <ResultsHub key={`rh-${currentWorkspaceId}`} tab={activeTab === 'tasks' ? 'requests' : hubTab}
           onTab={t => { setHubTab(t); setActiveTab('results'); }} spaceId={inOrg ? String(currentWorkspaceId) : undefined} onGo={setActiveTab}
@@ -528,16 +551,18 @@ function DashboardWorkspace({
             noteText={n => orgNoteText(n, orgTerms(currentWs))} onOpenOrg={() => setActiveTab('organization')}
             docIds={documents.map(d => String(d.id))} levelName={{ MANAGER: orgTerms(currentWs).level.MANAGER, EXECUTIVE: orgTerms(currentWs).level.EXECUTIVE }} /> : undefined} />}
         {activeTab === 'settings' && user && <SettingsView user={user} theme={theme} onThemeChange={t => changeTheme(t)}
-          onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onOpenLibrary={() => setActiveTab('library')} onChanged={refreshState} health={health} docCount={documents.length} />}
-        {officeMounted && <div className="office3d-keep" hidden={activeTab !== 'office'}><Suspense fallback={<div className="office3d-page office3d-loading">Đang dựng văn phòng…</div>}><OfficeView /></Suspense></div>}
+          onChangeAvatar={() => window.dispatchEvent(new Event('oq-open-avatar'))} onUserChange={onUserChange} onOpenLibrary={() => setActiveTab('library')} onChanged={refreshState} health={health} docCount={documents.length} />}
+        {activeTab === 'guide' && <QuickGuideView docCount={documents.length} onGo={setActiveTab}
+          onTryQuestion={q => { setActiveConversationId(null); setPrefill({ text: q, key: Date.now() }); setActiveTab('orchestration'); }} />}
+        {officeMounted && <div className="office3d-keep" hidden={activeTab !== 'office'}><Suspense fallback={<div className="office3d-page office3d-loading">Đang dựng văn phòng…</div>}><OfficeView docs={documents} workspaceName={currentWs?.name} domainPack={currentWs?.domain_pack} /></Suspense></div>}
         {activeTab === 'toolkit' && <ToolkitView key={`tk-${currentWorkspaceId}`} pack={currentWs?.domain_pack} workspaceId={currentWorkspaceId} docs={documents} initialTool={toolTarget} />}
         {activeTab === 'notifications' && user && <NotificationsView workspaces={workspaces} onGo={setActiveTab} onOrgChanged={() => { void refreshState(); }} />}
         {activeTab === 'compare' && <CompareView key={`cmp-${currentWorkspaceId}`} docs={documents} workspaceId={currentWorkspaceId} initial={comparePair} />}
         {activeTab === 'consistency' && <ConsistencyView key={`cons-${currentWorkspaceId}`} workspaceId={currentWorkspaceId} docs={documents} />}
         {activeTab === 'rating' && <BlindRatingView />}
-        {activeTab === 'users' && user?.role === 'admin' && <UsersAdminView currentUserId={String(user.id)} />}
         {activeTab === 'evaluation' && <EvaluationView key={`eval-${currentWorkspaceId}`} docs={documents} />}
         {activeTab === 'benchmarks' && <div className="st-legacy"><BenchmarkLab resultsMap={resultsMap} telemetryLogs={telemetryLogs} onRefreshTelemetry={refreshTelemetry} onRunAblation={handleRunAblation} isAblationRunning={isAblationRunning} /></div>}
+        {activeTab === 'users' && user?.role === 'admin' && <UsersAdminView currentUserId={String(user.id)} />}
         {activeTab === 'db_explorer' && user?.role === 'admin' && <div className="st-legacy"><DatabaseExplorer /></div>}
       </div>
 
@@ -575,7 +600,7 @@ function AppContent() {
   useEffect(() => {
     let active = true;
     getMe().then(value => { if (active) setUser(value); }).catch(() => {
-      logout(); if (active) setUser(null);
+      if (active) setUser(null);
     }).finally(() => { if (active) setSessionLoading(false); });
     return () => { active = false; };
   }, []);
@@ -585,7 +610,7 @@ function AppContent() {
   userRef.current = user;
   useEffect(() => {
     const check = () => {
-      if (document.hidden) return;
+      if (document.hidden || !userRef.current) return;
       getMe().then(me => { if (userRef.current && String(me.id) !== String(userRef.current.id)) window.location.reload(); })
         // đã đăng xuất ở tab khác thì tải lại (về trang đăng nhập); lỗi mạng thì bỏ qua, không tải lại liên tục
         .catch(e => { if (userRef.current && e?.message === 'Chưa đăng nhập') window.location.reload(); });

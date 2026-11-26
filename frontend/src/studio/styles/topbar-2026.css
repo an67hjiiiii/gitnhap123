@@ -20,6 +20,15 @@
 .st-app[data-theme="dark"] div.st-cluster .sb-badge{box-shadow:0 0 0 2px #0e1727}
 .st-app[data-theme="dark"] div.st-cluster .tb-user .sb-avatar{box-shadow:0 0 0 2px #0e1727,0 0 0 3.5px var(--accent)}
 @media (max-width:1023px){.st-app div.st-cluster{padding:3px;gap:0}.st-app div.st-cluster .tb-sep{display:none}}
+@media (max-width:480px){
+  .st-app div.st-cluster{top:10px;right:8px;padding:3px;border-radius:16px}
+  .st-app div.st-cluster .tb-ws{height:34px;padding:3px}
+  .st-app div.st-cluster .tb-ws-mark{width:28px;height:28px;border-radius:8px;font-size:11px}
+  .st-app div.st-cluster .tb-btn{height:34px;min-width:34px;padding:0 5px;border-radius:10px}
+  .st-app div.st-cluster .tb-user{width:34px;height:34px;margin-left:1px}
+  .st-app div.st-cluster .tb-user .sb-avatar{width:28px;height:28px;font-size:11px}
+  .st-app .st-mobilehead .mh-title{margin-right:192px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14.5px}
+}
 
 /* ---- nút ngày/đêm: mặt trời có tia; bấm thì tia thu lại, mặt trời bị "cắn" thành trăng lưỡi liềm, sao hiện ra ---- */
 .st-app .tb-sky svg{overflow:visible}
@@ -92,3 +101,12 @@
    Hàng đầu giờ = 12 lề + 54 cụm + 12 khe (bằng khe giữa các cột) → khung chat, cột phải bắt đầu ở 78, không chạm cụm. */
 /* khung chat cũng dính sát thanh bên (khe 0) trong khi bên phải khe 12 → thêm khe trái 12 cho đều */
 @media (min-width:1024px){.st-app .ws-shell,.st-app .ws-shell.is-folded{padding-top:78px;padding-left:12px}}
+
+/* Nút chỉnh sửa không gian + nhãn lĩnh vực + nút Hướng dẫn nhanh */
+.st-app .wsp-pack{padding:1px 6px;border-radius:6px;background:rgba(29,102,201,.08);color:var(--accent,#1d66c9);font-style:normal;font-weight:650;font-size:10.5px}
+.st-app[data-theme="dark"] .wsp-pack{background:rgba(96,165,250,.15);color:#93c5fd}
+.st-app .wsp-edit{flex:none;width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:9px;background:transparent;color:var(--muted);cursor:pointer;opacity:.7;transition:opacity .15s,background .15s,color .15s}
+.st-app .wsp-edit:hover{opacity:1;background:var(--accent-soft);color:var(--accent)}
+.st-app .tb-help-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.st-app .sb-nav .sb-group:first-of-type{padding-top:4px}
+.st-app .sb.is-rail .sb-nav .sb-group:first-of-type{display:none}

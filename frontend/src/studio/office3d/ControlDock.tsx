@@ -397,7 +397,7 @@ export function ControlDock({
                         ['core_studio', 'Khu Điều phối'],
                         ['specialist_row', '6 Phòng PC'],
                         ['rag_analyst', 'Tủ RAG & Phân tích'],
-                        ['city_exterior', 'Tòa nhà & Thành phố'],
+                        ['city_exterior', 'Toàn cảnh ĐH Duy Tân'],
                       ] as const
                     ).map(([id, label]) => (
                       <button

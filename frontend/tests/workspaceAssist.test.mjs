@@ -28,3 +28,17 @@ test('tô từ khóa không phân biệt dấu', () => {
   assert.deepEqual(parts.filter(p => p.hit).map(p => p.t), ['bảng', 'CSDL']);
   assert.equal(parts.map(p => p.t).join(''), 'Danh sách bảng chính của CSDL');
 });
+
+test('tô cụm từ ghép V12: hỏi Lợi nhuận KHÔNG tô nhầm chữ LỢI trong PHÚC LỢI', () => {
+  const terms = keyTerms('Tổng doanh thu thuần và lợi nhuận trước thuế Quý IV/2025 là bao nhiêu? Chính sách bảo hiểm sức khỏe?');
+  assert.ok(terms.includes('loi nhuan'), `Phải giữ cụm ghép 'loi nhuan', nhận được: ${terms.join(', ')}`);
+  assert.ok(!terms.includes('loi'), `Không tách lẻ tiếng đơn 'loi' gây tô nhầm PHÚC LỢI: ${terms.join(', ')}`);
+
+  const wrongHit = highlightParts('QUY CHẾ NHÂN SỰ, CHẤM CÔNG & PHÚC LỢI VIETCORE AI', terms);
+  assert.ok(!wrongHit.some(p => p.hit && /lợi/i.test(p.t)), 'Tuyệt đối không tô nhầm chữ LỢI trong PHÚC LỢI');
+
+  const rightHit = highlightParts('Tổng doanh thu thuần đạt 18.000 triệu VNĐ và lợi nhuận trước thuế 6.000 triệu VNĐ.', terms);
+  const hitTexts = rightHit.filter(p => p.hit).map(p => p.t.toLowerCase());
+  assert.ok(hitTexts.some(t => t.includes('lợi nhuận')), `Phải tô đúng cụm 'lợi nhuận', nhận được: ${hitTexts.join(', ')}`);
+  assert.ok(hitTexts.some(t => t.includes('doanh thu')), `Phải tô đúng cụm 'doanh thu', nhận được: ${hitTexts.join(', ')}`);
+});

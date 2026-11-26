@@ -32,6 +32,11 @@ function passageTitle(text: string): string {
   return t.length > 64 ? t.slice(0, 62) + '…' : t;
 }
 type Block = { kind: 'h' | 'p' | 'li' | 'row'; text: string };
+function isAllCapsHeading(line: string): boolean {
+  if (line.length < 8 || line.length > 110 || line.includes('|')) return false;
+  const letters = line.replace(/[^\p{L}]/gu, '');
+  return letters.length >= 6 && letters === letters.toUpperCase();
+}
 function blocksOf(text: string): Block[] {
   const out: Block[] = [];
   for (const raw of text.split('\n')) {
@@ -39,7 +44,8 @@ function blocksOf(text: string): Block[] {
     if (!l || /^\|?[\s:|-]{3,}\|?$/.test(l)) continue;
     const h = l.match(/^#{1,6}\s*(.+)$/), li = l.match(/^[-*+]\s+(.+)$/) ?? l.match(/^\d+[.)]\s+(.+)$/);
     if (h) out.push({ kind: 'h', text: h[1] });
-    else if (/^\|.*\|$/.test(l)) out.push({ kind: 'row', text: l.slice(1, -1).split('|').map(c => c.trim()).filter(Boolean).join(' · ') });
+    else if (isAllCapsHeading(l)) out.push({ kind: 'h', text: l });
+    else if (l.includes('|') && l.split('|').length >= 2) out.push({ kind: 'row', text: l.replace(/^\||\|$/g, '').split('|').map(c => c.trim()).filter(Boolean).join(' · ') });
     else if (li) out.push({ kind: 'li', text: li[1] });
     else out.push({ kind: 'p', text: l });
   }
@@ -55,8 +61,11 @@ function Inline({ text, terms }: { text: string; terms: string[] }) {
 }
 function Passage({ text, terms }: { text: string; terms: string[] }) {
   const blocks = blocksOf(text);
-  // dòng có nhiều từ khóa câu hỏi nhất (ít nhất 2) được tô nền: chỗ người đọc cần nhìn trước
-  const score = (b: Block) => new Set(b.text.split(/[^\p{L}\p{N}]+/u).map(fold).filter(w => terms.includes(w))).size;
+  // dòng nội dung có nhiều cụm từ/từ khóa khớp nhất (không tính tiêu đề) được tô nền .is-key
+  const score = (b: Block) => {
+    const hits = highlightParts(b.text, terms).filter(p => p.hit);
+    return hits.reduce((acc, p) => acc + (/\s/.test(p.t.trim()) ? 2 : 1), 0);
+  };
   let key = -1, best = 1;
   blocks.forEach((b, i) => { const sc = b.kind === 'h' ? 0 : score(b); if (sc > best) { best = sc; key = i; } });
   const out: React.ReactNode[] = []; let list: React.ReactNode[] = [];

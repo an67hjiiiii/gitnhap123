@@ -91,6 +91,13 @@ def parse_table(data: bytes, filename: str) -> dict:
     return {"columns": header, "rows": body, "truncated": len(rows) - 1 > MAX_TABLE_ROWS}
 
 
+def _value_window(value: float, text: str) -> str:
+    """Các câu thực sự chứa con số ngưỡng (tránh nhiễm phạm vi năm học từ Điều khác trong cùng đoạn)."""
+    parts = [p.strip() for p in re.split(r"(?<=[.;])\s+|\n+", text or "") if p.strip()]
+    hits = [p for p in parts if _value_in(value, p)]
+    return " ".join(hits) if hits else text
+
+
 # ------------------------------------------------------------------ Giáo dục: ngưỡng xét duyệt + xét theo danh sách
 async def extract_thresholds(provider, topic: str, evidence: list[SourceChunk]) -> dict:
     """Ngưỡng số của một loại xét duyệt (học bổng, tốt nghiệp, cảnh báo...) trích từ quy chế, mỗi ngưỡng có trích dẫn."""
@@ -136,13 +143,22 @@ async def extract_thresholds(provider, topic: str, evidence: list[SourceChunk]) 
                 removed += 1  # con số không có trong tài liệu: không dùng
                 continue
             cite = fix.chunk_id
-        y_min, y_max = year_scope(str(raw.get("applies_to") or "") + " " + label)
+        local_text = _value_window(value, by_id[cite].text)
+        local_year = year_scope(local_text)
+        raw_applies = _text(raw.get("applies_to"), 80)
+        applies_year = year_scope(raw_applies)
+        if applies_year != (None, None) and local_year == (None, None):
+            # Mô hình kéo phạm vi năm học từ Điều/câu khác không liên quan đến ngưỡng này
+            raw_applies = ""
+        y_min, y_max = year_scope(raw_applies + " " + label)
+        if (y_min, y_max) != (None, None) and local_year == (None, None):
+            y_min, y_max = None, None
         key = (label.casefold(), op, value, y_min, y_max)
         if key in seen:
             continue
         seen.add(key)
         rules.append({"label": label, "op": op, "value": value, "unit": _text(raw.get("unit"), 40), "citation": cite,
-                      "year_min": y_min, "year_max": y_max, "applies_to": _text(raw.get("applies_to"), 80)})
+                      "year_min": y_min, "year_max": y_max, "applies_to": raw_applies})
     if warning:
         rules = warning_rules(rules)
     return {**base, **_usage(response), "rules": rules, "removed": removed, "latency_ms": _ms(started)}
@@ -575,14 +591,37 @@ def _fold(text: str) -> str:
 
 
 # Luật kiểm cố định (21/11): mô hình 4B bỏ sót các rủi ro điển hình nhất (phạt 30%, giới hạn bồi thường kể cả cố ý,
-# dùng dữ liệu để huấn luyện AI, tự gia hạn…). Mỗi luật: (mẫu trên câu đã bỏ dấu, mức, lý do, hàm kiểm thêm hoặc None).
+# dùng dữ liệu để huấn luyện AI, tự gia hạn…). Mỗi luật: (mẫu trên câu đã bỏ dấu, mức, lý do hoặc hàm sinh lý do, hàm kiểm thêm hoặc None).
 def _penalty_over_8(sentence: str) -> bool:
-    return any(float(x.replace(",", ".")) > 8 for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*%", sentence))
+    folded = _fold(sentence)
+    for m in re.finditer(r"\bphat\b", folded):
+        prefix = folded[max(0, m.start() - 18):m.start()]
+        if re.search(r"\b(khong|mien|chua)\s+(?:bi\s+|chiu\s+)?$", prefix):
+            continue
+        window = folded[max(0, m.start() - 12):min(len(folded), m.end() + 55)]
+        if any(float(x.replace(",", ".")) > 8 for x in re.findall(r"(\d+(?:[.,]\d+)?)\s*%", window)):
+            return True
+    return False
 
+
+def _late_interest_reason(sentence: str) -> str | None:
+    folded = _fold(sentence)
+    m = re.search(r"lai cham tra\s*(\d+(?:[.,]\d+)?)\s*%\s*/\s*ngay", folded)
+    if not m:
+        return None
+    rate = float(m.group(1).replace(",", "."))
+    if rate <= 0.055:  # <= ~20%/năm theo Điều 468 BLDS 2015
+        return None
+    annual = round(rate * 365, 1)
+    return f"Lãi chậm trả tính theo ngày ở mức cao ({_fmt(rate)}%/ngày ≈ {_fmt(annual)}%/năm, vượt trần 20%/năm theo Điều 468 BLDS 2015): cần đối chiếu và đàm phán điều chỉnh."
+
+
+_HEADING_ONLY = re.compile(r"^dieu\s+\d+\s*[.:—–-]\s*[^.]{0,55}$")
 
 CONTRACT_RULES = [
     (r"\bphat\b", "HIGH", "Mức phạt vi phạm trên 8%: Luật Thương mại 2005 (Điều 301) giới hạn mức phạt không quá 8% giá trị phần nghĩa vụ bị vi phạm.", _penalty_over_8),
     (r"(khong vuot qua|toi da).{0,80}(ke ca|ca khi).{0,40}co y", "HIGH", "Giới hạn hoặc miễn trách nhiệm bồi thường kể cả khi có lỗi cố ý: điều khoản như vậy rất bất lợi và dễ bị coi là không có hiệu lực; cần đàm phán lại.", None),
+    (r"(mien tru|loai tru).{0,30}(toan bo|hoan toan|moi)?\s*trach nhiem|khong chiu (bat ky |moi )?trach nhiem boi thuong", "HIGH", "Miễn trừ toàn bộ trách nhiệm bồi thường thiệt hại: điều khoản một chiều rất bất lợi, cần giới hạn rõ phạm vi và trường hợp ngoại trừ.", None),
     (r"(huan luyen|dao tao).{0,60}(mo hinh|tri tue nhan tao|\bai\b)|(mo hinh|tri tue nhan tao).{0,60}(huan luyen)", "HIGH", "Bên kia được dùng dữ liệu (có thể gồm dữ liệu cá nhân) để huấn luyện AI: cần sự đồng ý của chủ thể dữ liệu theo Nghị định 13/2023; nên cấm hoặc giới hạn rõ.", None),
     (r"tu dong gia han", "MEDIUM", "Tự động gia hạn: dễ bị ràng buộc thêm nhiều năm nếu quên thông báo; kiểm tra thời hạn báo trước và đơn giá khi gia hạn.", None),
     (r"(khong (can|phai) (thong bao|bao truoc)|khong duoc phan doi|theo chinh sach gia cua ben)", "HIGH", "Một bên được tự thay đổi giá hoặc phạm vi mà bên kia không được phản đối hoặc không cần báo trước.", None),
@@ -590,7 +629,7 @@ CONTRACT_RULES = [
     (r"(trong tai|toa an).{0,60}(singapore|siac|nuoc ngoai|quoc te)|ngon ngu trong tai la tieng anh", "MEDIUM", "Giải quyết tranh chấp ở nước ngoài, bằng tiếng nước ngoài: chi phí và rủi ro tố tụng cao cho bên Việt Nam.", None),
     (r"luu giu du lieu.{0,60}\d+\s*nam|tu quyet dinh viec xoa", "MEDIUM", "Bên kia giữ dữ liệu lâu sau khi chấm dứt hợp đồng hoặc tự quyết việc xóa: trái nguyên tắc xóa dữ liệu khi hết mục đích.", None),
     (r"khong duoc thue ben thu ba kiem tra bao mat|kiem thu xam nhap", "LOW", "Hạn chế quyền tự kiểm tra bảo mật hệ thống đang lưu dữ liệu của mình.", None),
-    (r"lai cham tra\s*\d+(?:[.,]\d+)?\s*%\s*/\s*ngay", "MEDIUM", "Lãi chậm trả tính theo ngày ở mức cao (0,5%/ngày ≈ 180%/năm): cần đối chiếu mức lãi pháp luật cho phép.", None),
+    (r"lai cham tra\s*\d+(?:[.,]\d+)?\s*%\s*/\s*ngay", "MEDIUM", _late_interest_reason, None),
 ]
 
 
@@ -604,10 +643,15 @@ def rule_risks(evidence: list[SourceChunk]) -> list[dict]:
     for c in evidence:
         for sent in _sentences(c.text):
             folded = _fold(sent)
+            if _HEADING_ONLY.fullmatch(folded):
+                continue
             for pattern, level, reason, extra in CONTRACT_RULES:
                 if re.search(pattern, folded) and (extra is None or extra(sent)) and (pattern, sent) not in seen:
+                    text_reason = reason(sent) if callable(reason) else reason
+                    if not text_reason:
+                        continue
                     seen.add((pattern, sent))
-                    out.append({"quote": sent[:500], "level": level, "reason": reason + " (luật kiểm cố định)", "citation": c.chunk_id, "rule": True})
+                    out.append({"quote": sent[:500], "level": level, "reason": text_reason + " (luật kiểm cố định)", "citation": c.chunk_id, "rule": True})
     return out
 
 
@@ -662,8 +706,9 @@ async def contract_risks(provider, evidence: list[SourceChunk]) -> dict:
 # ------------------------------------------------------------------ Pháp lý: hiệu lực văn bản (không dùng mô hình)
 _DOC_NO = re.compile(r"\b(\d{1,4}/\d{4}/[A-ZĐ][A-ZĐ0-9\-]*)\b")
 _DOC_KIND = re.compile(r"\b(Luật|Bộ luật|Nghị định|Thông tư liên tịch|Thông tư|Quyết định|Nghị quyết|Chỉ thị|Công văn)\b", re.IGNORECASE)
-_VN_DATE = r"ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})"
-_EFFECTIVE = re.compile(r"có hiệu lực(?: thi hành)?(?: kể)?\s*từ\s*" + _VN_DATE, re.IGNORECASE)
+_VN_DATE = r"(?:ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})|ngày\s+(\d{1,2})[./-](\d{1,2})[./-](\d{4}))"
+_VN_DATE_FLEX = r"(?:ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})|(?:ngày\s+)?(\d{1,2})[./-](\d{1,2})[./-](\d{4}))"
+_EFFECTIVE = re.compile(r"có hiệu lực(?: thi hành)?(?: kể)?\s*từ\s*" + _VN_DATE_FLEX, re.IGNORECASE)
 _REPLACES = re.compile(r"(?:thay thế|bãi bỏ|hết hiệu lực|sửa đổi|bổ sung)[^.\n]{0,160}", re.IGNORECASE)
 # "bãi bỏ Điều 5 của …", "sửa đổi khoản 2 …": chỉ một phần văn bản, văn bản đó vẫn còn hiệu lực
 _PARTIAL = re.compile(r"(?:sửa đổi|bổ sung|\b(?:điều|khoản|điểm|chương|mục)\s+(?:\d+[a-zđ]?|[a-zđ])(?!\w))", re.IGNORECASE)
@@ -676,8 +721,16 @@ def _date(m: re.Match | None) -> date | None:
     if not m:
         return None
     try:
-        return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-    except ValueError:
+        if m.group(1) is not None:
+            d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        elif m.group(4) is not None:
+            d, mo, y = int(m.group(4)), int(m.group(5)), int(m.group(6))
+        else:
+            return None
+        if not (1950 <= y <= 2100):
+            return None
+        return date(y, mo, d)
+    except (ValueError, IndexError):
         return None
 
 

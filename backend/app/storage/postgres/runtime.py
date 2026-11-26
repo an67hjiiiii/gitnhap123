@@ -2,6 +2,7 @@ from __future__ import annotations
 import threading
 
 import hashlib
+import json
 import re
 import os
 import secrets
@@ -403,6 +404,104 @@ class PostgresAuthStore:
             user.updated_at = _now()
             db.flush()
             return _public_user(user)
+
+    def update_profile(self, user_id: str, *, display_name: str) -> dict[str, Any]:
+        """Người dùng tự cập nhật họ tên hiển thị của chính mình."""
+        name = str(display_name or "").strip()
+        if not name or len(name) > 128:
+            raise ValueError("Tên hiển thị phải từ 1 đến 128 ký tự.")
+        with self.session_factory.begin() as db:
+            user = db.get(UserRecord, user_id)
+            if user is None:
+                raise KeyError(user_id)
+            user.display_name = name
+            user.updated_at = _now()
+            db.flush()
+            return _public_user(user)
+
+    def change_password(
+        self,
+        user_id: str,
+        *,
+        current_password: str,
+        new_password: str,
+        keep_session_token: str | None = None,
+    ) -> int:
+        """Đổi mật khẩu (xác nhận mật khẩu cũ) và thu hồi mọi phiên khác ngoại trừ phiên hiện tại."""
+        if not isinstance(new_password, str) or len(new_password) < PASSWORD_MIN_LENGTH:
+            raise ValueError(f"Mật khẩu mới phải có ít nhất {PASSWORD_MIN_LENGTH} ký tự.")
+        if new_password == current_password:
+            raise ValueError("Mật khẩu mới phải khác mật khẩu hiện tại.")
+        keep_digest = _token_hash(keep_session_token.strip()) if isinstance(keep_session_token, str) and keep_session_token.strip() else None
+        with self.session_factory.begin() as db:
+            user = db.get(UserRecord, user_id)
+            if user is None:
+                raise KeyError(user_id)
+            if not _password_matches(current_password, user.password_hash):
+                raise InvalidCredentialsError("Mật khẩu hiện tại không đúng.")
+            now = _now()
+            user.password_hash = _password_hash(new_password)
+            user.updated_at = now
+            open_sessions = db.scalars(select(SessionRecord).where(
+                SessionRecord.user_id == user_id, SessionRecord.revoked_at.is_(None))).all()
+            revoked = 0
+            for record in open_sessions:
+                if keep_digest and record.token_hash == keep_digest:
+                    continue
+                record.revoked_at = now
+                revoked += 1
+            db.flush()
+            return revoked
+
+    def list_sessions(
+        self,
+        user_id: str,
+        *,
+        current_session_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Liệt kê các phiên đăng nhập đang hoạt động của chính người dùng."""
+        cur_digest = _token_hash(current_session_token.strip()) if isinstance(current_session_token, str) and current_session_token.strip() else None
+        now = _now()
+        with self.session_factory() as db:
+            rows = db.scalars(select(SessionRecord).where(
+                SessionRecord.user_id == user_id,
+                SessionRecord.revoked_at.is_(None),
+                SessionRecord.expires_at > now,
+            ).order_by(SessionRecord.created_at.desc())).all()
+            return [
+                {
+                    "session_id": r.session_id,
+                    "user_id": r.user_id,
+                    "created_at": _iso(r.created_at),
+                    "expires_at": _iso(r.expires_at),
+                    "is_current": bool(cur_digest and r.token_hash == cur_digest),
+                }
+                for r in rows
+            ]
+
+    def revoke_other_sessions(
+        self,
+        user_id: str,
+        *,
+        keep_session_token: str | None = None,
+    ) -> int:
+        """Thu hồi mọi phiên đăng nhập khác của người dùng, giữ lại phiên hiện tại."""
+        keep_digest = _token_hash(keep_session_token.strip()) if isinstance(keep_session_token, str) and keep_session_token.strip() else None
+        now = _now()
+        with self.session_factory.begin() as db:
+            open_sessions = db.scalars(select(SessionRecord).where(
+                SessionRecord.user_id == user_id,
+                SessionRecord.revoked_at.is_(None),
+                SessionRecord.expires_at > now,
+            )).all()
+            revoked = 0
+            for record in open_sessions:
+                if keep_digest and record.token_hash == keep_digest:
+                    continue
+                record.revoked_at = now
+                revoked += 1
+            db.flush()
+            return revoked
 
     def admin_reset_password(self, user_id: str) -> tuple[dict[str, Any], str]:
         """Đặt mật khẩu tạm ngẫu nhiên (trả về đúng một lần để admin đưa cho người dùng) và đăng xuất mọi phiên cũ."""
@@ -906,7 +1005,21 @@ class PostgresConversationStore:
             messages = db.scalars(select(ConversationMessageRecord).where(
                 ConversationMessageRecord.conversation_id == conversation_id
             ).order_by(ConversationMessageRecord.sequence_number)).all()
-            hidden = self._hidden_runs(db, [row.run_id for row in messages if row.run_id])
+            visible = (
+                visible_source_ids(db, self.owner_user_id, self.space_id)
+                if self.space_id is not None else None
+            )
+            hidden = self._hidden_runs(db, [row.run_id for row in messages if row.run_id], visible=visible)
+
+            def _content_for(row: ConversationMessageRecord) -> str:
+                if row.run_id in hidden:
+                    return REDACTED_ANSWER
+                if visible is not None and row.run_id is None and "<!--skill-card:" in (row.content or ""):
+                    refs = _skill_card_source_ids(row.content) - planning_source_ids()
+                    if refs and not (refs <= visible):
+                        return REDACTED_ANSWER
+                return row.content
+
             return {
                 "conversation_id": conversation.conversation_id,
                 "title": conversation.title,
@@ -918,7 +1031,7 @@ class PostgresConversationStore:
                     "conversation_id": row.conversation_id,
                     "sequence_number": row.sequence_number,
                     "role": row.role,
-                    "content": REDACTED_ANSWER if row.run_id in hidden else row.content,
+                    "content": _content_for(row),
                     "created_at": _iso(row.created_at),
                     "run_id": row.run_id,
                 } for row in messages],
@@ -959,10 +1072,54 @@ class PostgresConversationStore:
             return {"conversation_id": row.conversation_id, "title": row.title, "pinned": row.pinned_at is not None,
                     "hidden": row.hidden_at is not None, "created_at": _iso(row.created_at), "updated_at": _iso(row.updated_at)}
 
-    def _hidden_runs(self, db: Session, run_ids: list[str]) -> set[str]:
+    def _hidden_runs(self, db: Session, run_ids: list[str], *, visible: set[str] | None = None) -> set[str]:
         """Câu trả lời trong hội thoại tổ chức bị ẩn khi người xem không còn quyền với mọi tài liệu nó dùng."""
         if self.space_id is None or not run_ids:
             return set()
-        visible = visible_source_ids(db, self.owner_user_id, self.space_id)
+        allowed = visible if visible is not None else visible_source_ids(db, self.owner_user_id, self.space_id)
         rows = db.execute(select(RunRecord.run_id, RunRecord.extra_data).where(RunRecord.run_id.in_(run_ids))).all()
-        return {run_id for run_id, data in rows if not referenced_source_ids(data or {}) - planning_source_ids() <= visible}
+        return {run_id for run_id, data in rows if not referenced_source_ids(data or {}) - planning_source_ids() <= allowed}
+
+
+_SKILL_CARD_RE = re.compile(r"<!--skill-card:(.*?)-->", re.S)
+_SRC_ID_RE = re.compile(r"\b(src_[a-zA-Z0-9]+)(?:_c\d+)?\b")
+
+
+def _extract_source_ids_obj(obj: Any, out: set[str]) -> None:
+    """Rút mọi mã source_id (kể cả trong chunk_id dạng src_xxx_c0001) từ payload JSON của SkillCard."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in ("source_id", "old_source_id", "new_source_id") and isinstance(v, str) and v.strip():
+                out.add(v.strip())
+            elif k == "source_ids" and isinstance(v, list):
+                for item in v:
+                    if isinstance(item, str) and item.strip():
+                        out.add(item.strip())
+            elif k in ("chunk_id", "citations") and isinstance(v, (str, list)):
+                items = [v] if isinstance(v, str) else v
+                for item in items:
+                    if isinstance(item, str):
+                        for m in _SRC_ID_RE.findall(item):
+                            out.add(m.split("_c", 1)[0])
+            else:
+                _extract_source_ids_obj(v, out)
+    elif isinstance(obj, list):
+        for item in obj:
+            _extract_source_ids_obj(item, out)
+    elif isinstance(obj, str):
+        for m in _SRC_ID_RE.findall(obj):
+            out.add(m.split("_c", 1)[0])
+
+
+def _skill_card_source_ids(content: str) -> set[str]:
+    """Thu thập mọi mã nguồn tài liệu được nhúng trong tin nhắn SkillCard để đối chiếu quyền truy cập (SEC-02)."""
+    found: set[str] = set()
+    for match in _SKILL_CARD_RE.finditer(content or ""):
+        raw = match.group(1)
+        try:
+            data = json.loads(raw)
+            _extract_source_ids_obj(data, found)
+        except Exception:
+            for m in _SRC_ID_RE.findall(raw):
+                found.add(m.split("_c", 1)[0])
+    return found

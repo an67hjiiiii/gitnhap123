@@ -1305,9 +1305,9 @@
 .ws-office[hidden]{display:none}
 .ws-office>.office3d-page{flex:1;min-width:0;min-height:0}
 /* thanh trên trong bảng: dòng trạng thái ở trên, thanh nút xuống đáy (vùng sàn trống) để không che TV chiếu các bước */
-.ws-office .o3d-top{right:92px;bottom:12px;justify-content:space-between}
-.ws-office .o3d-top>.o3d-toolbar{margin-right:-80px}
-.ws-office .o3d-panel{bottom:60px}
+.ws-office .o3d-top{top:10px;left:12px;right:12px;justify-content:flex-end}
+.ws-office .o3d-narrow-bar{padding-right:92px}
+.ws-office .o3d-panel{bottom:76px}
 .ws-office-resize{position:absolute;left:0;top:0;bottom:0;width:10px;z-index:45;cursor:col-resize;touch-action:none}
 .ws-office-resize:hover,.ws-office-resize:focus-visible{background:linear-gradient(90deg,rgba(37,99,235,.35),transparent)}
 .ws-office-resize:focus-visible{outline:none}

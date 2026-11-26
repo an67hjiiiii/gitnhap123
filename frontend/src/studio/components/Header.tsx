@@ -89,8 +89,14 @@ interface SidebarProps {
   bottom?: React.ReactNode;
 }
 
-// trang con được tô theo mục cha: Hồ sơ tài liệu, Kiểm tra mâu thuẫn thuộc Tài liệu; Đơn từ, Cài đặt không có mục riêng
-const PARENT: Partial<Record<NavigationTab, NavigationTab>> = { documents: 'library', consistency: 'library', tasks: 'results' };
+// trang con được tô theo mục cha: Hồ sơ tài liệu, Kiểm tra mâu thuẫn, So sánh phiên bản thuộc Tài liệu;
+// Đơn từ thuộc Kết quả & công việc.
+const PARENT: Partial<Record<NavigationTab, NavigationTab>> = {
+  documents: 'library',
+  consistency: 'library',
+  compare: 'library',
+  tasks: 'results',
+};
 
 // Thanh bên (Đợt 1, khung mới 20/11): chỉ điều hướng; chân là khối Kho tri thức (số thật từ máy chủ).
 // Chọn không gian, Lịch sử, thông báo, tài khoản nằm ở thanh trên (Topbar).
@@ -149,19 +155,19 @@ export const Header: React.FC<SidebarProps> = ({
   const current = PARENT[activeTab] ?? activeTab;
   const showResearch = user?.role === 'admin' || research;
   const nav: { id: NavigationTab; label: string; Icon: typeof MessagesSquare; show: boolean; group?: string }[] = [
-    { id: 'orchestration', label: 'Không gian làm việc', Icon: MessagesSquare, show: true },
-    { id: 'library', label: 'Tài liệu', Icon: FolderOpen, show: true },
-    { id: 'compare', label: 'So sánh phiên bản', Icon: GitCompareArrows, show: true },
+    // Nhóm 1: Làm việc hằng ngày
+    { id: 'orchestration', label: 'Không gian làm việc', Icon: MessagesSquare, show: true, group: 'Làm việc' },
     { id: 'toolkit', label: 'Kỹ năng', Icon: Sparkles, show: true },
     { id: 'office', label: 'Văn phòng Agent', Icon: Bot, show: true },
+    // Nhóm 2: Tri thức & Quản lý (giữ nguyên tên trang Tổng quan)
+    { id: 'library', label: 'Tài liệu', Icon: FolderOpen, show: true, group: 'Tri thức & Quản lý' },
     { id: 'results', label: 'Kết quả & công việc', Icon: Inbox, show: true },
     { id: 'overview', label: 'Tổng quan', Icon: BarChart3, show: true },
     { id: 'organization', label: 'Tổ chức', Icon: Building2, show: !!user },
+    // Nhóm 3: Nghiên cứu C1SE.27
     { id: 'evaluation', label: 'Phòng đánh giá', Icon: ClipboardCheck, show: showResearch, group: 'Nghiên cứu' },
     { id: 'benchmarks', label: 'Thực nghiệm', Icon: FlaskConical, show: showResearch },
     { id: 'rating', label: 'Chấm mù', Icon: EyeOff, show: showResearch },
-    { id: 'users', label: 'Người dùng', Icon: Users, show: user?.role === 'admin', group: 'Quản trị' },
-    { id: 'db_explorer', label: 'Cơ sở dữ liệu', Icon: Database, show: user?.role === 'admin' },
   ];
   const go = (id: NavigationTab) => { onTabChange(id); if (isMobileDrawerOpen) onToggleMobileDrawer?.(); };
 
@@ -187,7 +193,7 @@ export const Header: React.FC<SidebarProps> = ({
       <aside className={`sb sb-fn${isMobileDrawerOpen ? ' is-open' : ''}${rail && !isMobileDrawerOpen ? ' is-rail' : ''}`} aria-label="Thanh điều hướng">
         <div className="sb-brand">
           <Link to="/" className="sb-logo" title="Về trang giới thiệu đề tài" aria-label="OrchestrIQ Studio, về trang giới thiệu"><BrandLogo size="sm" showSubtitle={false} /></Link>
-          {onToggleMobileDrawer && <button className="sb-x" onClick={onToggleMobileDrawer} aria-label="Đóng thanh bên"><X size={18} /></button>}
+          {onToggleMobileDrawer && isMobileDrawerOpen && <button className="sb-x" onClick={onToggleMobileDrawer} aria-label="Đóng thanh bên"><X size={18} /></button>}
           <div className="sb-tools">
             <button type="button" className="sb-icon sb-rail-btn" onClick={toggleRail} aria-pressed={rail} aria-label={rail ? 'Mở rộng thanh bên (Ctrl+B)' : 'Thu gọn thanh bên (Ctrl+B)'} title={rail ? 'Mở rộng (Ctrl+B)' : 'Thu gọn (Ctrl+B)'}>
               {rail ? <ChevronRight size={15} strokeWidth={2.4} /> : <ChevronLeft size={15} strokeWidth={2.4} />}

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import posixpath
+import re
 import zipfile
 from xml.etree import ElementTree
 from dataclasses import dataclass
@@ -19,6 +22,7 @@ SUPPORTED_TEXT_EXTENSIONS = {
     ".md": "text/markdown",
     ".markdown": "text/markdown",
     ".sql": "text/plain",  # lược đồ CSDL: giao diện Studio cho phép chọn .sql
+    ".csv": "text/csv",  # bảng dữ liệu CSV: hỗ trợ tải trực tiếp vào kho tài liệu
 }
 SUPPORTED_DOCUMENT_EXTENSIONS = {
     **SUPPORTED_TEXT_EXTENSIONS,
@@ -81,6 +85,21 @@ def extract_document(
         byte_size = len(data)
         _assert_size(byte_size)
         raw_text = _extract_docx_text(data) if suffix == ".docx" else _extract_xlsx_text(data)
+    elif suffix == ".csv":
+        if isinstance(data, bytes):
+            byte_size = len(data)
+            _assert_size(byte_size)
+            try:
+                decoded = data.decode("utf-8-sig")
+            except UnicodeDecodeError as exc:
+                raise UnicodeError("document must be valid UTF-8") from exc
+        elif isinstance(data, str):
+            decoded = data.lstrip("\ufeff")
+            byte_size = len(data.encode("utf-8"))
+            _assert_size(byte_size)
+        else:
+            raise TypeError("document data must be bytes or text")
+        raw_text = _extract_csv_text(decoded)
     elif isinstance(data, bytes):
         byte_size = len(data)
         _assert_size(byte_size)
@@ -114,6 +133,8 @@ def extract_document(
         provenance.update({"page_count": page_count, "parser": "pypdf-text-v1"})
     elif suffix in (".docx", ".xlsx"):
         provenance["parser"] = f"stdlib-ooxml-{suffix.lstrip('.')}-v1"
+    elif suffix == ".csv":
+        provenance["parser"] = "stdlib-csv-v1"
 
     return ExtractedDocument(
         source_name=clean_name,
@@ -131,6 +152,14 @@ def _assert_size(byte_size: int) -> None:
         raise ValueError(f"document exceeds the {MAX_DOCUMENT_BYTES}-byte size limit")
 
 
+_GLUED_BULLET_RE = re.compile(r"(?<=[\.\!\?\)\:;])-\s+(?=[A-ZÀ-Ỹ0-9])")
+
+
+def _clean_glued_bullets(text: str) -> str:
+    """Tách các mục danh sách bị dính liền vào cuối câu trước (vd. '...nguyên lương.- Cộng thâm niên:')."""
+    return _GLUED_BULLET_RE.sub("\n- ", text)
+
+
 def _extract_pdf_text(data: bytes) -> tuple[str, int]:
     try:
         from pypdf import PdfReader
@@ -139,7 +168,7 @@ def _extract_pdf_text(data: bytes) -> tuple[str, int]:
 
     try:
         reader = PdfReader(BytesIO(data), strict=False)
-        pages = [page.extract_text() or "" for page in reader.pages]
+        pages = [_clean_glued_bullets(page.extract_text() or "") for page in reader.pages]
     except Exception as exc:
         raise DocumentTypeError("PDF text extraction failed") from exc
 
@@ -176,7 +205,7 @@ def _open_office(data: bytes, kind: str) -> zipfile.ZipFile:
 
 
 def _extract_docx_text(data: bytes) -> str:
-    """Đoạn văn theo thứ tự; tiêu đề thành dòng '#'; bảng thành dòng 'ô | ô'."""
+    """Đoạn văn theo thứ tự; giữ ngắt dòng mềm (<w:br/>), danh sách (<w:numPr>), tiêu đề '#'; bảng thành dòng 'ô | ô'."""
     with _open_office(data, "DOCX") as archive:
         try:
             root = _office_xml(archive, "word/document.xml")
@@ -187,19 +216,54 @@ def _extract_docx_text(data: bytes) -> str:
         raise DocumentTypeError("DOCX file has no document body")
 
     def para(p: ElementTree.Element) -> str:
-        return "".join(t.text or "" for t in p.iter(f"{_W}t")).strip()
+        pieces: list[str] = []
+        for node in p.iter():
+            if node.tag == f"{_W}t":
+                pieces.append(node.text or "")
+            elif node.tag in (f"{_W}br", f"{_W}cr"):
+                pieces.append("\n")
+            elif node.tag == f"{_W}tab":
+                pieces.append(" ")
+        raw = "".join(pieces)
+        lines = [ln.strip() for ln in raw.split("\n")]
+        cleaned = "\n".join(ln for ln in lines if ln)
+        return _clean_glued_bullets(cleaned).strip()
+
+    def heading_prefix(p: ElementTree.Element) -> str:
+        style = p.find(f"{_W}pPr/{_W}pStyle")
+        val = (style.get(f"{_W}val") or "").casefold() if style is not None else ""
+        if not val:
+            return ""
+        m = re.search(r"heading\s*([1-6])", val)
+        if m:
+            lvl = int(m.group(1))
+            return "#" * min(lvl, 3) + " "
+        if "heading" in val or val == "title":
+            return "# "
+        return ""
 
     blocks: list[str] = []
     for el in body:
         if el.tag == f"{_W}p":
             text = para(el)
-            style = el.find(f"{_W}pPr/{_W}pStyle")
-            heading = style is not None and "heading" in (style.get(f"{_W}val") or "").casefold()
-            if text:
-                blocks.append(f"# {text}" if heading else text)
+            if not text:
+                continue
+            h_pref = heading_prefix(el)
+            if h_pref:
+                blocks.append(f"{h_pref}{text}")
+                continue
+            is_list_item = el.find(f"{_W}pPr/{_W}numPr") is not None
+            if is_list_item and not re.match(r"^(?:[-*•+]|\d+[.)])\s+", text):
+                text = f"- {text}"
+            blocks.append(text)
         elif el.tag == f"{_W}tbl":
-            rows = [" | ".join(" ".join(filter(None, (para(p) for p in cell.iter(f"{_W}p")))) for cell in row.findall(f"{_W}tc"))
-                    for row in el.findall(f"{_W}tr")]
+            rows = [
+                " | ".join(
+                    " ".join(filter(None, (para(p).replace("\n", " ") for p in cell.iter(f"{_W}p"))))
+                    for cell in row.findall(f"{_W}tc")
+                )
+                for row in el.findall(f"{_W}tr")
+            ]
             if rows := [r for r in rows if r.strip(" |")]:
                 blocks.append("\n".join(rows))
     text = "\n\n".join(blocks)
@@ -263,6 +327,20 @@ def _extract_xlsx_text(data: bytes) -> str:
     if not text.strip():
         raise DocumentTypeError("XLSX contains no cell values")
     return text
+
+
+def _extract_csv_text(text: str) -> str:
+    """Đọc bảng CSV (tự nhận dấu phẩy hoặc chấm phẩy) thành các dòng 'ô | ô' nhất quán với XLSX."""
+    first_line = text.split("\n", 1)[0]
+    delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
+    rows = [
+        [cell.strip() for cell in row]
+        for row in csv.reader(io.StringIO(text), delimiter=delimiter)
+        if any(cell.strip() for cell in row)
+    ]
+    if not rows:
+        raise ValueError("text must not be empty")
+    return "\n".join(" | ".join(row) for row in rows)
 
 
 __all__ = [

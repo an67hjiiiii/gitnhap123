@@ -125,13 +125,15 @@
 .st-app .sb-link.is-on svg{color:#7fd3ff}
 .st-app .sb-link.is-on::after{content:'';position:absolute;right:12px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:#7fd3ff;box-shadow:0 0 0 3px rgba(127,211,255,.18)}
 .st-app .sb-link{position:relative}
-/* thanh cuộn mảnh, chỉ hiện khi rê chuột */
-.st-app .sb-scroll{scrollbar-width:thin;scrollbar-color:transparent transparent}
-.st-app .sb-scroll:hover{scrollbar-color:rgba(15,27,43,.22) transparent}
+/* thanh cuộn mảnh, hiện nhẹ khi nội dung dài để không che khuất nhóm Quản trị ở cuối thanh bên */
+.st-app .sb-nav{padding-bottom:18px}
+.st-app .sb-scroll{scrollbar-width:thin;scrollbar-color:rgba(15,27,43,.14) transparent}
+.st-app .sb-scroll:hover{scrollbar-color:rgba(15,27,43,.28) transparent}
 .st-app .sb-scroll::-webkit-scrollbar{width:6px}
-.st-app .sb-scroll::-webkit-scrollbar-thumb{background:transparent;border-radius:6px}
-.st-app .sb-scroll:hover::-webkit-scrollbar-thumb{background:rgba(15,27,43,.22)}
-.st-app[data-theme="dark"] .sb-scroll:hover{scrollbar-color:rgba(255,255,255,.2) transparent}
+.st-app .sb-scroll::-webkit-scrollbar-thumb{background:rgba(15,27,43,.14);border-radius:6px}
+.st-app .sb-scroll:hover::-webkit-scrollbar-thumb{background:rgba(15,27,43,.28)}
+.st-app[data-theme="dark"] .sb-scroll{scrollbar-color:rgba(255,255,255,.14) transparent}
+.st-app[data-theme="dark"] .sb-scroll:hover{scrollbar-color:rgba(255,255,255,.26) transparent}
 /* Kho tri thức nằm gọn trong khung */
 .st-app .sb-section,.st-app .sb-section .kb,.st-app .sb-section .kb-head{min-width:0;max-width:100%;box-sizing:border-box}
 .st-app .sb-section .kb-head{padding:0 2px 0 10px}

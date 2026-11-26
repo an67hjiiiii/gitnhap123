@@ -114,11 +114,19 @@ test('chọn nguồn tri thức: Orchestrator có bước riêng, chuyên gia tr
 });
 
 // Đợt 1 (23/11): luồng trực tiếp gửi bản rút gọn của run.events (giống brief trong pipeline.event()).
-const BRIEF = ['task_id', 'domain', 'classification', 'agents', 'has_documents', 'document_bound', 'source', 'review_status', 'waves', 'limit'];
+const BRIEF = ['task_id', 'domain', 'classification', 'agents', 'has_documents', 'document_bound', 'source', 'review_status', 'waves', 'limit',
+  'tool', 'added', 'before', 'after', 'revision', 'removed', 'checked', 'total_tokens', 'doc_names', 'task_goal'];
 function toLive(e) {
   const b = { type: 'progress', stage: e.stage };
   for (const k of BRIEF) if (k in e) b[k] = e[k];
+  if (e.stage === 'run_finished' && typeof e.status === 'string') b.status = e.status;
   if (Array.isArray(e.unsupported)) b.unsupported = e.unsupported.length;
+  // 25/11: giống brief trong pipeline.event(): chỉ số lượng
+  if (Array.isArray(e.selected)) b.selected_count = e.selected.length;
+  if (Array.isArray(e.candidates)) b.candidate_count = e.candidates.length;
+  if (Array.isArray(e.dropped)) b.dropped_count = e.dropped.length;
+  if (Array.isArray(e.tasks)) b.task_count = e.tasks.length; else if (typeof e.task_count === 'number') b.task_count = e.task_count;
+  if (e.limits && typeof e.limits === 'object') b.budget_tasks = Object.keys(e.limits).length;
   if (e.result?.task_id) {
     b.task_id = e.result.task_id;
     b.result = Object.fromEntries(['task_id', 'domain', 'status'].filter(k => e.result[k]).map(k => [k, e.result[k]]));
@@ -512,4 +520,206 @@ test('Thời gian thật: bộ nhịp áp sự kiện ngay (không giữ 0,7 gi�
   clock.advance(0);
   assert.equal(st.headline, 'Reviewer kiểm tra kế hoạch');
   pacer.dispose();
+});
+
+// 25/11: đồ thị luồng điều phối, số đo cơ chế C1SE.27, chốt nhanh khi hết lượt.
+test('đồ thị luồng: mỗi lần trao ghi một cạnh có loại; song song thì nhiều cạnh cùng tồn tại', () => {
+  const c = fakeController();
+  let st;
+  const d = new LiveDirector(c, s => { st = s; });
+  d.start('x');
+  d.handle({ stage: 'knowledge_source_policy', has_documents: true });
+  d.handle({ stage: 'parallel_execution', limit: 2, waves: [['T1', 'T2'], ['T3']] });
+  d.handle({ stage: 'task_started', task_id: 'T1', domain: 'hr' });
+  d.handle({ stage: 'task_started', task_id: 'T2', domain: 'finance' });
+  d.handle({ stage: 'task_retrieval', task_id: 'T1', domain: 'hr', selected_count: 3, dropped_count: 2 });
+  d.handle({ stage: 'task_completed', result: { task_id: 'T1', domain: 'hr', status: 'COMPLETE' } });
+  d.handle({ stage: 'task_completed', result: { task_id: 'T2', domain: 'finance', status: 'NO_EVIDENCE' } });
+  const kinds = st.edges.map(e => `${e.from}>${e.to}:${e.kind}`);
+  assert.deepEqual(kinds, ['orchestrator>hr:dispatch', 'orchestrator>finance:dispatch', 'rag>hr:rag', 'hr>integrator:result', 'finance>integrator:fail']);
+  assert.equal(st.metrics.waves, 2); assert.equal(st.metrics.parallel, 2);
+  assert.equal(st.metrics.chunks, 3); assert.equal(st.metrics.flows, 5);
+  const flows = scenes(c).filter(s => s.flow).map(s => s.flow.kind);
+  assert.deepEqual(flows, ['dispatch', 'dispatch', 'rag', 'result', 'fail']);
+  assert.match(acts(c, 'rag').at(-1)[3], /3 đoạn, lọc bớt 2/);
+});
+
+test('khử trùng lặp và chia ngân sách ngữ cảnh: bước riêng, số lấy từ máy chủ', () => {
+  const c = fakeController();
+  let st;
+  const d = new LiveDirector(c, s => { st = s; });
+  d.start('x');
+  d.handle({ stage: 'product_request_routing', classification: 'COMPLEX_PROJECT_REQUEST' });
+  d.handle({ stage: 'decomposition', task_count: 4 });
+  d.handle({ stage: 'normalization', task_count: 3, removed: 1 });
+  assert.equal(scenes(c).at(-1).effects.whiteboardCards, 3);
+  assert.match(st.headline, /gộp 1 việc trùng, còn 3 việc/);
+  d.handle({ stage: 'adaptive_budget_plan', budget_tasks: 3, total_tokens: 6000 });
+  assert.match(st.headline, /cho 3 việc · tổng 6000 token/);
+  assert.deepEqual(st.steps.map(s => s.key), ['receive', 'plan']);
+  assert.equal(st.metrics.route, 'complex'); assert.equal(st.metrics.tasks, 3); assert.equal(st.metrics.removed, 1);
+  assert.equal(st.metrics.budgetTokens, 6000);
+});
+
+test('xem lại từ run.events (danh sách đầy đủ) cho cùng số đo như luồng trực tiếp (chỉ số lượng)', () => {
+  const saved = [
+    { stage: 'product_request_routing', classification: 'COMPLEX_PROJECT_REQUEST' },
+    { stage: 'knowledge_source_policy', has_documents: true, document_bound: false },
+    { stage: 'decomposition', tasks: [{}, {}, {}] },
+    { stage: 'normalization', removed: 1, tasks: [{}, {}] },
+    { stage: 'adaptive_budget_plan', policy: 'adaptive_qwen', total_tokens: 4000, needs: { T1: 10, T2: 20 }, limits: { T1: 1500, T2: 2500 } },
+    { stage: 'parallel_execution', limit: 2, waves: [['T1', 'T2']] },
+    { stage: 'task_started', task_id: 'T1', domain: 'hr' },
+    { stage: 'task_retrieval', task_id: 'T1', domain: 'hr', candidates: ['a', 'b', 'c'], selected: ['a', 'b'], dropped: ['c'] },
+    { stage: 'task_completed', result: { task_id: 'T1', domain: 'hr', status: 'COMPLETE' } },
+    { stage: 'synthesis_started', task_count: 1 },
+    { stage: 'review_started' },
+    { stage: 'review_finished', review_status: 'ok', checked: 4, unsupported: [] },
+    { stage: 'run_finished' },
+  ];
+  const a = play(saved);
+  const b = play(saved.map(toLive));
+  assert.deepEqual(b.st, a.st);
+  assert.deepEqual(a.st.metrics, { route: 'complex', agents: a.st.metrics.agents, tasks: 2, removed: 1, waves: 1, parallel: 2, budgetTokens: 4000, chunks: 2, checked: 4, unsupported: 0, revisions: 0, flows: 4 });
+  assert.ok(a.st.edges.some(e => e.from === 'reviewer' && e.to === 'integrator' && e.kind === 'approve'), 'đạt kiểm định: Reviewer chuyển bài cho Integrator');
+});
+
+test('hết lượt: gọi settle để robot đang đi xong ngay; bỏ các lần trao còn xếp hàng', () => {
+  const c = walkController();
+  let settled = 0;
+  c.settle = () => { settled += 1; };
+  const d = new LiveDirector(c, () => {});
+  d.setTempo('easy');
+  d.start('x');
+  d.handle({ stage: 'task_started', task_id: 'T1', domain: 'hr' });
+  d.handle({ stage: 'task_started', task_id: 'T2', domain: 'finance' });  // xếp hàng sau T1
+  d.handle({ stage: 'run_finished' });
+  assert.equal(settled, 1);
+  c.walks[0].onArrive();
+  assert.equal(c.walks.length, 1, 'không đi trao việc T2 sau khi đã có câu trả lời');
+  assert.ok(c.calls.some(x => x[0] === 'sleep' && x[1].includes('orchestrator')), 'trao xong thì về ngủ ngay');
+});
+
+test('dựng lại phần đã qua (catchUp): đồ thị vẫn đủ cạnh nhưng không ném gói nào', () => {
+  const c = fakeController();
+  let st;
+  const d = new LiveDirector(c, s => { st = s; });
+  d.start('x');
+  d.catchUp([
+    { stage: 'task_started', task_id: 'T1', domain: 'hr' },
+    { stage: 'task_completed', result: { task_id: 'T1', domain: 'hr', status: 'COMPLETE' } },
+  ]);
+  assert.equal(st.edges.length, 2);
+  assert.ok(!scenes(c).some(s => s.dispatch));
+});
+
+test('Hội thoại nội bộ văn phòng (V4): sinh đúng tin nhắn tiếng Việt từ sự kiện thật kèm tên file & mục tiêu, xử lý mượt plan_fallback', () => {
+  const c = fakeController();
+  let st;
+  const d = new LiveDirector(c, s => { st = s; });
+  d.start('Lập báo cáo 4 trụ cột 2026');
+  d.handle({ stage: 'product_request_routing', classification: 'COMPLEX_PROJECT_REQUEST' });
+  d.handle({ stage: 'plan_fallback', task_count: 4 });
+  d.handle({ stage: 'task_started', task_id: 'T1', domain: 'finance', task_goal: 'Đối chiếu ngân sách 20 tỷ' });
+  d.handle({ stage: 'task_retrieval', task_id: 'T1', domain: 'finance', selected_count: 3, doc_names: ['02_Bao_Cao_Tai_Chinh.xlsx'] });
+  d.handle({ stage: 'task_completed', result: { task_id: 'T1', domain: 'finance', status: 'COMPLETE' } });
+  d.handle({ stage: 'synthesis_started', task_count: 1 });
+  d.handle({ stage: 'review_finished', review_status: 'ok', checked: 5, unsupported: [] });
+  d.handle({ stage: 'run_finished' });
+
+  assert.ok(st.chatFeed.length >= 7);
+  assert.ok(st.chatFeed.some(m => m.from === 'orchestrator' && m.text.includes('kế hoạch dự phòng')));
+  assert.ok(st.chatFeed.some(m => m.from === 'orchestrator' && m.to === 'finance' && m.text.includes('Đối chiếu ngân sách 20 tỷ')));
+  assert.ok(st.chatFeed.some(m => m.from === 'rag' && m.to === 'finance' && m.attachment?.title.includes('02_Bao_Cao_Tai_Chinh.xlsx')));
+  assert.ok(st.chatFeed.some(m => m.from === 'integrator' && m.to === 'user' && m.kind === 'done'));
+  assert.equal(st.activeWorkLabel, null);
+});
+
+test('Đồng bộ V5: vanilla_retrieval có domain=hr chuyển tài liệu thẳng tới HR, Reviewer duyệt trả HR và Integrator chốt đúng trạng thái PARTIAL/NO_EVIDENCE', () => {
+  const c = fakeController();
+  let st;
+  const d = new LiveDirector(c, s => { st = s; });
+  d.start('Nhân viên đi muộn 5 lần bị trừ bao nhiêu?');
+  d.handle({ stage: 'knowledge_source_policy', has_documents: true, document_bound: true });
+  d.handle({ stage: 'vanilla_retrieval', domain: 'hr', selected_count: 2, doc_names: ['01_Quy_Che_Nhan_Su_VietCore.docx'] });
+  d.handle({ stage: 'task_started', task_id: 'T1', domain: 'hr', task_goal: 'Tính phụ cấp đi muộn' });
+  d.handle({ stage: 'review_started', task_id: 'T1' });
+  d.handle({ stage: 'review_finished', task_id: 'T1', review_status: 'ok', checked: 3, unsupported: [] });
+  d.handle({ stage: 'task_completed', result: { task_id: 'T1', domain: 'hr', status: 'COMPLETE' } });
+  d.handle({ stage: 'run_finished', status: 'PARTIAL' });
+
+  // RAG phải gửi thẳng sang hr (KHÔNG gửi nhầm integrator)
+  assert.ok(st.edges.some(e => e.from === 'rag' && e.to === 'hr' && e.kind === 'rag'));
+  assert.ok(!st.edges.some(e => e.from === 'rag' && e.to === 'integrator'));
+  // Reviewer ở câu đơn giản phải duyệt trả đúng HR trước khi HR nộp cho Integrator
+  assert.ok(st.edges.some(e => e.from === 'reviewer' && e.to === 'hr' && e.kind === 'approve'));
+  // Hội thoại 2 chiều: HR phải đáp lời Orchestrator khi nhận việc
+  assert.ok(st.chatFeed.some(m => m.from === 'hr' && m.to === 'orchestrator' && m.text.includes('Đã nhận việc')));
+  // Integrator chốt đúng trạng thái PARTIAL
+  assert.ok(st.chatFeed.some(m => m.from === 'integrator' && m.to === 'user' && m.badge === 'Một phần'));
+});
+
+test('Đồng bộ V10: activeWorkers chỉ giữ Agent đang làm việc, hỗ trợ song song nhiều Agent và rỗng ngay khi hoàn tất', () => {
+  const c = fakeController();
+  let st;
+  const d = new LiveDirector(c, s => { st = s; });
+  d.start('So sánh tài chính và kiến trúc phần mềm 2026');
+  assert.deepEqual(st.activeWorkers, ['orchestrator']);
+
+  // Bắt đầu 2 việc chạy song song (Finance + Software)
+  d.handle({ stage: 'task_started', task_id: 'T1', domain: 'finance', task_goal: 'Tính ROI GPU' });
+  d.handle({ stage: 'task_started', task_id: 'T2', domain: 'software', task_goal: 'Đánh giá SLA 99.95%' });
+  assert.ok(st.activeWorkers.includes('finance'));
+  assert.ok(st.activeWorkers.includes('software'));
+  assert.equal(st.activeWorkers.length, 2, 'chạy song song phải giữ đồng thời cả 2 Agent');
+
+  // Finance hoàn thành trước -> lập tức rời activeWorkers, Software vẫn giữ luồng
+  d.handle({ stage: 'task_completed', result: { task_id: 'T1', domain: 'finance', status: 'COMPLETE' } });
+  assert.ok(!st.activeWorkers.includes('finance'), 'Agent xong việc phải ngừng hiển thị trong activeWorkers');
+  assert.ok(st.activeWorkers.includes('software'), 'Agent song song còn lại vẫn giữ luồng hoạt động');
+
+  // Software hoàn thành và sang bước tổng hợp
+  d.handle({ stage: 'task_completed', result: { task_id: 'T2', domain: 'software', status: 'COMPLETE' } });
+  d.handle({ stage: 'synthesis_started', task_count: 2 });
+  assert.deepEqual(st.activeWorkers, ['integrator']);
+
+  // Hoàn tất phiên -> activeWorkers rỗng hoàn toàn để tắt sạch mọi luồng nối 3D
+  d.handle({ stage: 'run_finished', status: 'COMPLETE' });
+  assert.deepEqual(st.activeWorkers, []);
+});
+
+test('Nhận diện V10: 11 Agent có 11 màu accentHex hoàn toàn khác nhau, RAG và Finance tách biệt', async () => {
+  const { AGENT_PROFILES, ALL_AGENT_IDS } = await import('../src/studio/office3d/agents.ts');
+  assert.equal(ALL_AGENT_IDS.length, 11);
+  const colors = ALL_AGENT_IDS.map((id) => AGENT_PROFILES[id].accentHex.toLowerCase());
+  const unique = new Set(colors);
+  assert.equal(unique.size, 11, `Trùng màu nhận diện giữa các Agent: ${colors.join(', ')}`);
+  assert.notEqual(AGENT_PROFILES.rag.accentHex.toLowerCase(), AGENT_PROFILES.finance.accentHex.toLowerCase());
+});
+
+test('Hội thoại thông minh V12: đồng nhất xưng hô Mình, nêu đúng tên file/mục tiêu thực tế và Integrator tổng hợp đúng phần đủ + phần thiếu', () => {
+  const c = fakeController();
+  let st;
+  const d = new LiveDirector(c, s => { st = s; });
+  d.start('Cho biết doanh thu Q4/2025 và bảo hiểm sức khỏe người thân 2026');
+  d.handle({ stage: 'product_request_routing', classification: 'COMPLEX_PROJECT_REQUEST' });
+  d.handle({ stage: 'task_started', task_id: 'T1', domain: 'finance', task_goal: 'Tính doanh thu thuần Q4/2025' });
+  d.handle({ stage: 'task_retrieval', task_id: 'T1', domain: 'finance', selected_count: 3, dropped_count: 1, doc_names: ['02_Bao_Cao_Tai_Chinh.xlsx'] });
+  d.handle({ stage: 'task_completed', result: { task_id: 'T1', domain: 'finance', status: 'COMPLETE' } });
+  d.handle({ stage: 'task_started', task_id: 'T2', domain: 'hr', task_goal: 'Kiểm tra bảo hiểm sức khỏe người thân' });
+  d.handle({ stage: 'task_completed', result: { task_id: 'T2', domain: 'hr', status: 'NO_EVIDENCE' } });
+  d.handle({ stage: 'synthesis_started', task_count: 2 });
+  d.handle({ stage: 'run_finished', status: 'PARTIAL' });
+
+  // Đồng nhất xưng hô: không lẫn chữ "Tôi " trong toàn bộ đoạn hội thoại
+  assert.ok(!st.chatFeed.some(m => /\bTôi\b/i.test(m.text)), 'Không được trộn lẫn xưng hô Tôi/Mình');
+  // RAG nêu tên file tìm được ngay trong câu thoại
+  assert.ok(st.chatFeed.some(m => m.from === 'rag' && m.text.includes('02_Bao_Cao_Tai_Chinh.xlsx')));
+  // Chuyên gia phản hồi theo đúng chuyên môn Tài chính & Nhân sự
+  assert.ok(st.chatFeed.some(m => m.from === 'finance' && m.text.includes('tài chính')));
+  assert.ok(st.chatFeed.some(m => m.from === 'hr' && m.text.includes('quy chế nhân sự')));
+  // HR khi nộp bài thiếu nguồn nhắc rõ nội dung đầu việc thay vì chỉ mã T2
+  assert.ok(st.chatFeed.some(m => m.from === 'hr' && m.to === 'integrator' && m.text.includes('Kiểm tra bảo hiểm sức khỏe người thân')));
+  // Integrator tổng hợp thể hiện rõ phần đủ (Tài chính) và phần thiếu (Nhân sự)
+  assert.ok(st.chatFeed.some(m => m.from === 'integrator' && m.text.includes('Tài chính') && m.text.includes('Nhân sự')));
 });

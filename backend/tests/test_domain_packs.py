@@ -15,15 +15,23 @@ from tests.test_org_api import env  # noqa: F401  (fixture CSDL tổ chức dùn
 OLD_LINE = "- Use only security, database, or api_architecture task domains.\n"
 
 
-def test_software_is_default_and_prompts_unchanged():
-    assert active_pack_name() == "software"
-    prompt = build_task_plan_prompt("Review JWT login and SQL schema")
-    assert OLD_LINE in prompt and "Domain scopes" not in prompt and "same language" not in prompt
-    extraction = build_extraction_prompt("Review JWT login")
-    assert '"domain":"security|database|api_architecture"' in extraction and "same language" not in extraction
-    assert task_plan_response_schema()["properties"]["tasks"]["items"]["properties"]["domain"]["enum"] == [
-        "security", "database", "api_architecture"]
-    assert detect_domains("Hiệu trưởng ký quyết định") == ["security"]  # hành vi cũ giữ nguyên ở bộ Phần mềm
+def test_office_11_agents_is_default_and_legacy_software_kept_explicit():
+    # Bộ 11 Agent 3D thật (office) là mặc định của lõi điều phối
+    assert active_pack_name() == "office"
+    enum_office = task_plan_response_schema()["properties"]["tasks"]["items"]["properties"]["domain"]["enum"]
+    assert set(enum_office) == {"general", "software", "business", "marketing", "hr", "finance", "education", "analyst"}
+    assert "same language" in build_task_plan_prompt("Đánh giá kiến trúc API và ngân sách vận hành")
+    assert detect_domains("Review JWT login and SQL schema") == ["software"]
+
+    # Tương thích ngược khi gọi tường minh use_pack("software")
+    with use_pack("software"):
+        prompt = build_task_plan_prompt("Review JWT login and SQL schema")
+        assert OLD_LINE in prompt and "Domain scopes" not in prompt and "same language" not in prompt
+        extraction = build_extraction_prompt("Review JWT login")
+        assert '"domain":"security|database|api_architecture"' in extraction and "same language" not in extraction
+        assert task_plan_response_schema()["properties"]["tasks"]["items"]["properties"]["domain"]["enum"] == [
+            "security", "database", "api_architecture"]
+        assert detect_domains("Hiệu trưởng ký quyết định") == ["security"]
 
 
 @pytest.mark.parametrize("text, expected", [
@@ -53,7 +61,7 @@ def test_non_software_prompts_have_general_agent_and_language_rule():
         assert "same language" in build_extraction_prompt("Phân tích quy trình xét học bổng")
         assert "general" in extraction_response_schema()["properties"]["concerns"]["items"]["properties"]["domain"]["enum"]
         assert profile("general")["name"] == "General Analyst"
-    assert active_pack_name() == "software"  # trả lại sau khối with
+    assert active_pack_name() == "office"  # trả lại mặc định 11 Agent 3D sau khối with
 
 
 def test_every_pack_is_consistent():
@@ -79,13 +87,11 @@ def test_planning_patterns_follow_pack():
 def test_task_query_adds_request_on_language_mismatch():
     from app.core.types import Task
     from app.research.pipeline import _task_query
-    task = Task(task_id="T1", goal="Identify academic warning criteria", domain="academic_affairs", evidence_needs=["academic warning"])
+    task = Task(task_id="T1", goal="Identify academic warning criteria", domain="education", evidence_needs=["academic warning"])
     vi = "Sinh viên bị cảnh báo học tập khi nào?"
-    assert _task_query(task, vi) == "Identify academic warning criteria academic warning"  # bộ Phần mềm: như cũ
-    with use_pack("education"):
-        assert _task_query(task, vi).endswith(vi)
-        same = Task(task_id="T2", goal="Điều kiện cảnh báo học tập", domain="academic_affairs", evidence_needs=[])
-        assert _task_query(same, vi) == "Điều kiện cảnh báo học tập"
+    assert _task_query(task, vi).endswith(vi)  # V9 + office: luôn ghép câu gốc tiếng Việt để BM25 khớp tài liệu
+    same = Task(task_id="T2", goal="Điều kiện cảnh báo học tập", domain="education", evidence_needs=[])
+    assert _task_query(same, vi) == "Điều kiện cảnh báo học tập"
 
 
 def test_org_space_domain_pack(env):
@@ -106,5 +112,5 @@ def test_pipeline_records_domain_pack(tmp_path, monkeypatch):
     pipe = ResearchPipeline(store, RunStore(str(tmp_path / "runs")))
     run = asyncio.run(pipe.run("Khi nào bị cảnh báo học tập?", "A", domain_pack="education"))
     assert run["effective_config"]["domain_pack"] == "education"
-    assert asyncio.run(pipe.run("Khi nào bị cảnh báo học tập?", "A"))["effective_config"]["domain_pack"] == "software"
-    assert active_pack_name() == "software"
+    assert asyncio.run(pipe.run("Khi nào bị cảnh báo học tập?", "A"))["effective_config"]["domain_pack"] == "office"
+    assert active_pack_name() == "office"

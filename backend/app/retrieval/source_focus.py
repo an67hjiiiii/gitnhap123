@@ -12,7 +12,7 @@ from collections import defaultdict
 from app.analysis.skill_router import is_multi_part
 from app.ingestion.doc_type import _fold
 
-_DROP = {"tai", "lieu", "mau", "cong", "ty", "co", "phan", "cua", "va", "md", "docx", "pdf", "txt"}
+_DROP = {"tai", "lieu", "mau", "cong", "ty", "co", "phan", "cua", "va", "md", "docx", "pdf", "txt", "xlsx", "csv", "xls"}
 # cụm thường gặp trong câu hỏi, không đủ để biết người hỏi nói tới tài liệu nào
 _COMMON = {"thanh toan", "bao cao", "ke hoach", "du toan", "chi phi", "doanh thu", "hop dong", "co so", "quy dinh"}
 _YEAR = re.compile(r"\b(19|20)\d{2}\b")
@@ -24,6 +24,30 @@ def _tokens(text: str) -> list[str]:
 
 def _bigrams(tokens: list[str]) -> set[str]:
     return {f"{a} {b}" for a, b in zip(tokens, tokens[1:])} - _COMMON
+
+
+def _family_stem(title: str) -> set[str]:
+    """Các từ đặc trưng nhận diện cùng họ tài liệu (bỏ năm và số phiên bản) để chỉ lọc chéo phiên bản cùng loại."""
+    return {t for t in _tokens(title) if not _YEAR.fullmatch(t) and not t.isdigit() and len(t) >= 2}
+
+
+def has_same_family_for_years(target_title: str, all_titles: dict[str, str], q_years: set[str], *, exclude_sid: str | None = None) -> bool:
+    """True khi tồn tại tài liệu khác CÙNG HỌ (vd. Quy chế 2024 vs Quy chế 2026) mang đúng năm q_years."""
+    target_stem = _family_stem(target_title)
+    if not target_stem or not q_years:
+        return False
+    for sid, other_title in all_titles.items():
+        if sid == exclude_sid:
+            continue
+        norm_other = re.sub(r"[_\-.]", " ", other_title)
+        other_years = {m.group(0) for m in _YEAR.finditer(norm_other)}
+        if not (other_years & q_years):
+            continue
+        other_stem = _family_stem(norm_other)
+        overlap = target_stem & other_stem
+        if len(overlap) >= 2 and (len(overlap) / max(1, min(len(target_stem), len(other_stem)))) >= 0.45:
+            return True
+    return False
 
 
 def focus_sources(query: str, chunks, source_ids: list[str] | None, *, allow_multi_part: bool = False) -> list[str] | None:
@@ -51,8 +75,10 @@ def focus_sources(query: str, chunks, source_ids: list[str] | None, *, allow_mul
         years = {m.group(0) for m in _YEAR.finditer(titles[sid])}
         if q_years and years:
             if not (years & q_years):
-                continue  # câu hỏi nói năm khác
-            words += 1.5
+                if has_same_family_for_years(titles[sid], titles, q_years, exclude_sid=sid):
+                    continue  # chỉ loại bản cũ cùng họ (vd. Quy chế 2024 khi đã có Quy chế 2026)
+            else:
+                words += 1.5
         scores[sid] = words
     if not scores:
         return None
