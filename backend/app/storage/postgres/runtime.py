@@ -13,7 +13,7 @@ from sqlalchemy import cast, delete, false, func, literal, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, contains_eager, sessionmaker
 
 from app.auth.store import (
     AUTH_SCHEMA_VERSION,
@@ -508,8 +508,13 @@ class PostgresSourceStore:
                 source.updated_at = now
 
         try:
+            chunk_provenance = {
+                **source_provenance,
+                "doc_type": metadata["doc_type"],
+                "doc_type_by": metadata["doc_type_by"],
+            }
             chunks = make_chunks(
-                str(source_name).strip(), clean_text, provenance=source_provenance
+                str(source_name).strip(), clean_text, provenance=chunk_provenance
             )
             if not chunks:
                 raise ValueError("text must not be empty")
@@ -617,6 +622,7 @@ class PostgresSourceStore:
             rows = db.scalars(
                 select(KnowledgeChunkRecord)
                 .join(KnowledgeSourceRecord)
+                .options(contains_eager(KnowledgeChunkRecord.source))
                 .where(*filters)
                 .order_by(KnowledgeChunkRecord.source_id, KnowledgeChunkRecord.chunk_index)
             ).all()
@@ -734,13 +740,28 @@ class PostgresSourceStore:
 
     @staticmethod
     def _chunk(row: KnowledgeChunkRecord) -> SourceChunk:
+        prov = dict(row.provenance or {})
+        meta = dict((row.source.display_metadata if row.source is not None else None) or {})
+        src_type = str(meta.get("doc_type") or "").strip()
+        chk_type = str(prov.get("doc_type") or "").strip()
+        # Truyền doc_type đáng tin cậy từ nguồn sang đoạn mà không ghi đè nhãn có giá trị bằng fallback rỗng/mặc định
+        if src_type and (
+            meta.get("doc_type_by") == "user"
+            or not chk_type
+            or (chk_type == "other" and src_type != "other")
+        ):
+            prov["doc_type"] = src_type
+            if meta.get("doc_type_by") and "doc_type_by" not in prov:
+                prov["doc_type_by"] = meta["doc_type_by"]
+        elif chk_type:
+            prov["doc_type"] = chk_type
         return SourceChunk(
             chunk_id=row.chunk_id,
             source_id=row.source_id,
             source_name=row.source.source_name,
             text=row.content or "",
             index=row.chunk_index,
-            provenance=dict(row.provenance or {}),
+            provenance=prov,
         )
 
 
@@ -907,6 +928,7 @@ class PostgresConversationStore:
                 ConversationMessageRecord.conversation_id == conversation_id
             ).order_by(ConversationMessageRecord.sequence_number)).all()
             hidden = self._hidden_runs(db, [row.run_id for row in messages if row.run_id])
+            hidden_messages = self._hidden_messages(db, messages, hidden)
             return {
                 "conversation_id": conversation.conversation_id,
                 "title": conversation.title,
@@ -918,7 +940,7 @@ class PostgresConversationStore:
                     "conversation_id": row.conversation_id,
                     "sequence_number": row.sequence_number,
                     "role": row.role,
-                    "content": REDACTED_ANSWER if row.run_id in hidden else row.content,
+                    "content": REDACTED_ANSWER if row.message_id in hidden_messages else row.content,
                     "created_at": _iso(row.created_at),
                     "run_id": row.run_id,
                 } for row in messages],
@@ -966,3 +988,29 @@ class PostgresConversationStore:
         visible = visible_source_ids(db, self.owner_user_id, self.space_id)
         rows = db.execute(select(RunRecord.run_id, RunRecord.extra_data).where(RunRecord.run_id.in_(run_ids))).all()
         return {run_id for run_id, data in rows if not referenced_source_ids(data or {}) - planning_source_ids() <= visible}
+
+    def _hidden_messages(
+        self,
+        db: Session,
+        messages: list[ConversationMessageRecord],
+        hidden_runs: set[str],
+    ) -> set[str]:
+        """Ẩn câu trả lời (kể cả SkillCard run_id=None) trong hội thoại tổ chức khi mất quyền với tài liệu tham chiếu."""
+        if self.space_id is None:
+            return set()
+        visible: set[str] | None = None
+        hidden: set[str] = set()
+        plan_ids = planning_source_ids()
+        for row in messages:
+            if str(row.role or "").upper() == "USER":
+                continue
+            if row.run_id and row.run_id in hidden_runs:
+                hidden.add(row.message_id)
+                continue
+            refs = referenced_source_ids(row.content or "") - plan_ids
+            if refs:
+                if visible is None:
+                    visible = visible_source_ids(db, self.owner_user_id, self.space_id)
+                if not (refs <= visible):
+                    hidden.add(row.message_id)
+        return hidden

@@ -5,6 +5,7 @@ Tách khỏi /api/chat và các điều kiện nghiên cứu A/B/C; chỉ dùng 
 
 from __future__ import annotations
 
+import inspect
 import re
 
 import json
@@ -21,7 +22,7 @@ from app.analysis.skill_router import SKILLS, route_skill
 from app.research.registry import product_agent_pack
 from app.research.product_intents import is_library_question
 from app.analysis.watch import replacement_pairs
-from app.core.secret_audit import log_secret_access
+from app.core.secret_audit import log_secret_access, run_read_source_ids
 from app.research.agent_selection import PACK_CLARIFY, clarify_options, select_agents
 from app.analysis import versions
 from app.research.learning import load_examples, record_example
@@ -31,6 +32,7 @@ from app.analysis.traceability import (Requirement, assign_agent, check_requirem
                                        evidence_for, requirement_query)
 from app.ingestion.documents import DocumentTypeError
 from app.research.registry import PACKS, use_pack
+from app.research.run_queue import product_runs
 from app.core.config import RuntimeConfig
 from app.core.types import SourceChunk
 from app.providers.factory import get_provider
@@ -163,6 +165,7 @@ class RouteBody(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     source_ids: list[str] | None = Field(default=None, max_length=200)
     skill: str | None = Field(default=None, max_length=32)  # người dùng gọi bằng "/": bỏ qua luật nhận ý định
+    domain_pack: PackName | None = None
 
 
 class ProcedureBody(BaseModel):
@@ -322,12 +325,17 @@ def build_router(
         if user.get("space_id"):
             raise HTTPException(400, "Chức năng này chỉ dùng trong không gian cá nhân.")
 
+    def _audit(user: dict, chunks: list[SourceChunk]) -> None:
+        """Nhật ký Mật (đợt 9): kỹ năng đưa đoạn của tài liệu Mật cho AI đọc cũng được ghi như một lượt hỏi."""
+        log_secret_access(session_factory(), str(user["user_id"]), {c.source_id for c in chunks}, "ASK")
+
     @router.post("/traceability/extract")
     def extract(body: ExtractBody, request: Request) -> dict:
         user = current_user(request)
         chunks = sorted(owner_pipeline(user).source_store.chunks([body.source_id]), key=lambda c: c.index)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
+        _audit(user, chunks)
         text = "\n\n".join(c.text for c in chunks)
         with use_pack(body.domain_pack):
             requirements = extract_checklist(text) if body.mode == "list" else extract_requirements(text)
@@ -341,6 +349,7 @@ def build_router(
         chunks = sorted(owner_pipeline(user).source_store.chunks([body.source_id]), key=lambda c: c.index)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
+        _audit(user, chunks)
         request.state.audit_target = chunks[0].source_name
         return {"source_id": body.source_id, "source_name": chunks[0].source_name,
                 **req_quality.review_text("\n\n".join(c.text for c in chunks))}
@@ -360,6 +369,7 @@ def build_router(
         chunks = pipeline.source_store.chunks(body.source_ids)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu thiết kế đã chọn.")
+        _audit(user, chunks)
         item = body.requirement
         # tác tử bảo mật chỉ có ở bộ Phần mềm: chỉ định agent thì chạy bộ Phần mềm
         with use_pack(None if body.agent else body.domain_pack):
@@ -376,10 +386,6 @@ def build_router(
         return result
 
     # ---------------- Công cụ nghiệp vụ theo ngành: kiểm tra điều kiện, quy trình từng bước (analysis/casework.py)
-    def _audit(user: dict, chunks: list[SourceChunk]) -> None:
-        """Nhật ký Mật (đợt 9): kỹ năng đưa đoạn của tài liệu Mật cho AI đọc cũng được ghi như một lượt hỏi."""
-        log_secret_access(session_factory(), str(user["user_id"]), {c.source_id for c in chunks}, "ASK")
-
     def _case_evidence(user: dict, query: str, source_ids: list[str]) -> list[SourceChunk]:
         pipeline = owner_pipeline(user)
         chunks = pipeline.source_store.chunks(source_ids)
@@ -413,24 +419,25 @@ def build_router(
     def route(body: RouteBody, request: Request) -> dict:
         """Ô chat Tự động: chọn một kỹ năng nếu câu hỏi khớp rõ; không thì để pipeline (trả lời thẳng/nhiều tác tử)."""
         user = current_user(request)
-        listed = owner_pipeline(user).source_store.list_sources()
-        wanted = set(body.source_ids) if body.source_ids is not None else None
-        rows = [s for s in listed if wanted is None or s["source_id"] in wanted]
-        if body.skill is not None:
-            if body.skill not in SKILLS:
-                raise HTTPException(400, "Kỹ năng không có.")
-            label, _, needs = SKILLS[body.skill]
-            hit = {"skill": body.skill, "label": label, "reason": 'Bạn chọn bằng lệnh "/"', "doc_types": sorted(needs) if needs else None}
-        else:
-            hit = route_skill(body.message, [s.get("doc_type") for s in rows])
-        if hit is None:
-            if is_library_question(body.message):  # hỏi về chính kho: không hỏi lại lĩnh vực, pipeline trả danh sách tài liệu
-                return {"route": "pipeline"}
-            return _clarify_or_pipeline(user, body.message)
-        need = set(hit.pop("doc_types") or [])
-        # kỹ năng cần loại tài liệu: chỉ đưa tài liệu đúng loại (hợp đồng, văn bản pháp quy) vào kỹ năng
-        ids = [s["source_id"] for s in rows if not need or s.get("doc_type") in need]
-        return {"route": "skill", **hit, "source_ids": ids}
+        with use_pack(body.domain_pack):
+            listed = owner_pipeline(user).source_store.list_sources()
+            wanted = set(body.source_ids) if body.source_ids is not None else None
+            rows = [s for s in listed if wanted is None or s["source_id"] in wanted]
+            if body.skill is not None:
+                if body.skill not in SKILLS:
+                    raise HTTPException(400, "Kỹ năng không có.")
+                label, _, needs = SKILLS[body.skill]
+                hit = {"skill": body.skill, "label": label, "reason": 'Bạn chọn bằng lệnh "/"', "doc_types": sorted(needs) if needs else None}
+            else:
+                hit = route_skill(body.message, [s.get("doc_type") for s in rows])
+            if hit is None:
+                if is_library_question(body.message):  # hỏi về chính kho: không hỏi lại lĩnh vực, pipeline trả danh sách tài liệu
+                    return {"route": "pipeline"}
+                return _clarify_or_pipeline(user, body.message)
+            need = set(hit.pop("doc_types") or [])
+            # kỹ năng cần loại tài liệu: chỉ đưa tài liệu đúng loại (hợp đồng, văn bản pháp quy) vào kỹ năng
+            ids = [s["source_id"] for s in rows if not need or s.get("doc_type") in need]
+            return {"route": "skill", **hit, "source_ids": ids}
 
     @router.post("/casework/conditions")
     async def conditions(body: ConditionBody, request: Request) -> dict:
@@ -489,7 +496,8 @@ def build_router(
             top = set(sorted(scores, key=lambda cid: -scores[cid])[:8])
             chunks = [c for c in chunks if c.chunk_id in top] or chunks
         with use_pack(body.domain_pack):
-            return await _llm(domain_tools.generate_items(provider_factory(), body.kind, chunks, body.count))
+            kw = {"topic": body.topic} if "topic" in inspect.signature(domain_tools.generate_items).parameters else {}
+            return await _llm(domain_tools.generate_items(provider_factory(), body.kind, chunks, body.count, **kw))
 
     def _articles(user: dict, source_ids: list[str]) -> list[dict]:
         by_source: dict[str, list[SourceChunk]] = {}
@@ -587,7 +595,8 @@ def build_router(
 
     async def _llm(call):
         try:
-            return await call
+            async with product_runs.slot():
+                return await call
         except (httpx.HTTPError, OSError, TimeoutError) as exc:
             raise HTTPException(503, "Không gọi được mô hình ngôn ngữ cục bộ (Ollama).") from exc
 
@@ -616,6 +625,7 @@ def build_router(
             ranked = evidence_for(pipeline, design.section_query(body.request, body.domain, points), chunks,
                                   top_k=body.top_k * 3, min_score=RuntimeConfig.from_env().retrieval_min_score, source_ids=body.source_ids)
             evidence, shared = design.allocate_evidence(ranked, body.top_k, set(body.avoid_chunk_ids))
+            _audit(user, evidence or chunks)
         result = await _llm(design.design_section(provider_factory(), body.request.strip(), body.domain, points, evidence))
         return {**result, "shared_chunks": shared}
 
@@ -631,17 +641,21 @@ def build_router(
         chunks = sorted(owner_pipeline(user).source_store.chunks(body.source_ids), key=lambda c: (c.source_id, c.index))
         if len({c.source_id for c in chunks}) < 2:
             raise HTTPException(404, "Cần ít nhất hai tài liệu có nội dung để so sánh.")
+        _audit(user, chunks)
         statements = consistency.extract_statements(chunks)
         return {"statements": len(statements), "pairs": consistency.candidate_pairs(statements, max_pairs=body.max_pairs)}
 
     @router.post("/consistency/judge")
     async def consistency_judge(body: JudgeBody, request: Request) -> dict:
         user = current_user(request)
+        ref_ids = [sid for sid in (body.a.source_id, body.b.source_id) if sid]
+        ref_chunks = owner_pipeline(user).source_store.chunks(ref_ids) if ref_ids else []
+        _audit(user, ref_chunks)
         result = await _llm(consistency.judge_pair(provider_factory(), body.a.model_dump(), body.b.model_dump()))
         if result.get("verdict") == "CONTRADICTION" and body.a.source_id and body.b.source_id and body.a.source_id != body.b.source_id:
             # chạy thật 19/11: mô hình coi "QĐ mới thay thế QĐ cũ, ngày hiệu lực khác nhau" là mâu thuẫn mức Cao
             by: dict[str, list[SourceChunk]] = {}
-            for c in owner_pipeline(user).source_store.chunks([body.a.source_id, body.b.source_id]):
+            for c in ref_chunks:
                 by.setdefault(c.source_id, []).append(c)
             docs = [(sid, cs[0].source_name, "\n".join(c.text for c in sorted(cs, key=lambda c: c.index))) for sid, cs in by.items()]
             if frozenset((body.a.source_id, body.b.source_id)) in replacement_pairs(docs):
@@ -664,11 +678,13 @@ def build_router(
         except ValueError as exc:
             raise HTTPException(400, f"Điều kiện {body.condition} chưa bật trong cấu hình hiện tại.") from exc
         try:
-            run = await owner_pipeline(user).run(body.question.strip(), condition, source_ids=body.source_ids,
-                                                 reply_in_query_language=True,
-                                                 **({"product_mode": True, "domain_pack": body.agent_pack or product_agent_pack()} if auto else {}))
+            async with product_runs.slot():
+                run = await owner_pipeline(user).run(body.question.strip(), condition, source_ids=body.source_ids,
+                                                     reply_in_query_language=True,
+                                                     **({"product_mode": True, "domain_pack": body.agent_pack or product_agent_pack()} if auto else {}))
         except LookupError as exc:
             raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.") from exc
+        log_secret_access(session_factory(), str(user["user_id"]), run_read_source_ids(run), "ASK")
         answer = evaluation.readable_answer(run.get("answer"))
         hits = evaluation.keypoint_hits(answer, body.key_points) if run.get("status") != "FAILED" else [False] * len(body.key_points)
         metrics = run.get("metrics") or {}
@@ -704,6 +720,7 @@ def build_router(
         chunks = sorted(owner_pipeline(user).source_store.chunks([source_id]), key=lambda c: c.index)
         if not chunks:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
+        _audit(user, chunks)
         return chunks
 
     @router.post("/grounding")
@@ -714,6 +731,7 @@ def build_router(
         if not run:
             raise HTTPException(404, "Không tìm thấy lượt chạy.")
         chunks = [SourceChunk(**item) for cid in grounding.run_evidence_ids(run)[:40] if (item := pipeline.source_store.chunk(cid))]
+        _audit(user, chunks)
         return grounding.ground_answer(evaluation.readable_answer(run.get("answer")), chunks)
 
     @router.post("/profile/local")
@@ -782,12 +800,14 @@ def build_router(
     @router.post("/related")
     def related(body: SourceRef, request: Request) -> dict:
         """Tài liệu cùng chủ đề (tại máy) cho trình đọc tài liệu."""
-        everything = owner_pipeline(current_user(request)).source_store.chunks(None)
+        user = current_user(request)
+        everything = owner_pipeline(user).source_store.chunks(None)
         by_source: dict[str, list] = {}
         for c in everything:
             by_source.setdefault(c.source_id, []).append(c)
         if body.source_id not in by_source:
             raise HTTPException(404, "Không tìm thấy tài liệu.")
+        _audit(user, everything)
         return {"related": insights.related_documents(body.source_id, by_source, {c.source_id: c.source_name for c in everything}, limit=6)}
 
     @router.post("/explain")
@@ -809,6 +829,7 @@ def build_router(
         if not answer.strip() or run.get("status") in {"FAILED", "NO_EVIDENCE"}:
             raise HTTPException(422, "Lượt chạy này không có câu trả lời dựa trên tài liệu để viết báo cáo.")
         evidence = [SourceChunk(**item) for cid in grounding.run_evidence_ids(run)[:8] if (item := pipeline.source_store.chunk(cid))]
+        _audit(user, evidence)
         question = str(run.get("query") or "")
         # Câu hỏi tiếp nối ("Mất bao lâu?") cần kèm câu hỏi trước để báo cáo tự đủ nghĩa.
         prev = next((e.get("previous_request") for e in run.get("events") or [] if e.get("stage") == "follow_up_resolved"), None)
@@ -831,8 +852,10 @@ def build_router(
     def library_quality(request: Request) -> dict:
         user = current_user(request)
         store = owner_pipeline(user).source_store
+        all_chunks = list(store.chunks(None))
+        _audit(user, all_chunks)
         by_source: dict[str, list] = {}
-        for c in store.chunks(None):
+        for c in all_chunks:
             by_source.setdefault(c.source_id, []).append(c)
         sources = store.list_sources()
         names = {x["source_id"]: x["source_name"] for x in sources}

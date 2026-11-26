@@ -10,22 +10,37 @@ from __future__ import annotations
 
 import re
 
-from app.core.answer_checks import apply_calc, clean
+from app.core.answer_checks import apply_calc, clean, strip_invalid_inline_citations
 from app.core.structured_output import parse_answer_json
 from app.core.types import RunMetrics, TaskResult
-from app.research.progress import answer_streamer
+from app.ingestion.doc_type import _fold
+from app.research.progress import answer_streamer, emit_validated_answer
 
 DOCUMENTS, GENERAL, BOTH = "documents", "general", "both"
 GENERAL_MISSING = "answered from general knowledge, not from the user's documents"
 
-_DOC_BOUND = re.compile(
-    r"\b(theo|trong|căn cứ|dựa (vào|trên)|đối chiếu)\s+(các\s+|bản\s+|file\s+)?"
-    r"(tài liệu|văn bản|nội quy|quy chế|quy định của công ty|hợp đồng|kế hoạch|hướng dẫn|báo cáo|đặc tả|biên bản|chính sách|tệp|bảng)"
-    r"|\btài liệu (này|đã (tải|gửi)|của (tôi|công ty|mình))"
-    r"|\b(according to|based on|in) (the|this|my) (document|file|contract|policy|report|plan|manual|spec)",
+# Khớp trên dạng bỏ dấu để hỗ trợ cả tiếng Việt có dấu, không dấu và tiếng Anh mà không dính nhầm
+# "ra quyết định mua máy chủ" / "quyết định thiết kế" / "Thông tư là gì?".
+_CONCEPT_DEFINITION = re.compile(
+    r"^\s*(?:thế nào là|khái niệm|định nghĩa)?\s*(?:nghị định|thông tư|quyết định|nghị quyết|chỉ thị|luật|bộ luật|hợp đồng|nghi dinh|thong tu|quyet dinh|luat)\s+(?:là gì|la gi|như thế nào|nhu the nao)(?:\s|$|[?.,;])"
+    r"|^\s*(?:what is|define|explain)\s+(?:a|an|the)?\s*(?:decree|circular|regulation|law|decision)(?:\s|$|[?.,;])",
     re.I,
 )
-_EXPLAIN = re.compile(r"\b(vì sao|tại sao|giải thích|là gì|nghĩa là gì|why|explain|what is)\b", re.I)
+_DOC_BOUND_FOLDED = re.compile(
+    r"\b(?:theo|trong|can cu|dua vao|dua tren|doi chieu)\s+(?:cac\s+|ban\s+|file\s+)?"
+    r"(?:tai lieu|van ban|noi quy|quy che|quy dinh cua cong ty|hop dong|ke hoach|huong dan|bao cao|dac ta|bien ban|chinh sach|tep|bang)\b"
+    r"|\btai lieu (?:nay|da (?:tai|gui)|cua (?:toi|cong ty|minh))\b"
+    r"|\b(?:nghi dinh|thong tu|quyet dinh|nghi quyet|chi thi|bo luat|luat)\s+(?:so\s+)?(?=[a-z0-9/\-]*\d)[a-z0-9/\-]{2,}\b"
+    r"|\bluat\s+[a-z\s]{2,45}\b(?:19|20)\d{2}\b"
+    r"|\b(?:theo|trong|can cu|quy dinh tai)\s+(?:nghi dinh|thong tu|quyet dinh|nghi quyet|chi thi|bo luat)\b"
+    r"|\b(?:theo|trong|can cu|quy dinh tai)\s+luat\s+[a-z]{2,}\b"
+    r"|\b(?:dieu|khoan)\s+\d+(?:\s+(?:luat|bo luat|nghi dinh|thong tu|quyet dinh|hop dong|noi quy|quy che)\b|\s+cua\s+(?:luat|nghi dinh|thong tu|bo luat))"
+    r"|\b(?:according to|based on|in)\s+(?:the|this|my)\s+(?:document|file|contract|policy|report|plan|manual|spec|decree|circular|regulation|law)\b"
+    r"|\b(?:decree|circular|law)\s+(?:no\.?\s*)?(?=[a-z0-9/\-]*\d)[a-z0-9/\-]{2,}\b"
+    r"|\b(?:article|section|clause)\s+\d+\s+(?:of|in)\s+(?:the\s+)?(?:law|decree|circular|contract|policy|regulation)\b",
+    re.I,
+)
+_EXPLAIN_FOLDED = re.compile(r"\b(vi sao|tai sao|giai thich|la gi|nghia la gi|why|explain|what is)\b", re.I)
 
 BOTH_HINT = (
     "NGUỒN TRI THỨC: trả lời phần có trong EVIDENCE như quy tắc trên. Nếu một phần câu hỏi là kiến thức phổ thông (giải thích lý do, khái niệm) "
@@ -42,16 +57,40 @@ _LABEL = {
 
 
 def doc_bound(query: str, named_documents: list[str] | None = None) -> bool:
-    """Câu hỏi gắn với tài liệu: chỉ được trả lời từ tài liệu."""
-    return bool(named_documents) or bool(_DOC_BOUND.search(query or ""))
+    """Câu hỏi gắn với tài liệu hoặc trích dẫn văn bản quy phạm cụ thể: chỉ được trả lời từ tài liệu."""
+    if named_documents:
+        return True
+    q = (query or "").strip()
+    if not q or _CONCEPT_DEFINITION.search(q):
+        return False
+    return bool(_DOC_BOUND_FOLDED.search(_fold(q)))
 
 
-def choose_source(query: str, evidence_count: int, *, bound: bool) -> str:
+def _query_grounded_in_evidence(query: str, evidence: list | None) -> bool:
+    """Kiểm tra phần nội dung chính ngoài cụm giải thích chung có thực sự khớp với bằng chứng đã truy xuất hay không."""
+    if not evidence:
+        return False
+    from app.retrieval.text import terms
+    folded = _fold(query or "")
+    # Tách vế đầu trước 'va ... la gi / lam sao / vi sao' nếu câu mở bằng định nghĩa khái niệm chung
+    main = re.sub(r"^\s*(?:the nao la\s+)?(?:nghi dinh|thong tu|quyet dinh|nghi quyet|chi thi|luat|bo luat|hop dong)\s+(?:la gi|nhu the nao)\b", "", folded).strip()
+    q_terms = terms(main or folded) - {"va", "nhu", "the", "nao", "la", "gi", "vi", "sao", "lam", "de", "ra", "mot"}
+    if not q_terms:
+        return False
+    ev_terms = set().union(*(terms(getattr(c, "text", str(c))) for c in evidence[:4]))
+    overlap = len(q_terms & ev_terms) / max(1, min(len(q_terms), 6))
+    return overlap >= 0.34
+
+
+def choose_source(query: str, evidence_count: int, *, bound: bool, evidence: list | None = None) -> str:
     if bound:
         return DOCUMENTS
     if evidence_count == 0:
         return GENERAL
-    return BOTH if _EXPLAIN.search(query or "") else DOCUMENTS
+    q = (query or "").strip()
+    if _CONCEPT_DEFINITION.search(q) and evidence is not None and not _query_grounded_in_evidence(q, evidence):
+        return GENERAL
+    return BOTH if _EXPLAIN_FOLDED.search(_fold(q)) else DOCUMENTS
 
 
 def label(reply_language: str | None, had_documents: bool) -> str:
@@ -87,14 +126,24 @@ async def answer_general(provider, question: str, metrics: RunMetrics, *, task_i
     if callable(structured) and limit_ok:
         result = await structured(system=system, user=user, response_schema={"type": "object", "properties": {"answer": {"type": "string"}},
                                                                              "required": ["answer"], "additionalProperties": False},
-                                  max_output_tokens=max_output_tokens, **(answer_streamer(provider) if stream else {}))
+                                  max_output_tokens=max_output_tokens, **(answer_streamer(provider, buffered=True) if stream else {}))
     else:
         result = await provider.generate(system=system, user=user)
     metrics.add_usage(result.usage)
     text = str(parse_answer_json(result.text).get("answer") or "").strip() or result.text.strip()
     text = apply_calc(clean(text))
+    text, _ = strip_invalid_inline_citations(text, set())
     if not text:
         return TaskResult(task_id=task_id, domain=domain, status="NO_EVIDENCE", answer="", missing_information=["general answer was empty"],
                           source=GENERAL)
-    return TaskResult(task_id=task_id, domain=domain, status="COMPLETE", answer=f"{label(reply_language, had_documents)}\n\n{text}",
-                      missing_information=[GENERAL_MISSING], source=GENERAL)
+    final_answer = f"{label(reply_language, had_documents)}\n\n{text}"
+    if stream:
+        emit_validated_answer(final_answer)
+    return TaskResult(
+        task_id=task_id,
+        domain=domain,
+        status="PARTIAL" if had_documents else "COMPLETE",
+        answer=final_answer,
+        missing_information=[GENERAL_MISSING],
+        source=GENERAL,
+    )

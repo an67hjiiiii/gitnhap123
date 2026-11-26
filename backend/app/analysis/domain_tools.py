@@ -280,11 +280,22 @@ def _check_item(kind: str, raw: object, evidence: list[SourceChunk], by_id: dict
     return {"question": question, "answer": answer_text, "citation": cite}
 
 
-async def generate_items(provider, kind: str, chunks: list[SourceChunk], count: int) -> dict:
+def _topic_aligned(item: dict, source_text: str, topic: str) -> bool:
+    """Kiểm tra mục quiz/faq có bám từ khóa chủ đề người dùng yêu cầu hay lệch chủ đề."""
+    t_words = [w for w in re.findall(r"\w+", _rule_text(topic)) if len(w) >= 3 and w not in {"tạo", "câu", "hỏi", "trắc", "nghiệm", "về", "theo", "và", "các", "của"}]
+    if not t_words:
+        return True
+    hay = _rule_text(f"{item.get('question', '')} {item.get('explanation', '')} {item.get('answer', '')} {source_text}")
+    hits = sum(1 for w in set(t_words) if w in hay)
+    return hits >= min(2, max(1, len(set(t_words))))
+
+
+async def generate_items(provider, kind: str, chunks: list[SourceChunk], count: int, *, topic: str | None = None) -> dict:
     """quiz: trắc nghiệm 4 phương án có đáp án; faq: câu hỏi thường gặp kèm câu trả lời. Mỗi mục có trích dẫn.
     Sinh theo lượt (tối đa 5 mục/lượt, mỗi lượt một nhóm đoạn khác nhau), bỏ câu trùng giữa các lượt."""
     started = time.perf_counter()
     count = max(1, min(int(count), 15))
+    clean_topic = (topic or "").strip()
     evidence = spread_chunks(chunks)
     _, agent_id = assign_agent(" ".join(c.text[:300] for c in evidence))
     agent = profile(agent_id)
@@ -297,6 +308,7 @@ async def generate_items(provider, kind: str, chunks: list[SourceChunk], count: 
     batches = math.ceil(count / BATCH)
     items: list[dict] = []
     removed, usage = 0, {"input_tokens": 0, "output_tokens": 0}
+    topic_rule = f" TOPIC REQUIREMENT: every item MUST directly test \"{clean_topic}\"; ignore unrelated sections/articles." if clean_topic else ""
     for b in range(batches):
         need = min(BATCH, count - len(items))
         if need <= 0:
@@ -307,18 +319,18 @@ async def generate_items(provider, kind: str, chunks: list[SourceChunk], count: 
         if kind == "quiz":
             system = (f"QUIZ_WRITER. Role={agent['name']}. Write {need} multiple-choice review questions answerable ONLY from "
                       "the EVIDENCE. Each has exactly 4 different short options, answer = index 0-3 of the correct option, an "
-                      f"explanation of at most 25 words, and the cited chunk. {language} Return JSON only.")
+                      f"explanation of at most 25 words, and the cited chunk.{topic_rule} {language} Return JSON only.")
             item = {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}},
                     "answer": {"type": "integer"}, "explanation": {"type": "string"}, "citation": {"type": "string", "enum": ids}}
         else:
             system = (f"FAQ_WRITER. Role={agent['name']}. Write {need} questions employees would really ask that the EVIDENCE "
-                      "answers, each answered in at most 40 words with its numbers and conditions, citing the chunk. "
-                      f"{language} Return JSON only.")
+                      "answers, each answered in at most 40 words with its numbers and conditions, citing the chunk."
+                      f"{topic_rule} {language} Return JSON only.")
             item = {"question": {"type": "string"}, "answer": {"type": "string"}, "citation": {"type": "string", "enum": ids}}
         schema = {"type": "object", "properties": {"items": {"type": "array", "items": {
             "type": "object", "properties": item, "required": list(item), "additionalProperties": False}}},
             "required": ["items"], "additionalProperties": False}
-        user = f"EVIDENCE:\n{_evidence_block(part)}" + (f"\n\nALREADY ASKED (do not repeat): {asked}" if asked else "")
+        user = (f"REQUESTED TOPIC: {clean_topic}\n\n" if clean_topic else "") + f"EVIDENCE:\n{_evidence_block(part)}" + (f"\n\nALREADY ASKED (do not repeat): {asked}" if asked else "")
         response = await _ask(provider, system, user, schema, max_tokens=1600)
         for k, v in _usage(response).items():
             usage[k] += v
@@ -330,7 +342,27 @@ async def generate_items(provider, kind: str, chunks: list[SourceChunk], count: 
             elif entry["question"].casefold() not in seen and len(items) < count:
                 seen.add(entry["question"].casefold())
                 items.append(entry)
-    return {**base, **usage, "items": items, "removed": removed, "latency_ms": _ms(started)}
+    mismatch = 0
+    if clean_topic and items:
+        q_only_words = [w for w in re.findall(r"\w+", _rule_text(clean_topic)) if len(w) >= 3 and w not in {"tạo", "câu", "hỏi", "trắc", "nghiệm", "về", "theo", "và", "các", "của"}]
+        if q_only_words:
+            on_topic: list[dict] = []
+            for it in items:
+                it_txt = _rule_text(f"{it.get('question', '')} {it.get('explanation', '')} {it.get('answer', '')}")
+                if any(w in it_txt for w in q_only_words):
+                    on_topic.append(it)
+                else:
+                    mismatch += 1
+            items = on_topic
+    out = {**base, **usage, "items": items, "removed": removed + mismatch, "requested_count": count,
+           "returned_count": len(items), "latency_ms": _ms(started)}
+    if mismatch:
+        out["topic_mismatch_count"] = mismatch
+        out["off_topic_removed"] = mismatch
+        out["topic_warning"] = f"Đã loại {mismatch} mục lệch chủ đề yêu cầu ({clean_topic}); còn {len(items)}/{count} mục."
+    elif len(items) < count:
+        out["topic_warning"] = f"Chỉ tạo được {len(items)}/{count} mục đạt chuẩn từ tài liệu."
+    return out
 
 
 # ------------------------------------------------------------------ tra cứu quy chế theo Điều (Giáo dục)

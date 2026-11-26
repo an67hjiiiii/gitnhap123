@@ -7,6 +7,7 @@ import unicodedata
 import re
 import time
 import uuid
+import httpx
 from dataclasses import asdict
 from datetime import datetime, timezone
 from app.core.config import RuntimeConfig
@@ -16,6 +17,7 @@ from app.core.types import SourceChunk, Task, TaskPlan, TaskResult, RunMetrics
 from app.providers.factory import get_provider
 from app.research.context_controller import ContextController
 from app.research.provenance import build_provenance
+from app.research.token_budget import resolve_product_num_ctx
 from app.research.token_context import TokenContextController, context_policy, plan_task_budgets
 from app.research.conversation_context import ConversationContext, resolve_follow_up
 from app.research.plan_anchoring import anchor_and_verify
@@ -51,12 +53,12 @@ from app.research.agent_tools import TOOL_SEARCH_CHUNKS, agent_tools_enabled, st
 from app.research.knowledge_source import BOTH, BOTH_HINT, GENERAL, answer_general, choose_source, doc_bound, label as knowledge_label
 from app.research.registry import OFFICE_PACK, SELECTION_PACKS, active_pack, active_pack_name, profile, use_pack, use_work_context
 from app.research.worker import execute_task
-from app.research.progress import emit
+from app.research.progress import emit, emit_validated_answer
 from app.research.synthesizer import synthesize
 from app.research.vanilla import answer_vanilla
 from app.retrieval.text import retrieve, apply_token_budget, estimate_tokens, terms
 from app.retrieval.source_focus import focus_sources
-from app.retrieval.hybrid import POOL as HYBRID_POOL, continue_articles, fuse as hybrid_fuse
+from app.retrieval.hybrid import POOL as HYBRID_POOL, bm25_scores, continue_articles, fuse as hybrid_fuse
 from app.retrieval.multilingual import build_query_variants, detect_language
 from app.storage.source_store import SourceStore
 from app.storage.run_store import RunStore
@@ -68,6 +70,43 @@ _RETRIEVE_LOCK = threading.Lock()
 _LEXICAL_FALLBACK_FILLERS = frozenset(
     {"what", "which", "who", "where", "when", "why", "how", "doe", "do", "did", "use", "used", "dùng", "gì"}
 )
+
+
+def resolve_product_simple_max_output_tokens(synth_limit: int) -> int:
+    """Calibrated output limit for single-pass product answers (avoids 1800-token tail stalls)."""
+    upper = max(256, int(synth_limit))
+    try:
+        val = int(os.getenv("PRODUCT_SIMPLE_MAX_OUTPUT_TOKENS", "1200") or 1200)
+    except ValueError:
+        val = 1200
+    return max(256, min(val, upper))
+
+
+def resolve_product_llm_timeout_seconds(provider: object) -> float | None:
+    """Calibrated HTTP timeout for product-mode requests when not explicitly overridden by LOCAL_LLM_TIMEOUT_SECONDS."""
+    if os.getenv("LOCAL_LLM_TIMEOUT_SECONDS", "").strip():
+        return None
+    if getattr(provider, "_explicit_timeout", False):
+        return None
+    try:
+        val = float(os.getenv("PRODUCT_LLM_TIMEOUT_SECONDS", "240") or 240.0)
+    except ValueError:
+        val = 240.0
+    return max(10.0, min(val, 600.0))
+
+
+def classify_run_error(exc: Exception) -> tuple[str, int | None]:
+    """Distinguish request timeout vs provider HTTP/connection/stream errors cleanly."""
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+        return "request_timeout", None
+    if isinstance(exc, httpx.ConnectError):
+        return "provider_connection_error", None
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        return "provider_http_error", int(code) if code is not None else None
+    if isinstance(exc, RuntimeError) and "ollama stream" in str(exc).lower():
+        return "provider_stream_error", None
+    return "pipeline_error", None
 
 
 def reply_language_of(query: str) -> str:
@@ -101,6 +140,9 @@ class ResearchPipeline:
         fallback_trace: dict | None = None,
         hybrid: bool = False,
     ) -> list[SourceChunk]:
+        if source_ids is not None:
+            allowed_sids = set(source_ids)
+            chunks = [c for c in chunks if c.source_id in allowed_sids]
         variants = build_query_variants(query)
         if hybrid and active_pack_name() == OFFICE_PACK:
             # Đợt 8: câu nêu tên tài liệu ("theo nội quy", "quy chế 2026") chỉ tìm trong tài liệu đó
@@ -189,7 +231,19 @@ class ResearchPipeline:
                 return self._retrieve_candidates(*args, **kwargs)
         return await asyncio.to_thread(run)
 
+    def _split_subqueries(self, query: str) -> list[str]:
+        head = query.split("[Ảnh đính kèm, chữ nhận dạng được]:", 1)[0].strip()
+        parts = [
+            p.strip(" ?.,;")
+            for p in re.split(r"[?;]|\s+(?:và|đồng thời|còn)\s+", head, flags=re.I)
+            if len(p.strip().split()) >= 2
+        ]
+        # Giữ tối đa 3 vế độc lập nếu câu thực sự nhiều ý
+        return parts[:3] if len(parts) >= 2 else []
+
     def _retrieve_hybrid(self, query, variants, chunks, *, top_k, min_score, source_ids, trace):
+        scope_set = None if source_ids is None else set(source_ids)
+        scope_chunks = [c for c in chunks if scope_set is None or c.source_id in scope_set]
         vector_ranked: list[str] = []
         if self.candidate_index is not None:
             best: dict[str, float] = {}
@@ -199,7 +253,76 @@ class ResearchPipeline:
                     if match.score >= min_score and match.score > best.get(cid, -1.0):
                         best[cid] = match.score
             vector_ranked = sorted(best, key=lambda cid: (-best[cid], cid))
-        fused, info = hybrid_fuse(query, chunks, vector_ranked, top_k)
+        fused, info = hybrid_fuse(query, scope_chunks, vector_ranked, top_k)
+
+        # Workstream A: kiểm tra từng vế độc lập + bao phủ nhiều nguồn được chọn bằng BM25 thuần Python (0 tốn Ollama embed)
+        subqueries = self._split_subqueries(query)
+        distinct_scope_sids = list(dict.fromkeys(c.source_id for c in scope_chunks))
+        if scope_chunks and (subqueries or len(distinct_scope_sids) >= 2):
+            fused_ids = {c.chunk_id for c in fused}
+            by_cid = {c.chunk_id: c for c in scope_chunks}
+            rrf_ceiling = (fused[-1].score or (1.0 / 61.0)) * 0.98 if fused else (1.0 / 61.0)
+
+            def _scaled_rescue_score(raw_bm25: float, existing: float | None) -> float:
+                # Quy đổi điểm BM25 thô về thang RRF bị chặn trên để không bóp méo thứ tự xếp hạng chính
+                scaled = rrf_ceiling * (raw_bm25 / (raw_bm25 + 2.0)) if raw_bm25 > 0 else 0.0
+                return round(max(float(existing or 0.0), scaled), 6)
+
+            rescue: list[SourceChunk] = []
+            subq_anchor_ids: set[str] = set()
+            # 1) Bổ sung đoạn khớp nhất cho từng vế chưa có mặt trong fused
+            for sub_q in subqueries:
+                sub_scores = bm25_scores(sub_q, scope_chunks)
+                ranked_sub = sorted((cid for cid, sc in sub_scores.items() if sc > 0.0), key=lambda cid: (-sub_scores[cid], cid))
+                if not ranked_sub:
+                    continue
+                top_cid = ranked_sub[0]
+                subq_anchor_ids.add(top_cid)
+                if top_cid not in fused_ids:
+                    c = by_cid[top_cid]
+                    rescue.append(SourceChunk(**{**c.__dict__, "score": _scaled_rescue_score(float(sub_scores[top_cid]), c.score)}))
+                    fused_ids.add(top_cid)
+            # 2) Nếu có >=2 nguồn khác nhau trong scope và có nguồn liên quan chưa có đoạn nào trong fused, lấy top BM25 nếu thật sự khớp (score > 0.5)
+            covered_sids = {c.source_id for c in fused} | {c.source_id for c in rescue}
+            if len(distinct_scope_sids) >= 2:
+                full_scores = bm25_scores(query, scope_chunks)
+                for sid in distinct_scope_sids:
+                    if sid in covered_sids:
+                        continue
+                    src_cids = [c.chunk_id for c in scope_chunks if c.source_id == sid and full_scores.get(c.chunk_id, 0.0) > 0.5]
+                    if src_cids:
+                        best_cid = max(src_cids, key=lambda cid: full_scores[cid])
+                        if best_cid not in fused_ids:
+                            c = by_cid[best_cid]
+                            rescue.append(SourceChunk(**{**c.__dict__, "score": _scaled_rescue_score(float(full_scores[best_cid]), c.score)}))
+                            fused_ids.add(best_cid)
+                            covered_sids.add(sid)
+            if rescue:
+                # Bảo toàn đoạn #1 chính, các neo vế (subquery) đã có và đoạn from_bm25_only trước khi loại bớt phần đuôi
+                bm25_only_ids = set(info.get("from_bm25_only") or ())
+                merged: list[SourceChunk] = []
+                seen_merged: set[str] = set()
+
+                def _push(chunk: SourceChunk) -> None:
+                    if len(merged) < top_k and chunk.chunk_id not in seen_merged:
+                        merged.append(chunk)
+                        seen_merged.add(chunk.chunk_id)
+
+                if fused:
+                    _push(fused[0])
+                for c in fused[1:]:
+                    if c.chunk_id in subq_anchor_ids:
+                        _push(c)
+                for r in rescue:
+                    _push(r)
+                for c in fused[1:]:
+                    if c.chunk_id in bm25_only_ids:
+                        _push(c)
+                for c in fused[1:]:
+                    _push(c)
+                fused = merged
+                info = {**info, "subquery_rescue": [c.chunk_id for c in rescue]}
+
         if trace is not None:
             trace.update(backend="hybrid", **info)
         return fused
@@ -277,7 +400,20 @@ class ResearchPipeline:
                 validator(source_ids)
         cfg = RuntimeConfig.from_env()
         cfg.assert_condition(condition)
-        provider = get_provider(provider_name)
+        # AI-GUARD-01: trần lượt gọi LLM thực tế (pre-flight) & giới hạn thời gian chạy toàn phiên từ trước bước extract/plan.
+        try:
+            max_llm_calls = max(1, int(os.getenv("MAX_RUN_LLM_CALLS", "24") or 24))
+        except ValueError:
+            max_llm_calls = 24
+        try:
+            dag_wall_seconds = float(os.getenv("MAX_DAG_WALL_SECONDS", "300") or 300.0)
+        except ValueError:
+            dag_wall_seconds = 300.0
+        if dag_wall_seconds <= 0:
+            dag_wall_seconds = 300.0
+        dag_deadline = time.monotonic() + dag_wall_seconds
+        guarded = _GuardedProvider(get_provider(provider_name), max_calls=max_llm_calls, deadline=dag_deadline)
+        provider = guarded
         started = time.perf_counter()
         metrics = RunMetrics(peak_rss_mb=process_rss_mb(), gpu_memory_mb=gpu_memory_mb())
         cpu_start = cpu_times()
@@ -309,8 +445,18 @@ class ResearchPipeline:
         }
         policy = context_policy()
         effective["context_policy"] = policy
+        product_num_ctx: int | None = None
+        product_timeout: float | None = None
+        simple_output_limit = cfg.synthesis_max_output_tokens
         if product_mode:
+            product_num_ctx = resolve_product_num_ctx()
+            simple_output_limit = resolve_product_simple_max_output_tokens(cfg.synthesis_max_output_tokens)
+            product_timeout = resolve_product_llm_timeout_seconds(guarded._inner)
             effective["synthesis_max_output_tokens"] = cfg.synthesis_max_output_tokens
+            effective["product_simple_max_output_tokens"] = simple_output_limit
+            effective["product_num_ctx"] = product_num_ctx
+            if product_timeout is not None:
+                effective["product_llm_timeout_seconds"] = product_timeout
         embedder = getattr(self.candidate_index, "embedder", None)
         provenance = build_provenance(
             provider_name=provider.name,
@@ -346,6 +492,11 @@ class ResearchPipeline:
             emit({"type": "progress", "stage": stage, **brief})
 
         def make_run(status: str | None, answer: str, tasks: list[Task], task_results: list[TaskResult]) -> dict:
+            top_citations = list(dict.fromkeys(
+                cid for r in task_results
+                if (not product_mode or r.status != "NO_EVIDENCE")
+                for cid in (r.citations or []) if cid
+            ))
             return {
                 "run_id": run_id,
                 "created_at": created_at,
@@ -359,6 +510,7 @@ class ResearchPipeline:
                 "lifecycle_status": lifecycle_status,
                 "status": status,
                 "answer": answer,
+                "citations": top_citations,
                 "source_snapshot_id": source_snapshot,
                 "config_hash": cfg.config_hash(),
                 "tasks": [asdict(t) for t in tasks],
@@ -406,6 +558,37 @@ class ResearchPipeline:
         event("conversation_context", **conversation_context.to_trace())
         persist_lifecycle("RUNNING")
         event("lifecycle_transition", from_status="PENDING", to_status="RUNNING")
+        tasks: list[Task] = []
+        task_results: list[TaskResult] = []
+        synth_meta: dict = {}
+        budget_stopped = False
+        budget_event_emitted = False
+
+        def budget_exceeded_reason() -> str | None:
+            if guarded.exceeded_reason is not None:
+                return guarded.exceeded_reason
+            if metrics.input_tokens + metrics.output_tokens > cfg.max_run_tokens:
+                return "token_budget"
+            if guarded.attempted_calls >= max_llm_calls or metrics.llm_calls >= max_llm_calls:
+                return "max_llm_calls"
+            if time.monotonic() >= dag_deadline:
+                return "wall_timeout"
+            return None
+
+        def emit_budget_stopped(reason: str) -> None:
+            nonlocal budget_stopped, budget_event_emitted
+            budget_stopped = True
+            if not budget_event_emitted:
+                budget_event_emitted = True
+                event(
+                    "run_budget_exceeded",
+                    reason=reason,
+                    total_tokens=metrics.input_tokens + metrics.output_tokens,
+                    llm_calls=metrics.llm_calls,
+                    attempted_llm_calls=guarded.attempted_calls,
+                    limit=max_llm_calls,
+                )
+
         try:
             product_help = product_help_response(query) if product_mode else None
             if product_mode and product_help is None and is_library_question(query):
@@ -477,7 +660,7 @@ class ResearchPipeline:
                 Câu gắn với tài liệu không bao giờ chuyển sang kiến thức chung."""
                 if not knowledge_on:
                     return await run_docs(None, evidence)
-                source = choose_source(question, len(evidence), bound=bound)
+                source = choose_source(question, len(evidence), bound=bound, evidence=evidence)
                 try:
                     role = profile(domain)["name"]
                 except Exception:
@@ -491,6 +674,8 @@ class ResearchPipeline:
 
                 if source == GENERAL:
                     result = await general(has_docs)
+                    if has_docs and result.status == "COMPLETE":
+                        result.status = "PARTIAL"
                 else:
                     hint = BOTH_HINT if source == BOTH else None
                     result = await run_docs(hint, evidence)
@@ -509,13 +694,17 @@ class ResearchPipeline:
                         # tác tử bỏ sót bảng số): hỏi lại một lần trên chính các đoạn đó bằng câu hỏi gốc, rồi mới xét kiến thức chung
                         retry = await answer_vanilla(provider, f"{query}\n\n(Phần cần trả lời: {question})", evidence, metrics,
                                                      reply_language=answer_language, product=True,
-                                                     max_output_tokens=cfg.synthesis_max_output_tokens)
+                                                     max_output_tokens=simple_output_limit,
+                                                     num_ctx=product_num_ctx,
+                                                     request_timeout=product_timeout)
                         event("knowledge_source_retry", task_id=task_id, status=retry.status)
                         if retry.status != "NO_EVIDENCE":
                             retry.task_id, retry.domain = task_id, domain
                             result = retry
                     if result.status == "NO_EVIDENCE" and not bound:
-                        result = await general(True)  # tài liệu có nhưng không nói tới: trả lời phổ thông, nói rõ tài liệu không có
+                        result = await general(True)  # tài liệu có nhưng không nói tới: trả lời phổ thông, giữ trạng thái PARTIAL (không gán COMPLETE)
+                        if result.status == "COMPLETE":
+                            result.status = "PARTIAL"
                     elif source == BOTH and "Kiến thức chung:" in result.answer:
                         result.source = BOTH
                 event("knowledge_source", task_id=task_id, domain=domain, source=result.source, evidence_chunks=len(evidence))
@@ -536,7 +725,14 @@ class ResearchPipeline:
                 )
                 metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                 metrics.retrieved_chunks += len(candidates)
-                selected, budget_dropped = apply_token_budget(candidates, cfg.max_context_tokens)
+                if product_mode:
+                    try:
+                        product_ctx_cap = max(cfg.max_context_tokens, int(os.getenv("PRODUCT_MAX_CONTEXT_TOKENS", "4000") or 4000))
+                    except ValueError:
+                        product_ctx_cap = max(cfg.max_context_tokens, 4000)
+                else:
+                    product_ctx_cap = cfg.max_context_tokens
+                selected, budget_dropped = apply_token_budget(candidates, product_ctx_cap, query=query if product_mode else None)
                 metrics.selected_chunks += len(selected)
                 metrics.dropped_chunks += len(budget_dropped)
                 metrics.context_chars += sum(len(c.text) for c in selected)
@@ -554,6 +750,7 @@ class ResearchPipeline:
                 # mô hình); không có đúng một chuyên gia ngành thì Chuyên viên tổng hợp trả lời như cũ. Điều kiện A/thực nghiệm không đổi.
                 answerer = simple_answerer(agent_selection) if product_mode and condition != "A" else "general"
                 task = Task(task_id="T1", goal=query, domain=answerer)
+                tasks = [task]
                 if answerer != "general":
                     event("task_started", task_id="T1", domain=answerer)
                 g0 = time.perf_counter()
@@ -565,10 +762,13 @@ class ResearchPipeline:
                 result = await by_source(
                     "T1", answerer, answer_query, selected,
                     lambda hint, ev: answer_vanilla(provider, answer_query, ev, metrics, reply_language=answer_language, product=product_mode,
-                                                max_output_tokens=cfg.synthesis_max_output_tokens if product_mode else None, extra_hint=hint,
-                                                role=role),
+                                                max_output_tokens=simple_output_limit if product_mode else None, extra_hint=hint,
+                                                role=role,
+                                                num_ctx=product_num_ctx if product_mode else None,
+                                                request_timeout=product_timeout if product_mode else None),
                     stream=True)
                 result.domain = answerer
+                task_results = [result]
                 # 23/11: Reviewer soát cả câu đơn giản (đo: mô hình bịa "PostgreSQL", "mở cửa 3 giờ chiều" khi tài liệu không có);
                 # ý không thấy trong tài liệu thì người trả lời làm lại một lần với góp ý. Chỉ phần trả lời từ tài liệu.
                 if product_mode and condition != "A" and reviewer_enabled() and result.source == "documents" \
@@ -576,20 +776,24 @@ class ResearchPipeline:
                     event("review_started", task_id="T1")
                     r0 = time.perf_counter()
                     review = await review_answer(provider, result.answer, "\n".join(c.text for c in selected), metrics)
+                    if guarded.exceeded_reason is not None:
+                        raise RunBudgetExceeded(guarded.exceeded_reason)
                     event("review_finished", task_id="T1", review_status=review["status"], checked=review["checked"],
                           unsupported=review["unsupported"], error=review.get("error"), latency_ms=int((time.perf_counter() - r0) * 1000))
                     if review["status"] == "ok" and review["unsupported"] and reviewer_revise_enabled():
                         event("review_revision", task_id="T1", unsupported=len(review["unsupported"]))
                         redo = await answer_vanilla(provider, answer_query, selected, metrics, reply_language=answer_language, product=True,
-                                                    max_output_tokens=cfg.synthesis_max_output_tokens, role=role,
-                                                    extra_hint=revision_note(review["unsupported"]))
+                                                    max_output_tokens=simple_output_limit, role=role,
+                                                    extra_hint=revision_note(review["unsupported"]),
+                                                    num_ctx=product_num_ctx,
+                                                    request_timeout=product_timeout)
                         if redo.answer.strip():
                             redo.task_id, redo.domain = "T1", answerer
                             result = redo
+                            task_results = [result]
                 if answerer != "general":
                     event("task_completed", result=asdict(result))
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
-                tasks, task_results = [task], [result]
                 answer = result.answer
             else:
                 planning_request = (
@@ -605,6 +809,8 @@ class ResearchPipeline:
                     extraction = await extract_obligations_and_concerns(
                         provider, query, metrics
                     )
+                except RunBudgetExceeded:
+                    raise
                 except Exception as exc:
                     metrics.generation_latency_ms += int(
                         (time.perf_counter() - extraction_started) * 1000
@@ -671,6 +877,8 @@ class ResearchPipeline:
                     max_output_tokens=cfg.task_plan_max_output_tokens,
                 )
                 metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
+                if guarded.exceeded_reason is not None:
+                    raise RunBudgetExceeded(guarded.exceeded_reason)
                 plan = planning_result.plan
                 event(
                     "planning_generation",
@@ -756,6 +964,8 @@ class ResearchPipeline:
                         repaired_verification = validate_repaired_plan(
                             plan, repaired_plan
                         )
+                    except RunBudgetExceeded:
+                        raise
                     except Exception as exc:
                         repair_error_type = type(exc).__name__
                         repair_error_message = str(exc)
@@ -874,6 +1084,7 @@ class ResearchPipeline:
                 task_results = []
                 completed: dict[str, TaskResult] = {}
                 product_evidence: list[str] = []  # đoạn đã đưa cho tác tử: để hậu kiểm con số ở bước tổng hợp (chỉ sản phẩm)
+                product_evidence_chunks: list[SourceChunk] = []
                 per_task_budget = max(256, cfg.max_context_tokens // max(1, len(tasks)))
                 controller = ContextController(max_chars=per_task_budget * 3)
                 budget_plan = None
@@ -893,33 +1104,44 @@ class ResearchPipeline:
                         )
                     budget_plan = plan_task_budgets(preview, cfg.max_context_tokens)
                     event("adaptive_budget_plan", **budget_plan)
+                else:
+                    preview = {}
+
                 async def run_one(task):
                     """Một việc con: tìm đoạn tài liệu, chọn theo ngân sách, giao tác tử. Không ghi vào kết quả chung."""
                     event("task_started", task_id=task.task_id, domain=task.domain)  # Đợt 4 văn phòng 3D: mốc bắt đầu từng việc
                     dependency_context = " ".join(completed[d].answer for d in task.depends_on if d in completed)
-                    retrieval_query = f"{_task_query(task, query)} {dependency_context}".strip()
+                    task_q = _task_query(task, query)
+                    retrieval_query = f"{task_q} {dependency_context}".strip()
                     r0 = time.perf_counter()
                     retrieval_trace: dict = {}
-                    candidates = await self._retrieve_async(
-                        product_mode,
-                        retrieval_query,
-                        all_chunks,
-                        top_k=cfg.task_top_k,
-                        min_score=cfg.retrieval_min_score,
-                        source_ids=source_ids,
-                        fallback_trace=retrieval_trace,
-                        hybrid=product_mode,
-                    )
+                    # MA-03: tái sử dụng ứng viên đã truy xuất ở bước ước lượng adaptive_qwen khi truy vấn không đổi.
+                    if preview and not dependency_context and task.task_id in preview:
+                        candidates = list(preview[task.task_id])
+                        retrieval_trace["reused_preview"] = True
+                    else:
+                        candidates = await self._retrieve_async(
+                            product_mode,
+                            retrieval_query,
+                            all_chunks,
+                            top_k=cfg.task_top_k,
+                            min_score=cfg.retrieval_min_score,
+                            source_ids=source_ids,
+                            fallback_trace=retrieval_trace,
+                            hybrid=product_mode,
+                        )
                     metrics.retrieval_latency_ms += int((time.perf_counter() - r0) * 1000)
                     metrics.retrieved_chunks += len(candidates)
                     if budget_plan is not None:
-                        selected, dropped = TokenContextController(budget_plan["limits"][task.task_id]).select(candidates)
+                        selected, dropped = TokenContextController(budget_plan["limits"][task.task_id]).select(
+                            candidates, query=retrieval_query if product_mode else None
+                        )
                     elif flags["O"]:
-                        selected, dropped = controller.select(candidates)
+                        selected, dropped = controller.select(candidates, query=retrieval_query if product_mode else None)
                     else:
                         selected, dropped = candidates, []
                     if budget_plan is None:
-                        selected, hard_dropped = apply_token_budget(selected, per_task_budget)
+                        selected, hard_dropped = apply_token_budget(selected, per_task_budget, query=retrieval_query if product_mode else None)
                         dropped = [*dropped, *hard_dropped]
                     metrics.selected_chunks += len(selected)
                     metrics.dropped_chunks += len(dropped)
@@ -949,29 +1171,107 @@ class ResearchPipeline:
                         found_more.extend(new)
                         return new
 
-                    result = await by_source(
-                        task.task_id, task.domain, task.goal, selected,
-                        lambda hint, ev: execute_task(provider, task, ev, metrics, reply_language=answer_language, upstream=upstream,
-                                                      product=product_mode, user_request=query if product_mode else None, extra_hint=hint),
-                        search=search_more if product_mode else None)
+                    async def run_worker_attempt(hint, ev) -> TaskResult:
+                        max_attempts = 1 + max(0, cfg.retry_limit)
+                        last_exc: Exception | None = None
+                        for attempt in range(max_attempts):
+                            if attempt > 0:
+                                reason = budget_exceeded_reason()
+                                if reason is not None:
+                                    raise RuntimeError(f"retry stopped by {reason}")
+                            try:
+                                remaining = max(0.01, dag_deadline - time.monotonic())
+                                return await asyncio.wait_for(
+                                    execute_task(
+                                        provider,
+                                        task,
+                                        ev,
+                                        metrics,
+                                        reply_language=answer_language,
+                                        upstream=upstream,
+                                        product=product_mode,
+                                        user_request=query if product_mode else None,
+                                        extra_hint=hint,
+                                        num_ctx=product_num_ctx if product_mode else None,
+                                        request_timeout=product_timeout if product_mode else None,
+                                    ),
+                                    timeout=remaining,
+                                )
+                            except RunBudgetExceeded:
+                                raise
+                            except (TimeoutError, httpx.TimeoutException) as exc:
+                                if isinstance(exc, TimeoutError) and time.monotonic() >= dag_deadline:
+                                    raise
+                                last_exc = exc
+                                # In product mode, never double a long HTTP read timeout; preserve bounded retry in research mode.
+                                if (product_mode and isinstance(exc, httpx.TimeoutException)) or attempt + 1 >= max_attempts or budget_exceeded_reason() is not None:
+                                    break
+                            except (httpx.HTTPError, OSError, ValueError) as exc:
+                                last_exc = exc
+                                if attempt + 1 >= max_attempts or budget_exceeded_reason() is not None:
+                                    break
+                        return TaskResult(
+                            task_id=task.task_id,
+                            domain=task.domain,
+                            status="FAILED",
+                            answer="",
+                            evidence_ids=[c.chunk_id for c in ev],
+                            citations=[],
+                            missing_information=[f"task execution error: {type(last_exc).__name__}" if last_exc else "task execution failed"],
+                        )
+
+                    try:
+                        result = await by_source(
+                            task.task_id,
+                            task.domain,
+                            task.goal,
+                            selected,
+                            run_worker_attempt,
+                            search=search_more if product_mode else None,
+                        )
+                    except (asyncio.TimeoutError, RunBudgetExceeded):
+                        raise
+                    except Exception as exc:
+                        result = TaskResult(
+                            task_id=task.task_id,
+                            domain=task.domain,
+                            status="FAILED",
+                            answer="",
+                            evidence_ids=[c.chunk_id for c in selected],
+                            citations=[],
+                            missing_information=[f"task execution error: {type(exc).__name__}"],
+                        )
                     metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                     return result, [*selected, *found_more]
 
                 def record(task, result, selected) -> bool:
-                    """Ghi kết quả theo thứ tự kế hoạch; trả True khi vượt ngân sách token của lượt."""
+                    """Ghi kết quả theo thứ tự kế hoạch; trả True khi vượt ngân sách token/lượt gọi/thời gian."""
                     product_evidence.extend(c.text for c in selected)
+                    product_evidence_chunks.extend(selected)
                     completed[task.task_id] = result
                     task_results.append(result)
                     event("task_completed", result=asdict(result))
-                    if metrics.input_tokens + metrics.output_tokens > cfg.max_run_tokens:
-                        event("run_budget_exceeded", total_tokens=metrics.input_tokens + metrics.output_tokens)
+                    reason = budget_exceeded_reason()
+                    if reason is not None:
+                        emit_budget_stopped(reason)
                         return True
                     return False
 
                 parallel = task_parallel_limit() if product_mode else 1
                 if parallel <= 1:
                     for task in ordered:
-                        if record(task, *(await run_one(task))):
+                        if reason := budget_exceeded_reason():
+                            emit_budget_stopped(reason)
+                            break
+                        try:
+                            task_res, task_sel = await run_one(task)
+                        except RunBudgetExceeded as exc:
+                            emit_budget_stopped(exc.reason)
+                            break
+                        except asyncio.TimeoutError:
+                            emit_budget_stopped("wall_timeout")
+                            break
+                        if record(task, task_res, task_sel):
                             break
                 else:
                     # Đợt 7: các việc không phụ thuộc nhau chạy cùng lúc, tối đa `parallel` việc; việc phụ thuộc chờ đợt trước.
@@ -985,24 +1285,69 @@ class ResearchPipeline:
                             return await run_one(task)
 
                     for wave in waves:
-                        outcomes = await asyncio.gather(*(gated(t) for t in wave))
-                        if any([record(t, *o) for t, o in zip(wave, outcomes)]):
+                        if reason := budget_exceeded_reason():
+                            emit_budget_stopped(reason)
                             break
-                event("synthesis_started", task_count=len(task_results))
-                g0 = time.perf_counter()
-                # Ô chat sản phẩm: nới giới hạn để câu trả lời nhiều ý không bị cắt; thực nghiệm giữ nguyên.
-                synth_limit = cfg.synthesis_max_output_tokens if product_mode else None
-                answer = await synthesize(provider, query, task_results, metrics, reply_language=answer_language, max_output_tokens=synth_limit,
-                                          evidence_text="\n".join(product_evidence) if product_mode else None)
-                metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
+                        outcomes = await asyncio.gather(*(gated(t) for t in wave), return_exceptions=True)
+                        wave_stop_reason: str | None = None
+                        unexpected_exc: BaseException | None = None
+                        stop_after_wave = False
+                        for t, outcome in zip(wave, outcomes):
+                            if isinstance(outcome, BaseException):
+                                if isinstance(outcome, RunBudgetExceeded):
+                                    wave_stop_reason = wave_stop_reason or outcome.reason
+                                elif isinstance(outcome, asyncio.TimeoutError):
+                                    wave_stop_reason = wave_stop_reason or "wall_timeout"
+                                elif unexpected_exc is None:
+                                    unexpected_exc = outcome
+                                continue
+                            if record(t, *outcome):
+                                stop_after_wave = True
+                        if unexpected_exc is not None and wave_stop_reason is None:
+                            raise unexpected_exc
+                        if wave_stop_reason is not None:
+                            emit_budget_stopped(wave_stop_reason)
+                            break
+                        if stop_after_wave:
+                            break
+                stop_synth_reason = budget_exceeded_reason()
+                synth_meta: dict = {}
+                if stop_synth_reason in {"max_llm_calls", "wall_timeout"} or not task_results:
+                    if stop_synth_reason is not None:
+                        emit_budget_stopped(stop_synth_reason)
+                    parts = [r.answer.strip() for r in task_results if r.answer and r.answer.strip()]
+                    answer = "\n\n".join(parts) if parts else "Lượt chạy dừng do vượt giới hạn an toàn trước khi tổng hợp."
+                elif product_mode and task_results and all(r.status == "NO_EVIDENCE" for r in task_results):
+                    # Toàn bộ tác tử không tìm thấy bằng chứng: trả lời NO_EVIDENCE trực tiếp, không gọi Synthesizer tránh bịa chi tiết/citation.
+                    parts = [r.answer.strip() for r in task_results if r.answer and r.answer.strip()]
+                    answer = parts[0] if parts else "Không tìm thấy bằng chứng phù hợp trong tài liệu đã nạp để trả lời yêu cầu này."
+                    emit_validated_answer(answer)
+                else:
+                    event("synthesis_started", task_count=len(task_results))
+                    g0 = time.perf_counter()
+                    # Ô chat sản phẩm: nới giới hạn để câu trả lời nhiều ý không bị cắt; thực nghiệm giữ nguyên.
+                    synth_limit = cfg.synthesis_max_output_tokens if product_mode else None
+                    remaining = max(0.01, dag_deadline - time.monotonic())
+                    answer = await asyncio.wait_for(
+                        synthesize(provider, query, task_results, metrics, reply_language=answer_language, max_output_tokens=synth_limit,
+                                   evidence_text="\n".join(product_evidence) if product_mode else None,
+                                   evidence_chunks=product_evidence_chunks if product_mode else None,
+                                   num_ctx=product_num_ctx if product_mode else None,
+                                   request_timeout=product_timeout if product_mode else None,
+                                   synth_meta=synth_meta if product_mode else None),
+                        timeout=remaining,
+                    )
+                    metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                 if knowledge_on and task_results and all(r.source == GENERAL for r in task_results) \
                         and not any(m in answer for m in ("iến thức chung", "eneral knowledge")):
                     answer = f"{knowledge_label(answer_language, has_docs)}\n\n{answer}"  # bước tổng hợp bỏ nhãn: mã gắn lại
                 # Reviewer đối chiếu từng ý với đoạn tài liệu đã dùng; phần kiến thức chung không có trong tài liệu nên không soát
-                if product_mode and reviewer_enabled() and all(r.source == "documents" for r in task_results):
+                if not budget_stopped and product_mode and reviewer_enabled() and all(r.source == "documents" for r in task_results):
                     event("review_started")
                     g0 = time.perf_counter()
                     review = await review_answer(provider, answer, "\n".join(product_evidence), metrics)
+                    if guarded.exceeded_reason is not None:
+                        raise RunBudgetExceeded(guarded.exceeded_reason)
                     review_ms = int((time.perf_counter() - g0) * 1000)
                     metrics.generation_latency_ms += review_ms
                     event("review_finished", review_status=review["status"], checked=review["checked"],
@@ -1012,18 +1357,31 @@ class ResearchPipeline:
                         event("review_revision", unsupported=len(review["unsupported"]))
                         event("synthesis_started", task_count=len(task_results), revision=True)
                         g0 = time.perf_counter()
+                        rev_meta: dict = {}
                         revised = await synthesize(provider, query, task_results, metrics, reply_language=answer_language,
                                                    max_output_tokens=synth_limit, evidence_text="\n".join(product_evidence),
-                                                   revision_note=revision_note(review["unsupported"]))
+                                                   evidence_chunks=product_evidence_chunks,
+                                                   revision_note=revision_note(review["unsupported"]),
+                                                   num_ctx=product_num_ctx if product_mode else None,
+                                                   request_timeout=product_timeout if product_mode else None,
+                                                   synth_meta=rev_meta if product_mode else None)
                         metrics.generation_latency_ms += int((time.perf_counter() - g0) * 1000)
                         if revised.strip():
                             answer = revised
+                            synth_meta = rev_meta
                     else:
+                        if review.get("status") == "ok" and review.get("unsupported"):
+                            synth_meta["reviewer_unsupported"] = True
                         answer = annotate(answer, review, answer_language)
 
-            status = "COMPLETE" if task_results and all(r.status == "COMPLETE" for r in task_results) else "PARTIAL"
-            if task_results and all(r.status == "NO_EVIDENCE" for r in task_results):
+            if budget_stopped or (tasks and len(task_results) < len(tasks)) or any(r.status == "FAILED" for r in task_results):
+                status = "PARTIAL" if any(r.status in ("COMPLETE", "PARTIAL", "NO_EVIDENCE") for r in task_results) else "FAILED"
+            elif task_results and all(r.status == "NO_EVIDENCE" for r in task_results):
                 status = "NO_EVIDENCE"
+            elif task_results and all(r.status == "COMPLETE" for r in task_results):
+                status = "PARTIAL" if (product_mode and any(synth_meta.get(k) for k in ("truncated", "context_trimmed", "unsupported_numbers", "unsupported_articles", "invalid_inline_citations", "reviewer_unsupported", "post_synth_validation_partial"))) else "COMPLETE"
+            else:
+                status = "PARTIAL"
             lifecycle_status = "COMPLETED"
             event(
                 "run_finished",
@@ -1035,15 +1393,33 @@ class ResearchPipeline:
                 # run_finished tới trình duyệt ngay (đo 23/11: muộn 0,6–3,6 s và câu trả lời cuối tới chậm theo)
                 return await asyncio.to_thread(finalize, status, answer, tasks, task_results)
             return finalize(status, answer, tasks, task_results)
-        except Exception as exc:
-            lifecycle_status = "FAILED"
+        except RunBudgetExceeded as exc:
+            emit_budget_stopped(exc.reason)
+            parts = [r.answer.strip() for r in task_results if r.answer and r.answer.strip()]
+            answer = "\n\n".join(parts) if parts else "Lượt chạy dừng do vượt giới hạn an toàn trước khi tổng hợp."
+            status = "PARTIAL" if any(r.status in ("COMPLETE", "PARTIAL", "NO_EVIDENCE") for r in task_results) else "FAILED"
+            lifecycle_status = "COMPLETED"
             event(
-                "run_failed",
+                "run_finished",
+                status=status,
                 lifecycle_status=lifecycle_status,
-                error_type=type(exc).__name__,
-                error=str(exc),
             )
-            return finalize("FAILED", f"Pipeline failed: {type(exc).__name__}: {exc}", [], [])
+            if product_mode:
+                return await asyncio.to_thread(finalize, status, answer, tasks, task_results)
+            return finalize(status, answer, tasks, task_results)
+        except Exception as exc:
+            error_category, http_status = classify_run_error(exc)
+            lifecycle_status = "FAILED"
+            failed_payload = {
+                "lifecycle_status": lifecycle_status,
+                "error_category": error_category,
+                "error_type": type(exc).__name__,
+                "error": type(exc).__name__,
+            }
+            if http_status is not None:
+                failed_payload["http_status"] = http_status
+            event("run_failed", **failed_payload)
+            return finalize("FAILED", f"Pipeline failed: {type(exc).__name__}", tasks, task_results)
 
     @staticmethod
     def _flags(condition: str) -> dict[str, bool]:
@@ -1052,6 +1428,62 @@ class ResearchPipeline:
         if condition == "C":
             return {"P": True, "N": True, "O": True}
         return {"P": condition != "C-P", "N": condition != "C-N", "O": condition != "C-O"}
+
+
+class RunBudgetExceeded(Exception):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+class _GuardedProvider:
+    """Enforces pre-flight LLM call count and wall-clock deadline across all pipeline phases."""
+
+    def __init__(self, inner: Any, *, max_calls: int, deadline: float) -> None:
+        self._inner = inner
+        self.max_calls = max_calls
+        self.deadline = deadline
+        self.attempted_calls = 0
+        self.exceeded_reason: str | None = None
+        self.name = getattr(inner, "name", "unknown")
+        self.model = getattr(inner, "model", "unknown")
+        if callable(getattr(inner, "generate_structured", None)):
+            self.generate_structured = self._generate_structured
+        if callable(getattr(inner, "generate_grounded", None)):
+            self.generate_grounded = self._generate_grounded
+
+    def _reserve(self) -> float:
+        if self.attempted_calls >= self.max_calls:
+            self.exceeded_reason = "max_llm_calls"
+            raise RunBudgetExceeded("max_llm_calls")
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            self.exceeded_reason = "wall_timeout"
+            raise RunBudgetExceeded("wall_timeout")
+        self.attempted_calls += 1
+        return remaining
+
+    async def _call(self, fn, **kwargs):
+        remaining = self._reserve()
+        try:
+            return await asyncio.wait_for(fn(**kwargs), timeout=remaining)
+        except TimeoutError as exc:
+            if time.monotonic() + 0.02 >= self.deadline:
+                self.exceeded_reason = "wall_timeout"
+                raise RunBudgetExceeded("wall_timeout") from exc
+            raise
+
+    async def generate(self, **kwargs):
+        return await self._call(self._inner.generate, **kwargs)
+
+    async def _generate_structured(self, **kwargs):
+        return await self._call(self._inner.generate_structured, **kwargs)
+
+    async def _generate_grounded(self, **kwargs):
+        return await self._call(self._inner.generate_grounded, **kwargs)
+
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self._inner, item)
 
 
 # tài liệu được nêu tên trong câu hỏi của người dùng (một lượt chạy): việc con không nhắc lại tên vẫn ưu tiên tài liệu đó

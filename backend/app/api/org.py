@@ -13,10 +13,14 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import bindparam, delete, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
+
+from app.analysis.watch import notify_findings, watch_findings
 
 from app.core.access import (
     SETTABLE,
@@ -38,6 +42,7 @@ from app.core.access import (
     visible_source_ids,
 )
 from app.research.registry import PACKS
+from app.storage.postgres.runtime import PostgresSourceStore
 from app.storage.postgres.models import (
     ORG_PRESETS,
     ConversationRecord,
@@ -95,9 +100,25 @@ class SpaceBody(_Body):
     labels: OrgLabels | None = None
     domain_pack: PackName | None = None  # bỏ trống = gợi ý theo mẫu tổ chức
 
+    @field_validator("name")
+    @classmethod
+    def _non_empty_name(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Tên không gian không được để trống.")
+        return s
+
 
 class DeleteSpaceBody(_Body):
     confirm_name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("confirm_name")
+    @classmethod
+    def _non_empty_confirm(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Tên xác nhận không được để trống.")
+        return s
 
 
 class SpaceUpdate(_Body):
@@ -107,9 +128,27 @@ class SpaceUpdate(_Body):
     labels: OrgLabels | None = None  # gửi null để bỏ tên tự đặt
     domain_pack: PackName | None = None
 
+    @field_validator("name")
+    @classmethod
+    def _non_empty_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        s = v.strip()
+        if not s:
+            raise ValueError("Tên không gian không được để trống.")
+        return s
+
 
 class DepartmentBody(_Body):
     name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def _non_empty_name(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Tên đơn vị không được để trống.")
+        return s
 
 
 class MemberUpdate(_Body):
@@ -190,6 +229,14 @@ class RequestBody(BaseModel):
     days: float | None = Field(default=None, ge=0, le=366, allow_inf_nan=False)
     approver_level: Literal["MANAGER", "EXECUTIVE"]
     check_result: dict = Field(default_factory=dict)
+
+    @field_validator("title")
+    @classmethod
+    def _non_empty_title(cls, v: str) -> str:
+        s = v.strip()
+        if len(s) < 3:
+            raise ValueError("Tiêu đề đơn cần tối thiểu 3 ký tự.")
+        return s
 
 
 class DecideBody(BaseModel):
@@ -913,6 +960,13 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
                        {"mask": ORG_AUDIT_MASK, "o": uid, "name": row.source_name[:200]})
             _notify_new_viewers(db, row, set(), uid, "source_published")
             _commit(db)
+            source_name = row.source_name
+        try:
+            factory = session_factory()
+            findings = watch_findings(source_id, PostgresSourceStore(factory, uid, space_id).chunks())
+            notify_findings(factory, uid, source_name, findings)
+        except Exception:
+            logging.getLogger(__name__).exception("org doc watch failed")
         return {"source_id": source_id, "space_id": space_id, "classification": body.classification,
                 "department_id": department_id}
 

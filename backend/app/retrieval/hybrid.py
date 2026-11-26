@@ -112,30 +112,78 @@ def fuse(query: str, chunks: list[SourceChunk], vector_ranked: list[str], top_k:
     # "gửi đơn trước 03 ngày", 21/11): giữ chắc tối đa STRONG_BM25 đoạn có điểm >= STRONG_RATIO * điểm BM25 cao nhất.
     if bm_ranked:
         strong = [cid for cid in bm_ranked[:STRONG_BM25] if bm[cid] >= STRONG_RATIO * bm[bm_ranked[0]] and cid not in ranked]
-        for cid in strong:
-            ranked = ranked[:top_k - 1] + [cid] if len(ranked) >= top_k else ranked + [cid]
-        ranked = sorted(ranked, key=lambda cid: (-score[cid], cid))
+        if strong:
+            keep = [cid for cid in ranked if cid not in strong]
+            slots = max(0, top_k - len(strong))
+            ranked = sorted(keep[:slots] + strong[:top_k], key=lambda cid: (-score[cid], cid))[:top_k]
     trace = {"version": HYBRID_VERSION, "vector_candidates": len(vec), "bm25_candidates": len(bm_ranked),
              "from_bm25_only": [cid for cid in ranked if cid not in vec]}
     return [SourceChunk(**{**by_id[cid].__dict__, "score": round(score[cid], 6)}) for cid in ranked], trace
 
 
-_ARTICLE = re.compile(r"(?m)^\s*(?:Điều|ĐIỀU|Article)\s+\d+[.:]")
-ARTICLE_TAIL = 400  # Điều bắt đầu trong 400 ký tự cuối đoạn thì phần thân Điều nằm ở đoạn sau
+_ARTICLE = re.compile(
+    r"(?m)^\s*(?:#+\s*)?(?:(?:Điều|ĐIỀU|Article)\s+\d+[.:]|(?:Chương|CHƯƠNG|Chapter)\s+(?:[IVXLCDM]+|\d+)\b)"
+)
+_LIST_OR_CLAUSE_START = re.compile(
+    r"^\s*(?:[a-zđ]\)|(?:\d+\.)+\d*\s+|\d+[.)]\s+|[-*•]\s+|(?:khoản|điểm|clause)\s+\d+)",
+    re.I,
+)
+_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
+ARTICLE_TAIL = 400  # Điều/Chương bắt đầu trong 400 ký tự cuối đoạn thì phần thân nằm ở đoạn sau
 
 
-def continue_articles(found: list[SourceChunk], chunks: list[SourceChunk]) -> list[SourceChunk]:
-    """Đoạn được chọn kết thúc ngay sau tiêu đề "Điều N." (thân Điều bị cắt sang đoạn sau) thì lấy kèm đoạn liền sau,
-    đặt ngay sau đoạn đó. 21/11: "Điều 14. Công nhận tốt nghiệp" nằm cuối đoạn 24, các điều kiện a) b) c) ở đoạn 25,
-    mô hình chỉ thấy tiêu đề nên đoán bừa. Chỉ chế độ sản phẩm (gọi trong nhánh hybrid)."""
+def _needs_next_continuation(cur_text: str, nxt_text: str) -> bool:
+    """Kiểm tra đoạn hiện tại bị cắt giữa Điều/bảng/danh sách và đoạn liền sau là phần tiếp nối."""
+    if not cur_text or not nxt_text:
+        return False
+    cur_lines = [ln.rstrip() for ln in cur_text.splitlines() if ln.strip()]
+    nxt_first = next((ln.strip() for ln in nxt_text.splitlines() if ln.strip()), "")
+    if not cur_lines or not nxt_first:
+        return False
+    last_line = cur_lines[-1]
+    # Nếu đoạn liền sau mở đầu bằng tiêu đề Điều/Chương mới, CHỈ kéo khi đoạn hiện tại vừa kết thúc ngay trên dòng tiêu đề trần (vd: "Chương I").
+    if _ARTICLE.match(nxt_first):
+        return bool(_ARTICLE.match(last_line.strip()))
+    if _TABLE_ROW.match(last_line) and _TABLE_ROW.match(nxt_first):
+        return True
+    heads = list(_ARTICLE.finditer(cur_text))
+    if heads and len(cur_text) - heads[-1].start() <= ARTICLE_TAIL:
+        return True
+    if last_line.endswith(":") and (_LIST_OR_CLAUSE_START.match(nxt_first) or _TABLE_ROW.match(nxt_first)):
+        return True
+    if heads and _LIST_OR_CLAUSE_START.match(nxt_first):
+        return True
+    return False
+
+
+def continue_articles(found: list[SourceChunk], chunks: list[SourceChunk], *, max_chain: int = 3) -> list[SourceChunk]:
+    """Kéo tối đa max_chain đoạn nối tiếp cùng source_id (hỗ trợ chuỗi 3-4 chunk và sắp xếp lại đoạn
+    nối tiếp bị truy xuất đảo thứ tự); không lấy từ source khác và dừng trước tiêu đề Điều/Chương mới."""
     by_pos = {(c.source_id, c.index): c for c in chunks}
-    have = {c.chunk_id for c in found}
+    in_found = {c.chunk_id for c in found}
+    deferred: set[str] = set()
+    for c in found:
+        nxt = by_pos.get((c.source_id, c.index + 1))
+        if nxt and nxt.chunk_id in in_found and _needs_next_continuation(c.text, nxt.text):
+            deferred.add(nxt.chunk_id)
+
+    have: set[str] = set()
     out: list[SourceChunk] = []
     for c in found:
+        if c.chunk_id in deferred or c.chunk_id in have:
+            continue
         out.append(c)
-        heads = list(_ARTICLE.finditer(c.text))
-        nxt = by_pos.get((c.source_id, c.index + 1))
-        if heads and len(c.text) - heads[-1].start() <= ARTICLE_TAIL and nxt and nxt.chunk_id not in have:
+        have.add(c.chunk_id)
+        cur = c
+        for _ in range(max_chain):
+            nxt = by_pos.get((cur.source_id, cur.index + 1))
+            if not nxt or nxt.chunk_id in have or not _needs_next_continuation(cur.text, nxt.text):
+                break
             out.append(SourceChunk(**{**nxt.__dict__, "score": c.score}))
             have.add(nxt.chunk_id)
+            cur = nxt
+    for c in found:
+        if c.chunk_id not in have:
+            out.append(c)
+            have.add(c.chunk_id)
     return out

@@ -40,6 +40,10 @@ _SIMPLE_QUESTION_STARTS = (
     "what ", "which ", "who ", "where ", "when ", "why ", "how ",
     "does ", "do ", "is ", "are ", "can ", "could ",
 )
+_VI_QUESTION_PATTERN = re.compile(
+    r"\b(?:bao nhieu|la gi|nhu the nao|the nao|khi nao|o dau|bao lau|may ngay|"
+    r"co duoc|co phai|duoc khong|khong|gom nhung|nhung ai|nhung gi|cho biet|xin hoi|ai la|ai duoc|ai chiu|ai duyet)\b"
+)
 _COMPLEX_ACTION_TERMS = frozenset({
     "review", "analyze", "analyse", "compare", "assess", "evaluate",
     "design", "produce", "create", "build", "implement", "implementation", "plan",
@@ -98,18 +102,21 @@ def library_answer(rows: list[dict], doc_type_labels: dict[str, str]) -> str:
 def is_simple_project_question(message: str, domains: Iterable[str]) -> bool:
     """Conservatively recognize a single factual question for grounded RAG.
 
-    Routing requires a question form, at most one detected project domain, and
-    no multi-step analysis/planning language. No single keyword or message
-    length threshold selects the path.
+    Routing requires a question form (including Vietnamese interrogatives without '?'),
+    and no multi-step analysis/planning/comparison language. Matching keywords from
+    multiple domains alone does not force heavy multi-agent planning when the
+    request is a single factual question.
     """
 
     normalized = _normalize_intent_text(message)
     if not normalized:
         return False
-    question_form = message.rstrip().endswith("?") or normalized.startswith(
-        _SIMPLE_QUESTION_STARTS
+    question_form = (
+        message.rstrip().endswith("?")
+        or normalized.startswith(_SIMPLE_QUESTION_STARTS)
+        or bool(_VI_QUESTION_PATTERN.search(normalized))
     )
-    if not question_form or len(set(domains)) > 1:
+    if not question_form:
         return False
     if _COMPLEX_ACTION_TERMS.intersection(normalized.split()) or any(
         phrase in normalized for phrase in _COMPLEX_ACTION_PHRASES

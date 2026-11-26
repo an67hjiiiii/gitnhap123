@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
+import threading
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -55,7 +57,11 @@ class LocalHashEmbedder:
             return tuple(values)
         return tuple(round(value / norm, 8) for value in values)
 
+    def embed_many(self, texts: list[str]) -> list[tuple[float, ...]]:
+        return [self.embed(t) for t in texts]
 
+
+_CLIENTS_LOCK = threading.Lock()
 _CLIENTS: dict[tuple[str, float], object] = {}
 
 
@@ -64,10 +70,11 @@ def _client(base_url: str, timeout: float):
     trên Windows), làm câu có nhiều câu ví dụ chậm hẳn (20/11)."""
     import httpx
 
-    key = (base_url, timeout)
-    if key not in _CLIENTS:
-        _CLIENTS[key] = httpx.Client(timeout=timeout)
-    return _CLIENTS[key]
+    key = (base_url.rstrip("/"), float(timeout))
+    with _CLIENTS_LOCK:
+        if key not in _CLIENTS:
+            _CLIENTS[key] = httpx.Client(timeout=timeout)
+        return _CLIENTS[key]
 
 
 @dataclass(frozen=True)
@@ -104,21 +111,70 @@ class OllamaEmbedder:
             )
         return tuple(float(v) for v in vectors[0])
 
+    def embed_many(self, texts: list[str]) -> list[tuple[float, ...]]:
+        if not texts:
+            return []
+        payload_inputs: list[str] = []
+        for t in texts:
+            if not isinstance(t, str):
+                raise TypeError("texts must be strings")
+            payload_inputs.append(t or " ")
+        response = _client(self.base_url, self.timeout).post(
+            f"{self.base_url.rstrip('/')}/api/embed",
+            json={"model": self.model, "input": payload_inputs},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        vectors = response.json().get("embeddings") or []
+        if len(vectors) != len(payload_inputs) or any(len(v) != self.dimension for v in vectors):
+            raise ValueError(
+                f"Ollama batch embedding {self.model} returned {len(vectors)} vectors "
+                f"for {len(payload_inputs)} inputs (expected dimension {self.dimension})"
+            )
+        return [tuple(float(x) for x in v) for v in vectors]
+
+
+_EMBEDDER_CACHE_LOCK = threading.Lock()
+_EMBEDDER_CACHE: dict[tuple[str, int, str, str, float], TextEmbedder] = {}
+
+
+def clear_embedder_cache() -> None:
+    with _EMBEDDER_CACHE_LOCK:
+        _EMBEDDER_CACHE.clear()
+
 
 def make_embedder(dimension: int = 768) -> TextEmbedder:
-    """Chọn embedder theo EMBEDDING_BACKEND (hash | ollama). Mặc định hash, giữ hành vi cũ."""
-    import os
-
+    """Chọn và tái sử dụng embedder an toàn theo cấu hình (EMBEDDING_BACKEND | model | endpoint | dimension)."""
     backend = os.getenv("EMBEDDING_BACKEND", "hash").strip().lower()
+    dim = int(dimension)
     if backend == "hash":
-        return LocalHashEmbedder(dimension=dimension)
+        key = ("hash", dim, EMBEDDING_VERSION, "", 0.0)
+        with _EMBEDDER_CACHE_LOCK:
+            hit = _EMBEDDER_CACHE.get(key)
+            if hit is None:
+                hit = _EMBEDDER_CACHE[key] = LocalHashEmbedder(dimension=dim)
+            return hit
     if backend == "ollama":
-        return OllamaEmbedder(
-            dimension=dimension,
-            model=os.getenv("EMBEDDING_MODEL", "nomic-embed-text").strip(),
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
-        )
+        model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text").strip()
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
+        key = ("ollama", dim, model, base_url, 60.0)
+        with _EMBEDDER_CACHE_LOCK:
+            hit = _EMBEDDER_CACHE.get(key)
+            if hit is None:
+                hit = _EMBEDDER_CACHE[key] = OllamaEmbedder(
+                    dimension=dim,
+                    model=model,
+                    base_url=base_url,
+                )
+            return hit
     raise ValueError(f"Unsupported EMBEDDING_BACKEND={backend}")
 
 
-__all__ = ["EMBEDDING_VERSION", "LocalHashEmbedder", "OllamaEmbedder", "TextEmbedder", "make_embedder"]
+__all__ = [
+    "EMBEDDING_VERSION",
+    "LocalHashEmbedder",
+    "OllamaEmbedder",
+    "TextEmbedder",
+    "clear_embedder_cache",
+    "make_embedder",
+]

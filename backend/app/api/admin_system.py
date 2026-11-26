@@ -128,7 +128,7 @@ def qdrant_metrics(path: str) -> dict[str, Any]:
     coll = p / "collection"
     return {"path": str(p), "exists": p.exists(), "size_bytes": dir_size(p),
             "collections": sorted(d.name for d in coll.iterdir() if d.is_dir()) if coll.exists() else [],
-            "backend": os.getenv("VECTOR_INDEX_BACKEND", "disabled")}
+            "backend": os.getenv("VECTOR_BACKEND", os.getenv("VECTOR_INDEX_BACKEND", "disabled"))}
 
 
 def build_router(*, current_user: Callable[[Request], dict], session_factory: Callable[[], Any], vector_path: str) -> APIRouter:
