@@ -12,7 +12,9 @@ import time
 
 from app.analysis.traceability import _decode, assign_agent
 from app.core.citations import validate_citations
+from app.core.config import ollama_call_options
 from app.core.types import SourceChunk
+from app.providers.ollama import generation_stage
 from app.research.registry import profile, use_pack
 
 DOMAINS = ("database", "api_architecture", "security")
@@ -45,11 +47,13 @@ def _arr(item: dict) -> dict:
 
 async def _call(provider, system: str, user: str, schema: dict, max_tokens: int) -> tuple[dict, dict]:
     structured = getattr(provider, "generate_structured", None)
+    opts = ollama_call_options(provider, max_output_tokens=max_tokens)
     started = time.perf_counter()
-    response = (
-        await structured(system=system, user=user, response_schema=schema, max_output_tokens=max_tokens)
-        if callable(structured) else await provider.generate(system=system, user=user)
-    )
+    with generation_stage("analysis_design"):
+        response = (
+            await structured(system=system, user=user, response_schema=schema, **opts)
+            if callable(structured) else await provider.generate(system=system, user=user, **{k: v for k, v in opts.items() if k != "max_output_tokens"})
+        )
     usage = getattr(response, "usage", None)
     return _decode(response.text), {
         "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),

@@ -263,10 +263,14 @@ async def check_requirement(provider, requirement: Requirement, evidence: list[S
         "NGÔN NGỮ: Viết covered_points, missing_points và note bằng tiếng Việt, ngắn gọn; giữ nguyên mã kỹ thuật."
     )
     structured = getattr(provider, "generate_structured", None)
-    response = (
-        await structured(system=system, user=user, response_schema=_response_schema([c.chunk_id for c in evidence]))
-        if callable(structured) else await provider.generate(system=system, user=user)
-    )
+    from app.core.config import ollama_call_options
+    from app.providers.ollama import generation_stage
+    opts = ollama_call_options(provider, product=True)
+    with generation_stage("analysis_traceability"):
+        response = (
+            await structured(system=system, user=user, response_schema=_response_schema([c.chunk_id for c in evidence]), **opts)
+            if callable(structured) else await provider.generate(system=system, user=user, **opts)
+        )
     obj = _decode(response.text)
     status = str(obj.get("status") or "").upper()
     flags: list[str] = []

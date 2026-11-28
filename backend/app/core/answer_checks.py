@@ -59,9 +59,19 @@ def fmt(value: float) -> str:
     return s.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-BARE = re.compile(r"(=\s*)(\d[\d.,]*(?:\s*[*×/]{1,2}\s*\d[\d.,]*)+)(?!\s*[=*×/\d])")
+BARE = re.compile(r"(=\s*)(\d[\d.,]*(?:\s*[*×/]{1,2}\s*\d[\d.,]*)+)(?!\s*[=*×/+\-\d])")
+_EXPLICIT_EQ_CHECK = re.compile(
+    r"(=\s*)([0-9(][0-9.,()\s]*(?:[*×/+]|//|\s-\s|\s\+\s)[0-9.,()\s*/+\-]*[0-9)%])\s*=\s*(\d[\d.,]*(?:,\d+)?)(?!\s*[=*×/+\-\d])"
+)
+_SIMPLE_SLASH_PAIR = re.compile(r"^\d{1,4}\s*/\s*\d{1,4}$")
+_DATE_OR_CODE_HYPHEN = re.compile(r"^\d{1,4}(?:\s*-\s*\d{1,4}){1,2}$")
+_UNIT_MATH_CONSTANTS = frozenset({"1", "10", "100", "1000"})
 _CALC_ECHO = re.compile(r"\*\*(\d[\d.,]*)\*\*\s*=\s*(?:\*\*)?(\d[\d.,]*)(?:\*\*)?")
 _SYMBOLIC_CALC = re.compile(r"\[\[\s*=\s*([^\]]*[A-Za-zÀ-ỹđĐ_][^\]]*)\]\]")
+
+
+def _eval_expr_text(expr: str) -> float:
+    return float(_eval(ast.parse(_plain(expr), mode="eval")))
 
 
 def _dedup_calc_echo(text: str) -> str:
@@ -95,15 +105,32 @@ def apply_calc_with_values(text: str) -> tuple[str, set[str]]:
     text = CALC.sub(sub, text)
     text = _dedup_calc_echo(text)
 
-    # Đợt 8 Văn phòng 3D: mô hình hay viết "Phạt = 0.005*10*120000000 đồng" mà quên [[= ]]: tính luôn phép tính
-    # đứng ngay sau dấu "=" và có ít nhất một phép nhân/chia (không đoán khi không có dấu "=").
-    def bare(m: re.Match) -> str:
+    # Nếu mô hình viết cả phép tính và vế phải tự tính nhẩm ("= 260M * 0,95 + 50M = 310M"), tính lại vế phải bằng AST
+    def explicit_eq(m: re.Match) -> str:
+        expr = m.group(2).strip()
+        if _SIMPLE_SLASH_PAIR.fullmatch(expr) or _DATE_OR_CODE_HYPHEN.fullmatch(expr):
+            return m.group(0)
         try:
-            v = _eval(ast.parse(_plain(m.group(2)), mode="eval"), computed)
+            v = _eval(ast.parse(_plain(expr), mode="eval"), computed)
         except (ValueError, SyntaxError, ZeroDivisionError, TypeError):
             return m.group(0)
         _record_value(computed, v)
-        return f"{m.group(1)}{m.group(2).strip()} = **{fmt(v)}**"
+        return f"{m.group(1)}{expr} = **{fmt(v)}**"
+
+    text = _EXPLICIT_EQ_CHECK.sub(explicit_eq, text)
+
+    # Đợt 8 Văn phòng 3D: mô hình hay viết "Phạt = 0.005*10*120000000 đồng" mà quên [[= ]]: tính luôn phép tính
+    # đứng ngay sau dấu "=" và có ít nhất một phép nhân/chia (không đoán khi không có dấu "=").
+    def bare(m: re.Match) -> str:
+        expr = m.group(2).strip()
+        if _SIMPLE_SLASH_PAIR.fullmatch(expr) or _DATE_OR_CODE_HYPHEN.fullmatch(expr):
+            return m.group(0)
+        try:
+            v = _eval(ast.parse(_plain(expr), mode="eval"), computed)
+        except (ValueError, SyntaxError, ZeroDivisionError, TypeError):
+            return m.group(0)
+        _record_value(computed, v)
+        return f"{m.group(1)}{expr} = **{fmt(v)}**"
 
     return BARE.sub(bare, text), computed
 
@@ -131,10 +158,13 @@ def _norm(token: str) -> str:
 def numbers(text: str, *, include_percent_ratios: bool = False) -> set[str]:
     body = re.sub(r"(?m)^\s*\d+[.)]\s+", " ", text or "")  # số thứ tự đầu dòng
     out = {_norm(n) for n in _NUM.findall(body)}
-    # V9: chỉ quy đổi "22%" -> 0.22 cho NGUỒN (known), tuyệt đối không sinh 0.054000000000000006 từ câu trả lời!
+    # V9 + B138: chỉ quy đổi "22%" -> 0.22 và "giảm 5%" -> 0.95 cho NGUỒN (known), không sinh từ câu trả lời
     if include_percent_ratios:
         for p in re.findall(r"(\d+(?:[.,]\d+)?)\s*%", body):
-            out.add(_norm(str(round(float(p.replace(",", ".")) / 100, 6))))
+            val = float(p.replace(",", "."))
+            out.add(_norm(str(round(val / 100, 6))))
+            if 0 < val < 100:
+                out.add(_norm(str(round((100.0 - val) / 100.0, 6))))
     return out
 
 
@@ -302,11 +332,36 @@ _REFUSAL_SENT_RE = re.compile(
 )
 
 
-def unsupported_numbers(answer: str, sources: str, extra_known: set[str] | None = None) -> list[str]:
+def unsupported_calc_operands(answer: str, sources: str) -> list[str]:
+    """Kiểm tra toán hạng bên trong [[= ... ]] hoặc phép tính có thực sự bắt nguồn từ bằng chứng/đầu vào hợp lệ không."""
+    known = numbers(sources, include_percent_ratios=True)
+    bad_operands: list[str] = []
+    exprs = list(CALC.findall(answer or ""))
+    exprs.extend(m.group(2).strip() for m in _EXPLICIT_EQ_CHECK.finditer(answer or ""))
+    for expr in exprs:
+        try:
+            _eval_expr_text(expr)
+        except (ValueError, SyntaxError, ZeroDivisionError, TypeError):
+            continue
+        for raw_num in _NUM.findall(expr):
+            normed = _norm(raw_num)
+            if (len(normed.replace(".", "")) >= 2 or "." in normed) and normed not in known and normed not in _UNIT_MATH_CONSTANTS:
+                if normed not in bad_operands:
+                    bad_operands.append(normed)
+    return sorted(bad_operands)
+
+
+def unsupported_numbers(
+    answer: str,
+    sources: str,
+    extra_known: set[str] | None = None,
+    *,
+    ignored_identifiers: set[str] | None = None,
+) -> list[str]:
     """Con số (>= 2 chữ số) trong câu trả lời mà không có nguyên văn trong nguồn (đoạn tài liệu + câu hỏi + chữ trong ảnh).
     Bỏ qua kết quả của máy tính, các toán hạng của phép tính và kết quả toán học chính xác tính từ số trong nguồn."""
-    calc_parts = " ".join(CALC.findall(answer))
-    body = CALC.sub(" ", answer)
+    calc_parts = " ".join(CALC.findall(answer or ""))
+    body = CALC.sub(" ", answer or "")
     body = re.sub(r"\([^()]*·\s*đoạn\s*\d+\)", " ", body)  # nhãn trích dẫn
     body = re.sub(r"src_[0-9a-f]+_c\d+", " ", body)
     # Bỏ mã hiệu văn bản kiểu '13/2023/NĐ-CP' khi xuất hiện trong câu từ chối ('không có trong hợp đồng')
@@ -317,8 +372,10 @@ def unsupported_numbers(answer: str, sources: str, extra_known: set[str] | None 
     known = numbers(sources, include_percent_ratios=True) | _scale_equivalents(sources) | numbers(calc_parts)
     if extra_known:
         known |= {_norm(x) for x in extra_known if x}
+    if ignored_identifiers:
+        known |= {_norm(str(x)) for x in ignored_identifiers if x}
     # Kết quả cuối cùng và các giá trị trung gian từ cây AST của [[= ... ]] đều là số đã được máy tính xác thực
-    for expr in CALC.findall(answer):
+    for expr in CALC.findall(answer or ""):
         try:
             v = _eval(ast.parse(_plain(expr), mode="eval"), known)
             _record_value(known, v)
@@ -493,11 +550,62 @@ def sanitize_evidence_text(text: str) -> str:
     return _INJECTION_LINE.sub("[đoạn văn bản bị loại trừ do chứa chỉ thị điều khiển]", text)
 
 
-def finish_detailed(answer: str, sources: str, extra_known: set[str] | None = None) -> tuple[str, list[str], list[str]]:
+_WARNING_LINE_RE = re.compile(
+    r"^\s*>\s*\*\*(?P<kind>Cần kiểm tra lại|Lưu ý căn cứ|Lưu ý phạm vi pháp lý|Cảnh báo nhất quán(?:\s*\([^)]+\))?|Đã hiệu chỉnh[^*]*|Kiểm chứng tính toán[^*]*)\s*:?\*\*\s*(?P<body>.*)$",
+    re.I,
+)
+
+
+def deduplicate_warnings(text: str) -> str:
+    """Deduplicate identical warning blockquotes by normalized warning identity while preserving distinct warnings."""
+    lines = (text or "").splitlines()
+    out: list[str] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    has_tagged_consistency = any(
+        re.match(r"^\s*>\s*\*\*Cảnh báo nhất quán\s*\([^)]+\)\s*:?\*\*", ln.strip(), re.I)
+        for ln in lines
+    )
+    for ln in lines:
+        m = _WARNING_LINE_RE.match(ln.strip())
+        if m:
+            kind = re.sub(r"\s+", " ", m.group("kind").strip().casefold())
+            body = m.group("body").strip()
+            if kind.startswith("cảnh báo nhất quán"):
+                if has_tagged_consistency and "(" not in kind:
+                    continue
+                sig: tuple[str, tuple[str, ...]] = ("cảnh báo nhất quán", ("single",))
+            elif kind == "cần kiểm tra lại":
+                toks = tuple(sorted({_norm(t) for t in _NUM.findall(body)}))
+                sig = (kind, toks)
+            elif kind == "lưu ý căn cứ":
+                toks = tuple(sorted(_ARTICLE.findall(body)))
+                sig = (kind, toks)
+            else:
+                toks = (re.sub(r"\s+", " ", body.casefold()),)
+                sig = (kind, toks)
+            if sig in seen:
+                continue
+            seen.add(sig)
+        out.append(ln)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+def _strip_warning_blockquotes(text: str) -> str:
+    return "\n".join(ln for ln in (text or "").splitlines() if not _WARNING_LINE_RE.match(ln.strip()))
+
+
+def finish_detailed(
+    answer: str,
+    sources: str,
+    extra_known: set[str] | None = None,
+    *,
+    ignored_identifiers: set[str] | None = None,
+) -> tuple[str, list[str], list[str]]:
     """Hậu kiểm đầy đủ cho câu trả lời sản phẩm: trả (câu trả lời, số không có trong nguồn, số Điều không có trong nguồn)."""
-    answer = clean(answer)
-    bad = unsupported_numbers(answer, sources, extra_known=extra_known)
-    arts = unsupported_articles(answer, sources)
+    answer = deduplicate_warnings(clean(answer))
+    body_only = _strip_warning_blockquotes(answer)
+    bad = unsupported_numbers(body_only, sources, extra_known=extra_known, ignored_identifiers=ignored_identifiers)
+    arts = unsupported_articles(body_only, sources)
     answer = apply_calc(answer)
     if arts:
         answer += ("\n\n> **Lưu ý căn cứ:** câu trả lời nhắc " + ", ".join(f"Điều {a}" for a in arts[:6]) +
@@ -505,7 +613,17 @@ def finish_detailed(answer: str, sources: str, extra_known: set[str] | None = No
     if bad:
         answer += ("\n\n> **Cần kiểm tra lại:** các con số " + ", ".join(bad[:8]) +
                    " không có nguyên văn trong đoạn tài liệu đã dùng. Hãy bấm vào nguồn để đối chiếu.")
-    return answer, bad, arts
+    return deduplicate_warnings(answer), bad, arts
+
+
+def finish_checked(
+    answer: str,
+    sources: str,
+    *,
+    ignored_identifiers: set[str] | None = None,
+) -> tuple[str, list[str], list[str]]:
+    """Hậu kiểm sản phẩm: trả (câu trả lời, các số không có trong nguồn, các Điều không có trong nguồn)."""
+    return finish_detailed(answer, sources, ignored_identifiers=ignored_identifiers)
 
 
 def finish(answer: str, sources: str, extra_known: set[str] | None = None) -> tuple[str, list[str]]:
@@ -514,18 +632,533 @@ def finish(answer: str, sources: str, extra_known: set[str] | None = None) -> tu
     return cleaned, bad
 
 
+_CANONICAL_STATUSES = frozenset({"COMPLETE", "PARTIAL", "NO_EVIDENCE"})
+_INLINE_SRC_CID = re.compile(r"\[?(src_[0-9a-f]{16}_c\d{4})\]?", re.I)
+_TRAILING_SOURCE_LINE = re.compile(r"\n+\s*(?:Nguồn|Sources?)\s*:.*$", re.I | re.S)
+_TRIM_MISSING = frozenset({"top_evidence_trimmed_to_num_ctx", "trailing_evidence_trimmed_to_num_ctx"})
+
+
+def strip_invalid_inline_citations(text: str, allowed_ids: set[str]) -> tuple[str, list[str]]:
+    """Loại bỏ mọi mã src_<16hex>_cNNNN inline trong văn bản nếu không nằm trong allowed_ids."""
+    invalid: list[str] = []
+
+    def _sub(match: re.Match) -> str:
+        cid = match.group(1)
+        if cid in allowed_ids:
+            return match.group(0)
+        if cid not in invalid:
+            invalid.append(cid)
+        return ""
+
+    cleaned = _INLINE_SRC_CID.sub(_sub, text or "")
+    cleaned = re.sub(r"[ \t]+([.,;:])", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+    return cleaned, invalid
+
+
+def normalize_status(raw_status: str | None) -> tuple[str, bool]:
+    """Chuẩn hóa trạng thái mô hình về COMPLETE/PARTIAL/NO_EVIDENCE; trạng thái lạ hạ về PARTIAL."""
+    s = str(raw_status or "PARTIAL").strip().upper()
+    if s in _CANONICAL_STATUSES:
+        return s, False
+    return "PARTIAL", True
+
+
+def guard_no_evidence(
+    status: str,
+    answer: str,
+    valid: list[str],
+    missing: list[str],
+    query: str,
+    fallback: str,
+    *,
+    product: bool = False,
+    reply_language: str | None = None,
+) -> tuple[str, str, list[str]]:
+    """Dọn citation và câu khẳng định thiếu bằng chứng khi status là NO_EVIDENCE."""
+    if status != "NO_EVIDENCE":
+        return status, answer, valid
+    if valid:
+        valid = []
+        missing.append("citations cleared because status is NO_EVIDENCE")
+    upper_ans = answer.upper()
+    q_norm = (query or "").strip().casefold()
+    prompt_echo = (
+        not answer
+        or "USER REQUEST:" in upper_ans
+        or "EVIDENCE:" in upper_ans
+        or "[EVIDENCE]" in upper_ans
+        or "[TASK]" in upper_ans
+        or (q_norm and answer.strip().casefold() == q_norm)
+    )
+    if prompt_echo:
+        answer = fallback
+        missing.append("prompt echo stripped on NO_EVIDENCE")
+    elif product:
+        cleaned, stripped_inline = strip_invalid_inline_citations(_TRAILING_SOURCE_LINE.sub("", answer).strip(), set())
+        if stripped_inline:
+            missing.append("inline citations stripped on NO_EVIDENCE")
+        if cleaned.strip() != fallback.strip():
+            missing.append("ungrounded NO_EVIDENCE prose replaced with safe refusal")
+        answer = fallback
+    if product and any(m in _TRIM_MISSING for m in missing):
+        trim_note = (
+            " (System note: part of the document context was trimmed due to the context window limit.)"
+            if reply_language == "en"
+            else " (Lưu ý hệ thống: một phần đoạn tài liệu bị cắt bớt do giới hạn cửa sổ ngữ cảnh.)"
+        )
+        if trim_note.strip() not in answer:
+            answer = f"{answer}{trim_note}"
+    return status, answer, valid
+
+
+_USER_INPUT_QTY = re.compile(
+    r"(?<!Điều\s)(?<!điều\s)\b(?:\d{1,3}(?:[.,]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)\s*(?:sinh viên|nhân viên|người|khách|ly|cái|chiếc|suất|bản|giờ|tiếng|ngày|tuần|tháng|năm|trang|lần|tín chỉ|học phần)\b",
+    re.I,
+)
+_PREMISE_TRAP_BEFORE = re.compile(
+    r"\b(?:mỗi nhân viên được|nhân viên được|người lao động được|được nghỉ|được hưởng|được thưởng|phải báo trước|tối đa)\s*$",
+    re.I,
+)
+_PREMISE_TRAP_AFTER = re.compile(r"^\s*(?:đúng không|phải không|có phải|không\s*\?)", re.I)
+_RULE_POSITIVE = re.compile(
+    r"(?<!không\s)(?<!chưa\s)\b(?:(?:này|đơn|hồ sơ|điều khoản)\s+có\s+|có\s+)?(?:thỏa mãn|đáp ứng|hợp lệ|đạt yêu cầu|đủ điều kiện|đúng quy định|đúng nội quy(?:\s+và\s+quy\s+định)?|đúng yêu cầu|không vi phạm|đã được phê duyệt|thuộc phạm vi được phê duyệt)\b",
+    re.I,
+)
+_MD_EMPHASIS = re.compile(r"\*{1,2}|_{1,2}")
+_MD_EMPHASIS_SPAN = re.compile(r"(\*{1,2}|_{1,2})([^*\n_]+)\1")
+_RULE_NEGATIVE = re.compile(
+    r"\b(?:không\s+(?:thỏa mãn|đáp ứng|hợp lệ|đạt|đủ điều kiện|đúng quy định|đúng nội quy|đúng yêu cầu)|chưa\s+(?:đáp ứng|đạt|có|bàn giao|đủ điều kiện|được phê duyệt)|vi phạm|vượt\s+(?:quá|giới hạn)|trễ hạn)\b",
+    re.I,
+)
+_OVERALL_NEGATIVE_SENTENCE = re.compile(
+    r"\b(?:chưa\s+đủ\s+điều\s+kiện|không\s+(?:đạt|hợp lệ|đúng quy định|đúng nội quy|thỏa mãn)|vi phạm)\b",
+    re.I,
+)
+_ITEMIZED_LINE = re.compile(r"^\s*(?:\||[-*•]\s+|\d+[.)]\s+)")
+_EXTERNAL_STATUTE = re.compile(
+    r"\b(?:Luật Thương mại|Bộ luật Dân sự|Bộ luật Hình sự|Bộ luật Lao động|Nghị định\s+\d+/\d+|Thông tư\s+\d+/\d+)\b",
+    re.I,
+)
+_LEGAL_COMPLIANCE_CLAIM = re.compile(
+    r"(?:\*{1,2}|_{1,2})?\b(?:không vi phạm(?:\*{1,2}|_{1,2})?(?:\s+(?:Luật\s+Thương\s+mại|Bộ\s+luật\s+Dân\s+sự|Luật\s+Lao\s+động|pháp\s+luật|luật|quy\s+định\s+pháp\s+luật)(?:\s*(?:/|hoặc|và)\s*(?:Bộ\s+luật\s+Dân\s+sự|Luật\s+Thương\s+mại))?)?|vi phạm luật|đúng pháp luật|trái pháp luật|hợp pháp|bất hợp pháp)\b(?:\*{1,2}|_{1,2})?",
+    re.I,
+)
+_PARTIAL_GAP_ADMISSION = re.compile(
+    r"\b(?:không được đề cập|không có thông tin|chưa có thông tin|không nêu)\b",
+    re.I,
+)
+
+
+def evidence_with_case_image_only(evidence_text: str, query: str) -> str:
+    """Chỉ giữ bằng chứng thật (kèm OCR ảnh nếu có và số lượng hợp lệ người dùng nhập; loại số tiền/Điều bẫy và tiền đề quy định chưa kiểm chứng)."""
+    base = evidence_text or ""
+    q = query or ""
+    if IMG_MARK in q:
+        typed_part, img_part = q.split(IMG_MARK, 1)
+        base = base + "\n" + img_part
+    else:
+        typed_part = q
+    qtys: list[str] = []
+    for m in _USER_INPUT_QTY.finditer(typed_part):
+        before = typed_part[max(0, m.start() - 48):m.start()]
+        after = typed_part[m.end():min(len(typed_part), m.end() + 40)]
+        if _PREMISE_TRAP_BEFORE.search(before) or _PREMISE_TRAP_AFTER.search(after):
+            continue
+        qtys.append(m.group(0))
+    if qtys:
+        base = base + "\n" + " ".join(qtys)
+    return base
+
+
+def _law_in_corpus(law: str, evidence_text: str, evidence_chunks: list | None = None) -> bool:
+    """Xác minh văn bản luật thực sự có mặt trong bằng chứng theo danh tính tài liệu (source_name/heading), không tính nhắc tên trong tài liệu khác."""
+    law_cf = law.casefold()
+    if evidence_chunks:
+        for ch in evidence_chunks:
+            prov = getattr(ch, "provenance", None) or {}
+            doc_type = str(prov.get("doc_type") or "").strip().lower()
+            if doc_type == "contract":
+                continue
+            sname = str(getattr(ch, "source_name", "") or "").casefold()
+            if law_cf in sname:
+                return True
+        return False
+    return bool(re.search(
+        rf"(?im)(?:^#+\s*.*{re.escape(law)}|^{re.escape(law)}\b[^\n]*(?:số\s*:?\s*\d+|QH\d+|NĐ-CP|TT-|20\d{{2}}))",
+        evidence_text or "",
+    ))
+
+
+_CITED_STATUTE_ART_RE = re.compile(
+    r"(?:Điều\s+(\d{1,3})\s+(Luật Thương mại|Bộ luật Dân sự|Bộ luật Hình sự|Bộ luật Lao động|Nghị định\s+\d+/\d+|Thông tư\s+\d+/\d+)"
+    r"|(Luật Thương mại|Bộ luật Dân sự|Bộ luật Hình sự|Bộ luật Lao động|Nghị định\s+\d+/\d+|Thông tư\s+\d+/\d+)[^\n.;]{0,30}?\(?\s*Điều\s+(\d{1,3})\s*\)?)",
+    re.I,
+)
+_POLICY_DESC_RE = re.compile(
+    r"(?:theo\s+(?:chính\s+sách|quy\s+định\s+(?:chung|công\s+ty))[^\n]{0,30}(?:khi|nếu|phải)|hợp\s+lệ\s+khi|is\s+compliant\s+when)",
+    re.I,
+)
+
+
+def _verify_legal_references(
+    answer: str,
+    evidence_chunks: list | None,
+) -> tuple[list[str], list[str]]:
+    """Verify `(statute, article)` references require both matching document identity and article number in the SAME authorized source."""
+    if not evidence_chunks:
+        return [], []
+    unverified_laws: list[str] = []
+    unverified_arts: list[str] = []
+    for m in _CITED_STATUTE_ART_RE.finditer(answer or ""):
+        art = m.group(1) or m.group(4)
+        law = m.group(2) or m.group(3)
+        if not art or not law:
+            continue
+        law_cf = law.casefold()
+        art_pat = re.compile(rf"\bĐiều\s+{re.escape(art)}\b", re.I)
+        matched = any(
+            str((getattr(ch, "provenance", None) or {}).get("doc_type") or "").strip().lower() != "contract"
+            and law_cf in str(getattr(ch, "source_name", "") or "").casefold()
+            and art_pat.search(str(getattr(ch, "text", "") or ""))
+            for ch in evidence_chunks
+        )
+        if not matched:
+            if law not in unverified_laws:
+                unverified_laws.append(law)
+            if art not in unverified_arts:
+                unverified_arts.append(art)
+    return unverified_laws, unverified_arts
+
+
+def _reconcile_rule_conclusions(answer: str, missing: list[str]) -> tuple[str, bool]:
+    """Loại bỏ/sửa câu kết luận khẳng định đạt mâu thuẫn với điều kiện NOT_MET; không báo nhầm với bảng/liệt kê đối chiếu hợp lệ."""
+    plain_answer = _MD_EMPHASIS.sub("", answer)
+    if not _RULE_NEGATIVE.search(plain_answer):
+        return answer, False
+    _repl = "chưa đủ điều kiện kết luận đạt do còn điều kiện chưa thỏa mãn"
+    lines = answer.splitlines()
+    changed = False
+    new_lines: list[str] = []
+    for ln in lines:
+        if _ITEMIZED_LINE.match(ln) or ln.lstrip().startswith(">") or ln.lstrip().startswith("#") or _POLICY_DESC_RE.search(ln):
+            new_lines.append(ln)
+            continue
+        sents = re.split(r"(?<=[.!?])\s+", ln) if ln.strip() else [ln]
+        fixed_sents: list[str] = []
+        for s in sents:
+            if not s.strip() or s.strip().endswith("?"):
+                fixed_sents.append(s)
+                continue
+            plain_s = _MD_EMPHASIS.sub("", s)
+            if _RULE_POSITIVE.search(plain_s) and not _OVERALL_NEGATIVE_SENTENCE.search(plain_s):
+                def _sub_md_span(match: re.Match) -> str:
+                    before = s[max(0, match.start() - 12):match.start()]
+                    inner = match.group(2)
+                    if re.search(r"(?:không|chưa)\s*$", before, re.I):
+                        return match.group(0)
+                    if _RULE_POSITIVE.search(inner):
+                        return _repl
+                    return match.group(0)
+
+                s2 = _MD_EMPHASIS_SPAN.sub(_sub_md_span, s)
+                s2 = _RULE_POSITIVE.sub(_repl, s2)
+                if s2 != s:
+                    changed = True
+                    s = s2
+            fixed_sents.append(s)
+        new_lines.append(" ".join(fixed_sents) if len(fixed_sents) > 1 else fixed_sents[0])
+    if not changed:
+        return answer, False
+    out = "\n".join(new_lines)
+    missing.append("contradictory compliance conclusion vs unmet condition")
+    banner = "> **Cảnh báo nhất quán:** Chưa kết luận đạt do có điều kiện chưa thỏa mãn hoặc vi phạm trong phần đối chiếu bên dưới."
+    if "> **Cảnh báo nhất quán" not in out:
+        out = banner + "\n\n" + out
+    return out, True
+
+
+_STATUTE_NUM_HEADER_RE = re.compile(
+    r"\b(?:Nghị\s+định|Thông\s+tư|Luật|Bộ\s+luật|Quyết\s+định|Decree|Act|Law)\b[^\n]*",
+    re.I,
+)
+_UNVERIFIED_LEGAL_VERDICT_RE = re.compile(
+    r"(?:(?:có\s+thể\s+)?(?:vi\s+phạm|không\s+vi\s+phạm|vượt\s+quá\s+(?:giới\s+hạn|mức\s+trần|mức\s+tối\s+đa)|"
+    r"trái\s+(?:với\s+)?(?:quy\s+định|pháp\s+luật)|không\s+phù\s+hợp\s+với|hợp\s+lệ\s+theo|đáp\s+ứng\s+theo|"
+    r"exceeds?\s+(?:the\s+)?(?:statutory\s+)?(?:limit|cap)|violates?|complies?\s+with))",
+    re.I,
+)
+_LEGAL_TAIL_START_RE = re.compile(
+    r"(?:,?\s*(?:có\s+thể\s+)?(?:vượt\s+quá\s+(?:giới\s+hạn|mức\s+trần|mức\s+tối\s+đa)|"
+    r"vi\s+phạm\s+(?:Luật|Bộ\s+luật|Nghị\s+định|Thông\s+tư|quy\s+định|pháp\s+luật)|"
+    r"không\s+vi\s+phạm|trái\s+với\s+quy\s+định|theo\s+(?:Luật|Bộ\s+luật|Nghị\s+định|Thông\s+tư)))",
+    re.I,
+)
+
+
+def _rewrite_unverified_legal_line(
+    ln: str,
+    missing_laws: list[str],
+    missing_law_pat: re.Pattern[str],
+) -> tuple[str, bool]:
+    """Rewrite unverified statutory violation/limit/applicability assertions cleanly without mangling contract facts."""
+    law_list = ", ".join(dict.fromkeys(missing_laws))
+    if "|" in ln and not re.match(r"^\s*\|[-:\s|]+\|\s*$", ln):
+        has_missing_mention = bool(
+            missing_law_pat.search(ln)
+            or _LEGAL_COMPLIANCE_CLAIM.search(ln)
+            or _UNVERIFIED_LEGAL_VERDICT_RE.search(ln)
+        )
+        if not has_missing_mention:
+            return ln, False
+        cells = ln.split("|")
+        if len(cells) >= 4:
+            for idx in range(1, len(cells) - 1):
+                if missing_law_pat.search(cells[idx]) and re.search(r"\b(?:Điều\s+\d+|mức\s+phạt|tối\s+đa|giới\s+hạn)\b", cells[idx], re.I):
+                    cells[idx] = f" {law_list} (chưa được nạp) "
+            cells[-2] = f" Chưa đủ căn cứ ({law_list} chưa được nạp) "
+            return "|".join(cells), True
+        return ln, False
+
+    sents = re.split(r"(?<=[.!?])\s+(?!\d)", ln)
+    out_sents: list[str] = []
+    changed = False
+    for sent in sents:
+        s_trim = sent.strip()
+        if not s_trim or s_trim.endswith("?") or "chưa đủ căn cứ kết luận" in s_trim:
+            out_sents.append(sent)
+            continue
+
+        if re.search(r"\s+(?:và|nhưng)\s+", sent, re.I) and _LEGAL_COMPLIANCE_CLAIM.search(sent):
+            parts = re.split(r"(\s+(?:và|nhưng)\s+)", sent, flags=re.I)
+            new_parts: list[str] = []
+            local_hit = False
+            for part in parts:
+                if re.fullmatch(r"\s+(?:và|nhưng)\s+", part, re.I):
+                    new_parts.append(part)
+                    continue
+                if (_LEGAL_COMPLIANCE_CLAIM.search(part) or missing_law_pat.search(part)) and (
+                    missing_law_pat.search(part) or not re.search(r"Điều\s+\d+", part, re.I)
+                ):
+                    cits_sub = _INLINE_SRC_CID.findall(part)
+                    local_hit = True
+                    part_laws = [lw for lw in dict.fromkeys(missing_laws) if re.search(re.escape(lw), part, re.I)]
+                    law_str = ", ".join(part_laws) if part_laws else law_list
+                    m_tail = _LEGAL_TAIL_START_RE.search(part)
+                    prefix = part[: m_tail.start()].strip(" ,:-;") if m_tail else ""
+                    if prefix and not re.match(r"^(?:Điều\s+khoản\s+này|Theo\s+)", prefix, re.I) and len(prefix) >= 8:
+                        rep = f"{prefix}: chưa đủ căn cứ kết luận có vi phạm hay không ({law_str} chưa được nạp)"
+                    else:
+                        rep = f"chưa đủ căn cứ kết luận có vi phạm hay không ({law_str} chưa được nạp)"
+                    if cits_sub:
+                        rep += " " + " ".join(f"[{c}]" for c in cits_sub)
+                    new_parts.append(rep)
+                else:
+                    new_parts.append(part)
+            if local_hit:
+                changed = True
+                joined = "".join(new_parts).strip()
+                if s_trim.endswith(".") and not joined.endswith("."):
+                    joined += "."
+                out_sents.append(joined)
+                continue
+
+        has_missing_or_legal_claim = bool(
+            _LEGAL_COMPLIANCE_CLAIM.search(sent)
+            or (missing_law_pat.search(sent) and (_UNVERIFIED_LEGAL_VERDICT_RE.search(sent) or _CITED_STATUTE_ART_RE.search(sent)))
+        )
+        if not has_missing_or_legal_claim:
+            out_sents.append(sent)
+            continue
+
+        changed = True
+        cits = _INLINE_SRC_CID.findall(sent)
+        cite_str = (" " + " ".join(f"[{c}]" for c in cits)) if cits else ""
+        sent_laws = [lw for lw in dict.fromkeys(missing_laws) if re.search(re.escape(lw), sent, re.I)]
+        sent_law_str = ", ".join(sent_laws) if sent_laws else law_list
+
+        lead_bullet = ""
+        body_s = sent
+        m_b = re.match(r"^(\s*(?:[-*•]|\d+[.)])\s+)", body_s)
+        if m_b:
+            lead_bullet = m_b.group(1)
+            body_s = body_s[m_b.end():]
+        body_no_cit = _INLINE_SRC_CID.sub("", body_s).strip().rstrip(".")
+
+        m_tail = _LEGAL_TAIL_START_RE.search(body_no_cit)
+        fact_prefix = body_no_cit[: m_tail.start()].strip(" ,:-;") if m_tail else ""
+        fact_tails: list[str] = []
+        if m_tail:
+            after_tail = body_no_cit[m_tail.start():]
+            for seg in re.split(r"\b(?:và|cũng như|đồng thời)\b", after_tail, flags=re.I):
+                seg_clean = seg.strip(" ,.;:")
+                if (
+                    seg_clean
+                    and not missing_law_pat.search(seg_clean)
+                    and not _UNVERIFIED_LEGAL_VERDICT_RE.search(seg_clean)
+                    and not _LEGAL_COMPLIANCE_CLAIM.search(seg_clean)
+                    and not _CITED_STATUTE_ART_RE.search(seg_clean)
+                    and re.search(r"(?:\d|bồi\s+thường|mức\s+phạt|bất\s+lợi|rủi\s+ro|hợp\s+đồng)", seg_clean, re.I)
+                ):
+                    fact_tails.append(seg_clean)
+
+        is_generic_subject = bool(re.match(r"^(?:Điều\s+khoản\s+này|Hợp\s+đồng\s+này|Theo\s+[^,]+)$", fact_prefix, re.I))
+        if fact_prefix and not is_generic_subject and not _LEGAL_COMPLIANCE_CLAIM.search(fact_prefix):
+            rebuilt = f"{lead_bullet}{fact_prefix}"
+            if fact_tails:
+                rebuilt += f" ({'; '.join(fact_tails)})"
+            rebuilt += f": chưa đủ căn cứ kết luận có vi phạm hay không ({sent_law_str} chưa được nạp){cite_str}."
+        else:
+            m_fact_mid = re.search(
+                r"(?:mức\s+phạt\s+[^.,;]+?(?=\s+(?:vượt\s+quá|theo\s+|trái|$)))",
+                body_no_cit,
+                re.I,
+            )
+            extracted_facts: list[str] = []
+            if m_fact_mid:
+                extracted_facts.append(m_fact_mid.group(1).strip())
+            for ft in fact_tails:
+                if ft not in extracted_facts:
+                    extracted_facts.append(ft)
+            if extracted_facts:
+                rebuilt = (
+                    f"{lead_bullet}Hợp đồng nêu {', '.join(extracted_facts)}; "
+                    f"tuy nhiên chưa đủ căn cứ kết luận có vi phạm hay không ({sent_law_str} chưa được nạp){cite_str}."
+                )
+            else:
+                rebuilt = f"{lead_bullet}Chưa đủ căn cứ kết luận có vi phạm hay không ({sent_law_str} chưa được nạp){cite_str}."
+        out_sents.append(rebuilt)
+
+    return " ".join(out_sents), changed
+
+
+def _strip_leading_query_echo(answer: str, query: str) -> str:
+    """Remove a verbatim echoed user question paragraph at the top when followed by answer content."""
+    ans = (answer or "").lstrip()
+    q_head = (query or "").split(IMG_MARK, 1)[0].strip()
+    if not ans or not q_head:
+        return answer
+    first_para, sep, rest = ans.partition("\n\n")
+    if sep and rest.strip() and first_para.strip().casefold() == q_head.casefold():
+        return rest.lstrip()
+    first_line, sep_l, rest_l = ans.partition("\n")
+    if sep_l and rest_l.strip() and first_line.strip().casefold() == q_head.casefold():
+        return rest_l.lstrip()
+    return answer
+
+
+def check_product_evidence_claims(
+    status: str,
+    answer: str,
+    evidence_text: str,
+    query: str,
+    missing: list[str],
+    *,
+    evidence_chunks: list | None = None,
+    ignored_identifiers: set[str] | None = None,
+) -> tuple[str, str, list[str], list[str]]:
+    """Hậu kiểm sản phẩm chung cho vanilla và worker: đối chiếu số/Điều với bằng chứng, sửa kết luận mâu thuẫn và kiểm tra phạm vi luật ngoài kho."""
+    answer = _strip_leading_query_echo(answer, query)
+    sources_text = evidence_with_case_image_only(evidence_text, query)
+    doc_title_nums: set[str] = set(ignored_identifiers or ())
+    if evidence_chunks:
+        for ch in evidence_chunks:
+            sname = str(getattr(ch, "source_name", "") or "")
+            if _STATUTE_NUM_HEADER_RE.search(sname):
+                doc_title_nums |= numbers(sname)
+    calc_bad_ops = unsupported_calc_operands(answer, sources_text)
+    answer, bad, bad_arts = finish_checked(answer, sources_text, ignored_identifiers=doc_title_nums)
+    extra_ops = [op for op in calc_bad_ops if op not in bad]
+    if extra_ops:
+        bad = sorted({*bad, *extra_ops})
+        if "Cần kiểm tra lại:" not in answer:
+            answer += ("\n\n> **Cần kiểm tra lại:** các con số " + ", ".join(extra_ops[:8]) +
+                       " không có nguyên văn trong đoạn tài liệu đã dùng. Hãy bấm vào nguồn để đối chiếu.")
+    if bad_arts:
+        missing.append("articles not found verbatim in evidence: " + ", ".join(bad_arts[:6]))
+        if status == "COMPLETE":
+            status = "PARTIAL"
+    if bad:
+        missing.append("numbers not found verbatim in evidence: " + ", ".join(bad[:8]))
+        if status == "COMPLETE":
+            status = "PARTIAL"
+
+    answer, contradicted = _reconcile_rule_conclusions(answer, missing)
+    if contradicted and status == "COMPLETE":
+        status = "PARTIAL"
+
+    asked_laws = _EXTERNAL_STATUTE.findall(query or "")
+    missing_laws = [law for law in asked_laws if not _law_in_corpus(law, evidence_text, evidence_chunks)]
+    unverified_ref_laws, unverified_ref_arts = _verify_legal_references(answer, evidence_chunks)
+    for ulaw in unverified_ref_laws:
+        if ulaw not in missing_laws:
+            missing_laws.append(ulaw)
+    for uart in unverified_ref_arts:
+        if uart not in bad_arts:
+            bad_arts.append(uart)
+
+    if missing_laws:
+        law_list = ", ".join(dict.fromkeys(missing_laws))
+        missing_law_pat = re.compile(
+            r"(?:"
+            + "|".join(re.escape(lw) for lw in dict.fromkeys(missing_laws))
+            + r")(?:\s+\d{4})?(?:\s*\([^)]*\))?",
+            re.I,
+        )
+        rewritten_lines: list[str] = []
+        scope_changed = False
+        for ln in answer.splitlines():
+            s_strip = ln.strip()
+            if (
+                not s_strip
+                or s_strip.endswith("?")
+                or s_strip.startswith(("#", ">"))
+                or "chưa đủ căn cứ kết luận" in s_strip
+            ):
+                rewritten_lines.append(ln)
+                continue
+            new_ln, line_changed = _rewrite_unverified_legal_line(ln, missing_laws, missing_law_pat)
+            if line_changed:
+                scope_changed = True
+            rewritten_lines.append(new_ln)
+        if scope_changed or unverified_ref_laws:
+            answer = "\n".join(rewritten_lines)
+            missing.append("out-of-corpus external law claim unverified: " + law_list[:80])
+            if status == "COMPLETE":
+                status = "PARTIAL"
+            note = ("\n\n> **Lưu ý phạm vi pháp lý:** Văn bản luật bên ngoài ("
+                    + law_list
+                    + ") chưa được nạp trong tài liệu đang xét; đây chỉ là phân tích rủi ro nội dung hiện có, không phải kết luận đối chiếu pháp luật đầy đủ.")
+            if note.strip() not in answer:
+                answer = answer + note
+
+    if status == "COMPLETE" and _PARTIAL_GAP_ADMISSION.search(answer):
+        missing.append("partial missing evidence admitted in multi-part response")
+        status = "PARTIAL"
+
+    return status, deduplicate_warnings(answer), bad, bad_arts
+
+
 __all__ = [
     "IMG_MARK",
     "apply_calc",
     "apply_calc_with_values",
+    "check_product_evidence_claims",
     "clean",
+    "deduplicate_warnings",
     "detect_unanchored_entities",
+    "evidence_with_case_image_only",
     "finish",
+    "finish_checked",
     "finish_detailed",
     "fmt",
+    "guard_no_evidence",
     "is_task_topic_unanchored",
+    "normalize_status",
     "numbers",
     "sanitize_evidence_text",
+    "strip_invalid_inline_citations",
     "unsupported_articles",
+    "unsupported_calc_operands",
     "unsupported_numbers",
 ]

@@ -63,12 +63,14 @@ _SIMPLE_QUESTION_STARTS = (
 _VN_QUESTION_PATTERNS = (
     "bao lau", "la gi", "la bao nhieu", "bao nhieu", "khi nao", "luc nao",
     "o dau", "nhu the nao", "the nao", "ai la", "ai duoc", "ai chiu",
-    "co duoc", "co phai", "dieu kien", "thoi han", "muc phat", "han muc",
+    "co duoc", "co phai", "co dung", "quy dinh khong", "hop le khong",
+    "dieu kien", "thoi han", "muc phat", "han muc",
     "quy dinh gi", "quy dinh nhu", "la may", "may ngay", "may gio",
     "theo dieu", "theo nghi dinh", "theo luat", "theo quy che", "theo noi quy",
     "theo hop dong", "trong tai lieu", "bang nao", "mau so",
     "cho toi biet", "cho biet", "cho em biet", "cho minh biet", "hay cho biet",
     "tra cuu", "tom tat", "neu ro", "liet ke", "thong tin ve",
+    "duoc khong", "ai duyet", "gom nhung", "nhung ai", "nhung gi", "xin hoi",
 )
 _COMPLEX_ACTION_TERMS = frozenset({
     "review", "analyze", "analyse", "compare", "assess", "evaluate",
@@ -158,8 +160,10 @@ def is_simple_project_question(message: str, domains: Iterable[str]) -> bool:
     normalized = _normalize_intent_text(message)
     if not normalized:
         return False
-    if _COMPLEX_ACTION_TERMS.intersection(normalized.split()) or any(
-        phrase in normalized for phrase in _COMPLEX_ACTION_PHRASES
+    question_part = message.split("[Ảnh đính kèm", 1)[0].rstrip()
+    q_norm = _normalize_intent_text(question_part) or normalized
+    if _COMPLEX_ACTION_TERMS.intersection(q_norm.split()) or any(
+        phrase in q_norm for phrase in _COMPLEX_ACTION_PHRASES
     ):
         return False
     # Chặn câu hỏi đa vế rõ rệt (từ 3 dấu hỏi trở lên, cấu trúc đánh số (1)...(2), hoặc câu quá dài)
@@ -170,14 +174,10 @@ def is_simple_project_question(message: str, domains: Iterable[str]) -> bool:
     if message.count("?") >= 2 and (len(unique_domains) >= 2 or len(normalized) > 240):
         return False
     question_form = (
-        message.rstrip().endswith("?")
-        or normalized.startswith(_SIMPLE_QUESTION_STARTS)
-        or any(pat in normalized for pat in _VN_QUESTION_PATTERNS)
+        question_part.endswith("?")
+        or q_norm.startswith(_SIMPLE_QUESTION_STARTS)
+        or any(pat in q_norm for pat in _VN_QUESTION_PATTERNS)
     )
     if not question_form:
-        return False
-    if len(unique_domains) > 2:
-        return False
-    if len(unique_domains) == 2 and len(normalized) > 230:
         return False
     return True

@@ -28,10 +28,26 @@ def _extract_json(text: str) -> dict:
             raise ValueError("Planner did not return JSON")
         return json.loads(m.group(0))
 
-async def decompose(provider, query: str, planning_context: str, metrics: RunMetrics) -> list[Task]:
+async def decompose(
+    provider,
+    query: str,
+    planning_context: str,
+    metrics: RunMetrics,
+    *,
+    num_ctx: int | None = None,
+    request_timeout: float | None = None,
+    keep_alive: str | int | float | None = None,
+) -> list[Task]:
     system = "TASK_DECOMPOSER. Return JSON only. Preserve atomic obligations and dependencies. Do not invent requirements."
     user = f"USER REQUEST:\n{query}\n\nPLANNING CONTEXT:\n{planning_context}\n\nSchema: {{\"tasks\":[{{\"id\":\"T1\",\"goal\":\"...\",\"domain\":\"{"|".join(active_domains())}\",\"depends_on\":[],\"evidence_needs\":[]}}]}}"
-    result = await provider.generate(system=system, user=user)
+    extra: dict[str, Any] = {}
+    if num_ctx is not None and getattr(provider, "supports_num_ctx", False):
+        extra["num_ctx"] = num_ctx
+    if request_timeout is not None and getattr(provider, "supports_per_call_timeout", False):
+        extra["timeout"] = request_timeout
+    if keep_alive is not None and getattr(provider, "supports_keep_alive", False):
+        extra["keep_alive"] = keep_alive
+    result = await provider.generate(system=system, user=user, **extra)
     metrics.add_usage(result.usage)
     obj = _extract_json(result.text)
     tasks = []
@@ -727,13 +743,24 @@ async def generate_task_plan(
     user: str,
     extraction: ObligationConcernExtraction | None = None,
     max_output_tokens: int | None = None,
+    num_ctx: int | None = None,
+    request_timeout: float | None = None,
+    keep_alive: str | int | float | None = None,
 ):
+    extra: dict[str, Any] = {}
+    if num_ctx is not None and getattr(provider, "supports_num_ctx", False):
+        extra["num_ctx"] = num_ctx
+    if request_timeout is not None and getattr(provider, "supports_per_call_timeout", False):
+        extra["timeout"] = request_timeout
+    if keep_alive is not None and getattr(provider, "supports_keep_alive", False):
+        extra["keep_alive"] = keep_alive
     structured = getattr(provider, "generate_structured", None)
     if callable(structured):
         kwargs = {
             "system": PLANNER_SYSTEM_PROMPT,
             "user": user,
             "response_schema": task_plan_response_schema(extraction),
+            **extra,
         }
         if (
             max_output_tokens is not None
@@ -742,7 +769,7 @@ async def generate_task_plan(
             kwargs["max_output_tokens"] = max_output_tokens
         return await structured(**kwargs)
     # Keep scripted test providers compatible; live Ollama uses structured output.
-    return await provider.generate(system=PLANNER_SYSTEM_PROMPT, user=user)
+    return await provider.generate(system=PLANNER_SYSTEM_PROMPT, user=user, **extra)
 
 
 async def decompose_plan(
@@ -754,6 +781,9 @@ async def decompose_plan(
     extraction: ObligationConcernExtraction | None = None,
     max_repairs: int = 1,
     max_output_tokens: int | None = None,
+    num_ctx: int | None = None,
+    request_timeout: float | None = None,
+    keep_alive: str | int | float | None = None,
 ) -> PlanningResult:
     """Build a TaskPlan with one bounded invalid-output repair at most."""
 
@@ -774,6 +804,9 @@ async def decompose_plan(
             user=prompt,
             extraction=extraction,
             max_output_tokens=max_output_tokens,
+            num_ctx=num_ctx,
+            request_timeout=request_timeout,
+            keep_alive=keep_alive,
         )
         metrics.add_usage(result.usage)
     except Exception as error:
@@ -811,6 +844,9 @@ async def decompose_plan(
                 user=repair_prompt,
                 extraction=extraction,
                 max_output_tokens=max_output_tokens,
+                num_ctx=num_ctx,
+                request_timeout=request_timeout,
+                keep_alive=keep_alive,
             )
             metrics.add_usage(repaired.usage)
             plan = parse_task_plan_output(

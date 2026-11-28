@@ -224,6 +224,28 @@ def verify_task_plan(
             if technical_subject and not _meaningful_evidence_needs(task.evidence_needs):
                 errors.append(f"task {task.task_id} requires subject-specific evidence_needs for requested supporting evidence")
 
+    req_head = (plan.request or "").split("[Ảnh đính kèm", 1)[0].strip()
+    if len(req_head) >= 24:
+        req_clauses = [
+            c.strip(" .,:;-")
+            for c in re.split(r"\s+(?:và|đồng thời|and|as well as)\s+|[?;]+", req_head, flags=re.IGNORECASE)
+            if c.strip(" .,:;-")
+        ]
+        if len(req_clauses) >= 2:
+            covered_text = " ".join(
+                [o.description for o in plan.obligations]
+                + [t.goal for t in plan.tasks]
+                + [" ".join(t.evidence_needs or ()) for t in plan.tasks]
+            )
+            for clause in req_clauses:
+                if re.search(
+                    r"\b(?:ai|cấp nào|người nào|bộ phận nào|chức danh nào|thẩm quyền nào|who|which role)\b"
+                    r"[^\n?.]{0,70}\b(?:phê duyệt|duyệt|chấp thuận|ký duyệt|thẩm quyền|approv\w*|authoriz\w*)",
+                    clause,
+                    re.IGNORECASE,
+                ) and not re.search(r"(?:phê duyệt|duyệt|thẩm quyền|approv|authoriz)", covered_text, re.IGNORECASE):
+                    errors.append(f"missing request clause coverage: {clause[:80]}")
+
     if missing_required:
         errors.append(
             "missing required obligation coverage: " + ", ".join(missing_required)

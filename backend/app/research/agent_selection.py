@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 import unicodedata
 from typing import Callable
 
@@ -51,21 +52,88 @@ def _cos(a, b) -> float:
     return dot / (na * nb)
 
 
-_EMBED_CACHE: dict[tuple[str, str], tuple[float, ...]] = {}
+_CACHE_LOCK = threading.RLock()
+_EMBED_CACHE: dict[tuple[str, tuple[str, ...], str], tuple[float, ...]] = {}
 _EMBED_CACHE_MAX = 4096
 
 
-def _cached(_unused: int, text: str, embed: Callable[[str], tuple[float, ...]]):
-    """Vector của mô tả tác tử và câu ví dụ, nhớ theo (mô hình nhúng, chữ). Khóa cũ dùng id() của phương thức gắn với
-    đối tượng, mỗi lần truy cập một khác nên gần như luôn trượt (phát hiện 20/11 khi đo Đợt 8)."""
+def clear_embedding_cache() -> None:
+    """Invalidate cached static agent description embeddings."""
+    with _CACHE_LOCK:
+        _EMBED_CACHE.clear()
+
+
+def _embed_identity(embed: Callable[[str], tuple[float, ...]]) -> tuple[str, ...] | None:
+    """Stable cache identity ONLY for explicitly versioned embedders (never share across unversioned callables)."""
     owner = getattr(embed, "__self__", None)
-    key = (str(getattr(owner, "version", None) or id(owner or embed)), text)
-    hit = _EMBED_CACHE.get(key)
-    if hit is None:
-        if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
-            _EMBED_CACHE.clear()  # shortcut: xóa cả bộ nhớ khi đầy; đủ cho vài nghìn câu ví dụ, đổi sang LRU nếu kho ví dụ lớn hơn
-        hit = _EMBED_CACHE[key] = embed(text)
-    return hit
+    if owner is None:
+        return None
+    version = getattr(owner, "version", None)
+    if not version:
+        return None
+    return (
+        type(owner).__qualname__,
+        str(version),
+        str(getattr(owner, "model", "") or ""),
+        str(getattr(owner, "base_url", "") or "").strip().rstrip("/"),
+        str(getattr(owner, "dimension", "") or ""),
+    )
+
+
+def _static_description_vectors(
+    descriptions: dict[str, str],
+    pack: str,
+    embed: Callable[[str], tuple[float, ...]],
+) -> dict[str, tuple[float, ...]]:
+    """Return embeddings for static PACK_DESCRIPTIONS[pack], reusing cross-request cache safely.
+
+    Never caches user queries or tenant examples globally. Computes cold-start misses safely under lock
+    (and uses batch embed_many when provided by the underlying un-patched embedder).
+    """
+    ident = _embed_identity(embed)
+    if ident is None:
+        return {a: embed(d) for a, d in descriptions.items()}
+
+    with _CACHE_LOCK:
+        out: dict[str, tuple[float, ...]] = {}
+        missing_items: list[tuple[str, str]] = []
+        for agent, text in descriptions.items():
+            key = (pack, ident, text)
+            hit = _EMBED_CACHE.get(key)
+            if hit is not None:
+                out[agent] = hit
+            else:
+                missing_items.append((agent, text))
+        if not missing_items:
+            return out
+
+        owner = getattr(embed, "__self__", None)
+        embed_many = getattr(owner, "embed_many", None) if owner is not None else None
+        can_batch = callable(embed_many) and "embed" not in getattr(owner, "__dict__", {})
+        texts = [text for _, text in missing_items]
+        vectors = embed_many(texts) if can_batch else [embed(t) for t in texts]
+
+        if len(_EMBED_CACHE) + len(missing_items) > _EMBED_CACHE_MAX:
+            _EMBED_CACHE.clear()
+        for (agent, text), vec in zip(missing_items, vectors):
+            _EMBED_CACHE[(pack, ident, text)] = vec
+            out[agent] = vec
+        return out
+
+
+def _cached(_unused: int, text: str, embed: Callable[[str], tuple[float, ...]]):
+    """Compatibility helper scoped safely when called for static texts."""
+    ident = _embed_identity(embed)
+    if ident is None:
+        return embed(text)
+    key = ("legacy", ident, text)
+    with _CACHE_LOCK:
+        hit = _EMBED_CACHE.get(key)
+        if hit is None:
+            if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
+                _EMBED_CACHE.clear()
+            hit = _EMBED_CACHE[key] = embed(text)
+        return hit
 
 
 def keyword_hits(query: str, pack: str = WORK_PACK) -> dict[str, int]:
@@ -82,20 +150,39 @@ EXAMPLE_BONUS = 0.08
 LEARNED_VERSION = "work-agent-selection-v2-examples"
 
 
+_COMMERCIAL_INTENT = re.compile(
+    r"\b(mua goi|chiet khau|phi trien khai|tong tien|bao gia|gia niem yet|phe duyet|hop dong|kinh doanh|tai chinh|duyet muc|khach hang)\b"
+)
+_ACADEMIC_RULE = re.compile(
+    r"\b(tin chi|diem trung binh|canh bao hoc tap|buoc thoi hoc|tot nghiep|hoc phan|hoc bong|ren luyen|xep loai|luan van|khoa luan)\b"
+)
+
+
 def select_agents(query: str, embed: Callable[[str], tuple[float, ...]] | None = None,
                   examples: list[tuple[str, str]] | None = None, pack: str = WORK_PACK) -> dict:
     """Trả {"agents": [...chuyên môn..., "general"], "primary", "scores", "ambiguous", "method"}.
     examples: [(câu hỏi, tác tử)] người dùng đã chọn; cần embed để so ý nghĩa, không có thì bỏ qua."""
     descriptions = PACK_DESCRIPTIONS[pack]
     hits = keyword_hits(query, pack)
+    if pack == OFFICE_PACK:
+        q_fold = _fold(query)
+        # Khách hàng mua là trường học/sinh viên nhưng mục đích hỏi giá/chiết khấu/phê duyệt: không gắn nhãn học vụ
+        if _COMMERCIAL_INTENT.search(q_fold) and not _ACADEMIC_RULE.search(q_fold) and hits.get("education", 0) > 0:
+            hits = {**hits, "education": 0}
     sem: dict[str, float] = {}
     learned: dict[str, float] = {}
     if embed is not None:
         q = embed(query)
-        sem = {a: _cos(q, _cached(id(embed), d, embed)) for a, d in descriptions.items()}
+        desc_vecs = _static_description_vectors(descriptions, pack, embed)
+        sem = {a: _cos(q, desc_vecs[a]) for a in descriptions}
+        # User-owned routing examples stay strictly scoped to the current call (never shared in global cache).
+        local_examples: dict[str, tuple[float, ...]] = {}
         for text, agent in examples or []:
             if agent in descriptions:
-                sim = _cos(q, _cached(id(embed), text, embed))
+                ex_vec = local_examples.get(text)
+                if ex_vec is None:
+                    ex_vec = local_examples[text] = embed(text)
+                sim = _cos(q, ex_vec)
                 if sim >= EXAMPLE_SIM and sim > learned.get(agent, 0.0):
                     learned[agent] = round(sim, 4)
     scores = {a: round(sem.get(a, 0.0) + KEYWORD_BONUS * min(2, hits[a]) + (EXAMPLE_BONUS if a in learned else 0.0), 4) for a in descriptions}
@@ -130,7 +217,7 @@ def select_agents(query: str, embed: Callable[[str], tuple[float, ...]] | None =
 
 
 __all__ = ["EXAMPLE_BONUS", "EXAMPLE_SIM", "LEARNED_VERSION", "CLARIFY_LABELS", "DESCRIPTIONS", "OFFICE_DESCRIPTIONS", "PACK_CLARIFY",
-           "PACK_DESCRIPTIONS", "SELECTION_VERSION", "clarify_options", "forced_selection", "keyword_hits", "select_agents"]
+           "PACK_DESCRIPTIONS", "SELECTION_VERSION", "clarify_options", "clear_embedding_cache", "forced_selection", "keyword_hits", "select_agents"]
 
 
 # Hỏi lại khi mơ hồ (mục 3.4): hai cách hiểu sát nhau thì hỏi một câu ngắn kèm 2 nút thay vì đoán.

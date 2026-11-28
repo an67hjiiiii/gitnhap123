@@ -27,8 +27,12 @@ def bound_emit() -> Callable[[dict], None]:
     return sink if sink is not None else (lambda item: None)
 
 
-def answer_streamer(provider) -> dict:
-    """kwargs `on_text` cho provider khi có người nghe và provider trả chữ theo luồng; rỗng nếu không."""
+def answer_streamer(provider, *, buffered: bool = False) -> dict:
+    """kwargs `on_text` cho provider khi có người nghe và provider trả chữ theo luồng; rỗng nếu không.
+
+    Khi `buffered=True` (ô chat sản phẩm), giữ streaming trên kết nối nhưng không đẩy frame `"answer"`
+    ra NDJSON trước khi hậu kiểm/guard hoàn tất.
+    """
     if progress_sink.get() is None or not getattr(provider, "supports_streaming", False):
         return {}
     last = {"text": ""}
@@ -37,9 +41,16 @@ def answer_streamer(provider) -> dict:
         text = partial_answer(acc)
         if text and text != last["text"]:
             last["text"] = text
-            emit({"type": "answer", "text": text})
+            if not buffered:
+                emit({"type": "answer", "text": text})
 
     return {"on_text": on_text}
+
+
+def emit_validated_answer(text: str) -> None:
+    """Phát duy nhất frame `"answer"` sau khi đã hậu kiểm và khóa an toàn NO_EVIDENCE/citation."""
+    if progress_sink.get() is not None and text and text.strip():
+        emit({"type": "answer", "text": text})
 
 
 _running: set[asyncio.Task] = set()  # giữ tham chiếu: người dùng đóng trang thì lượt chạy vẫn chạy xong và được lưu
@@ -53,6 +64,9 @@ async def ndjson_run(run_factory: Callable[[], Awaitable[Any]]) -> AsyncIterator
         progress_sink.set(queue.put_nowait)
         try:
             queue.put_nowait({"type": "done", "run": await run_factory()})
+        except asyncio.CancelledError:
+            queue.put_nowait({"type": "error", "status": 499, "detail": "Đã hủy lượt chạy."})
+            raise
         except Exception as exc:  # HTTPException mang status_code/detail; lỗi khác báo 500 thay vì cắt luồng im lặng
             status = int(getattr(exc, "status_code", 500))
             if status >= 500:

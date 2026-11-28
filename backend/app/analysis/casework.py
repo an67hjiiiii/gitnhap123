@@ -10,7 +10,9 @@ import re
 import time
 
 from app.core.citations import validate_citations
+from app.core.config import ollama_call_options
 from app.core.types import SourceChunk
+from app.providers.ollama import generation_stage
 from app.research.registry import profile
 
 from .traceability import _decode, _numbers, assign_agent
@@ -75,13 +77,16 @@ def _lang(text: str) -> str:
 async def _ask(provider, system: str, user: str, schema: dict, max_tokens: int | None = None):
     structured = getattr(provider, "generate_structured", None)
     if not callable(structured):
-        return await provider.generate(system=system, user=user)
+        opts = ollama_call_options(provider, product=True)
+        with generation_stage("analysis_casework"):
+            return await provider.generate(system=system, user=user, **opts)
     # 21/11: mặc định 700 token cắt giữa JSON (ngưỡng, quy trình, điều kiện) → kết quả rỗng; công cụ phân tích dùng tối thiểu 1.400
-    if getattr(provider, "supports_per_call_output_tokens", False):
-        extra = {"max_output_tokens": max(max_tokens or 0, COND_MAX_TOKENS)}
-    else:
-        extra = {"max_output_tokens": max_tokens} if max_tokens else {}
-    return await structured(system=system, user=user, response_schema=schema, **extra)
+    resolved_max = max(max_tokens or 0, COND_MAX_TOKENS) if getattr(provider, "supports_per_call_output_tokens", False) else max_tokens
+    extra = ollama_call_options(provider, product=True)
+    if resolved_max:
+        extra["max_output_tokens"] = resolved_max
+    with generation_stage("analysis_casework"):
+        return await structured(system=system, user=user, response_schema=schema, **extra)
 
 
 _ABSENT = re.compile(r"^\s*(?:không|chưa)\s+(?:có|nêu|quy định|rõ|xác định)|^\s*(?:n/?a|none|không)\s*\.?$", re.IGNORECASE)

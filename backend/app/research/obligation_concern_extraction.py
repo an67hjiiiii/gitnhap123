@@ -306,27 +306,104 @@ def ground_explicit_concerns(extraction: ObligationConcernExtraction, request: s
     return ObligationConcernExtraction(obligations=list(extraction.obligations), concerns=grounded)
 
 
+_REQUEST_HEAD_SPLIT_RE = re.compile(r"\s+(?:và|đồng thời|and|as well as)\s+|[?;]+", re.I)
+_APPROVAL_CLAUSE_RE = re.compile(
+    r"(?:\b(?:ai|cấp nào|người nào|bộ phận nào|chức danh nào|thẩm quyền nào|who|which role)\b[^\n?.]{0,70}"
+    r"\b(?:phê duyệt|duyệt|chấp thuận|ký duyệt|thẩm quyền|approv\w*|authoriz\w*)|"
+    r"\b(?:ai|cấp)\s+(?:phê duyệt|duyệt)\b)",
+    re.I,
+)
+_CALC_CLAUSE_RE = re.compile(
+    r"(?:tổng\s+(?:tiền|chi phí|cước|giá|lương|thanh toán|cộng)|bao nhiêu tiền|phí triển khai|total\s+(?:cost|amount|fee))",
+    re.I,
+)
+_APPROVAL_COVERED_RE = re.compile(r"(?:phê duyệt|duyệt|thẩm quyền|approv|authoriz)", re.I)
+_CALC_COVERED_RE = re.compile(r"(?:tổng|chi phí|tiền|phí|cost|total|fee|amount|triển khai|chiết khấu)", re.I)
+
+
+def _next_obligation_id(obligations: list[Obligation]) -> str:
+    used = {o.obligation_id for o in obligations}
+    idx = len(obligations) + 1
+    while f"O{idx}" in used:
+        idx += 1
+    return f"O{idx}"
+
+
+def supplement_missing_request_obligations(
+    request: str,
+    extraction: ObligationConcernExtraction,
+) -> ObligationConcernExtraction:
+    """Deterministically recover explicit coordinated inquiry clauses dropped by the LLM extractor."""
+    req_head = (request or "").split("[Ảnh đính kèm", 1)[0].strip()
+    if not req_head:
+        return extraction
+    clauses = [c.strip(" .,:;-") for c in _REQUEST_HEAD_SPLIT_RE.split(req_head) if c.strip(" .,:;-")]
+    if len(clauses) < 2:
+        return extraction
+
+    existing_text = " ".join(
+        [o.description for o in extraction.obligations] + [c.description for c in extraction.concerns]
+    )
+    obligations = list(extraction.obligations)
+    for clause in clauses:
+        if _APPROVAL_CLAUSE_RE.search(clause) and not _APPROVAL_COVERED_RE.search(existing_text):
+            obligations.append(
+                Obligation(
+                    obligation_id=_next_obligation_id(obligations),
+                    description=f"Xác định người/cấp có thẩm quyền phê duyệt: {clause}",
+                    required=True,
+                )
+            )
+            existing_text = f"{existing_text} {clause}"
+        elif _CALC_CLAUSE_RE.search(clause) and not _CALC_COVERED_RE.search(existing_text):
+            obligations.append(
+                Obligation(
+                    obligation_id=_next_obligation_id(obligations),
+                    description=clause,
+                    required=True,
+                )
+            )
+            existing_text = f"{existing_text} {clause}"
+
+    if len(obligations) == len(extraction.obligations):
+        return extraction
+    return ObligationConcernExtraction(obligations=obligations, concerns=list(extraction.concerns))
+
+
 async def extract_obligations_and_concerns(
     provider: Any,
     request: str,
     metrics: RunMetrics | None = None,
+    *,
+    num_ctx: int | None = None,
+    request_timeout: float | None = None,
+    keep_alive: str | int | float | None = None,
 ) -> ObligationConcernExtraction:
     """Ask the configured provider for obligations/concerns only."""
 
     prompt = build_extraction_prompt(request)
     structured = getattr(provider, "generate_structured", None)
+    extra: dict[str, Any] = {}
+    if num_ctx is not None and getattr(provider, "supports_num_ctx", False):
+        extra["num_ctx"] = num_ctx
+    if request_timeout is not None and getattr(provider, "supports_per_call_timeout", False):
+        extra["timeout"] = request_timeout
+    if keep_alive is not None and getattr(provider, "supports_keep_alive", False):
+        extra["keep_alive"] = keep_alive
     result = (
         await structured(
             system=EXTRACTION_SYSTEM_PROMPT, user=prompt,
             response_schema=extraction_response_schema(),
+            **extra,
         )
         if callable(structured)
-        else await provider.generate(system=EXTRACTION_SYSTEM_PROMPT, user=prompt)
+        else await provider.generate(system=EXTRACTION_SYSTEM_PROMPT, user=prompt, **extra)
     )
     if metrics is not None:
         metrics.add_usage(result.usage)
     extraction = parse_obligation_concern_output(result.text)
     extraction = ground_explicit_concerns(extraction, request)
+    extraction = supplement_missing_request_obligations(request, extraction)
     request_domains = set(detect_domains(request))
     for concern in extraction.concerns:
         validate_domain(concern.domain)
@@ -360,4 +437,5 @@ __all__ = [
     "extract_obligations_and_concerns",
     "parse_obligation_concern_output",
     "parse_obligation_concerns",
+    "supplement_missing_request_obligations",
 ]

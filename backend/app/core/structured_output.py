@@ -16,6 +16,7 @@ def decode_structured_json(text: str):
 
 _ANSWER_FIELD = re.compile(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)', re.S)
 _CITATIONS_FIELD = re.compile(r'"citations"\s*:\s*\[([^\]]*)\]', re.S)
+_STATUS_FIELD = re.compile(r'"status"\s*:\s*"([A-Za-z_]+)"')
 _PLACEHOLDER = re.compile(r"[\s.…]*")
 
 
@@ -46,8 +47,11 @@ def parse_answer_json(text: str) -> dict:
         answer = body.replace('\\"', '"').replace("\\n", "\n")
     cited = _CITATIONS_FIELD.search(text)
     citations = re.findall(r'"([^"]+)"', cited.group(1)) if cited else []
-    return {"status": "PARTIAL", "answer": answer, "citations": citations,
-            "missing_information": ["model output truncated"]}
+    status_match = _STATUS_FIELD.search(text)
+    trunc_status = "NO_EVIDENCE" if status_match and status_match.group(1).upper() == "NO_EVIDENCE" else "PARTIAL"
+    reason = "model output truncated" if cited is not None else "model output truncated before citations"
+    return {"status": trunc_status, "answer": answer, "citations": citations,
+            "truncated": True, "missing_information": [reason]}
 
 
 def partial_answer(text: str) -> str | None:

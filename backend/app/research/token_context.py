@@ -27,24 +27,18 @@ class TokenContextController:
     def __init__(self, max_tokens: int):
         self.max_tokens = max(0, int(max_tokens))
 
-    def select(self, candidates: list[SourceChunk]) -> tuple[list[SourceChunk], list[dict]]:
-        selected: list[SourceChunk] = []
-        dropped: list[dict] = []
-        seen: set[str] = set()
-        used = 0
-        for chunk in sorted(candidates, key=lambda c: (-c.score, c.chunk_id)):
-            digest = hashlib.sha256(chunk.text.strip().encode()).hexdigest()
-            if digest in seen:
-                dropped.append({"chunk_id": chunk.chunk_id, "reason": "exact_duplicate"})
-                continue
-            tokens = count_qwen_tokens(chunk.text)
-            if used + tokens > self.max_tokens:
-                dropped.append({"chunk_id": chunk.chunk_id, "reason": "qwen_token_budget", "tokens": tokens})
-                continue
-            seen.add(digest)
-            selected.append(chunk)
-            used += tokens
-        return selected, dropped
+    def select(self, candidates: list[SourceChunk], *, query: str | None = None) -> tuple[list[SourceChunk], list[dict]]:
+        from app.retrieval.text import select_budgeted_chunks
+
+        ordered = sorted(candidates, key=lambda c: (-c.score, c.chunk_id))
+        return select_budgeted_chunks(
+            ordered,
+            cost_fn=count_qwen_tokens,
+            budget=self.max_tokens,
+            query=query,
+            truncate_first=False,
+            budget_reason="qwen_token_budget",
+        )
 
 
 def plan_task_budgets(candidates_by_task: dict[str, list[SourceChunk]], total_tokens: int) -> dict:

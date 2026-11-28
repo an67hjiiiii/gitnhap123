@@ -17,6 +17,7 @@ class ProviderResult:
     usage: Usage = field(default_factory=Usage)
     request_id: str = ""
     model: str = ""
+    metrics: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class SourceChunk:
@@ -112,11 +113,40 @@ class RunMetrics:
     gpu_memory_mb: float | None = None
     cpu_percent: float | None = None  # CPU toàn máy trung bình trong lượt chạy
     model_rss_mb: float | None = None  # RAM tiến trình Ollama lúc kết thúc lượt
+    model_load_latency_ms: float = 0.0
+    model_load_count: int = 0
+    provider_calls: list[dict[str, Any]] = field(default_factory=list)
 
     def add_usage(self, usage: Usage) -> None:
         self.llm_calls += 1
         self.input_tokens += usage.input_tokens
         self.output_tokens += usage.output_tokens
+
+    def add_provider_call(
+        self,
+        stage: str | None,
+        wall_ms: float,
+        provider_metrics: dict[str, Any] | None = None,
+    ) -> None:
+        """Record sanitized per-call telemetry without prompts, credentials, or fabricated values."""
+        pm = dict(provider_metrics or {})
+        load_ms = pm.get("load_duration_ms")
+        if isinstance(load_ms, (int, float)) and load_ms > 0:
+            self.model_load_latency_ms = round(self.model_load_latency_ms + float(load_ms), 2)
+            self.model_load_count += 1
+        self.provider_calls.append({
+            "stage": pm.get("stage") or stage or "unknown",
+            "wall_ms": pm.get("wall_ms") if pm.get("wall_ms") is not None else round(float(wall_ms), 2),
+            "ttft_ms": pm.get("ttft_ms"),
+            "total_duration_ms": pm.get("total_duration_ms"),
+            "load_duration_ms": load_ms,
+            "prompt_eval_count": pm.get("prompt_eval_count"),
+            "prompt_eval_duration_ms": pm.get("prompt_eval_duration_ms"),
+            "eval_count": pm.get("eval_count"),
+            "eval_duration_ms": pm.get("eval_duration_ms"),
+            "effective_num_ctx": pm.get("effective_num_ctx"),
+            "effective_keep_alive": pm.get("effective_keep_alive"),
+        })
 
     def add_citations(self, valid: list[str], invalid: list[str]) -> None:
         self.citations_valid += len(valid)

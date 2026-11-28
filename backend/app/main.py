@@ -15,7 +15,7 @@ from app.api.auth import router as auth_router
 from app.api.oidc import build_router as _build_oidc_router
 from app.api.auth import get_session_token
 from app.auth.store import AuthStore, InvalidSessionError
-from app.core.access import DEPARTMENT_BOUND, can_upload, require_active_member
+from app.core.access import DEPARTMENT_BOUND, can_upload, referenced_source_ids, require_active_member
 from app.core.config import RuntimeConfig
 from app.ingestion.documents import (
     DOCUMENT_INGESTION_VERSION,
@@ -362,16 +362,19 @@ def get_chunk(chunk_id: str, request: Request):
 
 @app.post("/api/sources/text")
 def import_text(body: SourceTextRequest, request: Request):
+    if not body.source_name.strip():
+        raise HTTPException(422, "source_name is empty")
     if not body.text.strip():
         raise HTTPException(400, "text is empty")
     user = current_user(request)
     if request.query_params.get("space_id"):  # nộp tài liệu vào tổ chức (kèm mức mật) làm ở đợt sau
         raise HTTPException(400, "Chưa hỗ trợ tải tài liệu trực tiếp vào không gian tổ chức.")
-    request.state.audit_target = body.source_name
+    clean_name = body.source_name.strip()
+    request.state.audit_target = clean_name
     store = owner_source_store(user)
     try:
         imported = store.import_text(
-            body.source_name,
+            clean_name,
             body.text,
             provenance={
                 "ingestion_version": DOCUMENT_INGESTION_VERSION,
@@ -381,6 +384,8 @@ def import_text(body: SourceTextRequest, request: Request):
             },
         )
         return _watch_new_source(user, store, _index_imported_source(user, store, imported))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except IndexingError as exc:
         raise HTTPException(503, "DERIVED_INDEX_FAILED") from exc
 
@@ -626,14 +631,15 @@ async def chat_stream(body: ChatRequest, request: Request):
         raise HTTPException(400, "STREAM_ONLY_FOR_PRODUCT_MODE")
     if not body.message.strip():
         raise HTTPException(400, "message is required")
-    return StreamingResponse(ndjson_run(lambda: _chat(body, request)), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    user = current_principal(request)
+    return StreamingResponse(ndjson_run(lambda: _chat(body, request, user=user)), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-async def _chat(body: ChatRequest, request: Request):
+async def _chat(body: ChatRequest, request: Request, *, user: dict | None = None):
     if not body.message.strip():
         raise HTTPException(400, "message is required")
     try:
-        user = current_principal(request)
+        user = user if user is not None else current_principal(request)
         runtime_config = RuntimeConfig.from_env()
         if body.product_mode:
             if body.condition is not None or body.provider is not None:
@@ -693,7 +699,7 @@ async def _chat(body: ChatRequest, request: Request):
             conversation_id=conversation_id,
             product_mode=body.product_mode,
             reply_in_query_language=body.reply_in_query_language,
-            domain_pack=body.domain_pack or product_agent_pack(),  # thống nhất bộ 11 Agent 3D thật (office) cho cả hỏi nhanh & phân tích A/B/C
+            domain_pack=body.domain_pack or (product_agent_pack() if body.product_mode else None),  # INT-DEC-01: tách Product ('office') khỏi Research A/B/C ('software')
             forced_agent=body.agent if body.product_mode else None,
             routing_examples=examples,
         )
@@ -766,6 +772,7 @@ class SkillCardBody(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     summary: str = Field(min_length=1, max_length=2000)
     card: dict
+    source_ids: list[str] | None = Field(default=None, max_length=50)
 
 
 @app.post("/api/conversations/skill-card")
@@ -774,19 +781,26 @@ def save_skill_card(body: SkillCardBody, request: Request):
 
     Tin nhắn trợ lý = dòng tóm tắt + dữ liệu thẻ trong <!--skill-card:...-->; ngữ cảnh hội thoại chỉ lấy dòng tóm tắt.
     """
-    payload = json.dumps(body.card, ensure_ascii=False, separators=(",", ":"))
+    user = current_principal(request)
+    if not body.question.strip() or not body.summary.strip():
+        raise HTTPException(422, "Nội dung câu hỏi và tóm tắt không được để trống.")
+    card_data = dict(body.card)
+    clean_ids = list(dict.fromkeys(str(s) for s in (body.source_ids or []) if str(s)))
+    # Luôn kiểm tra mọi src_<16hex> nhúng trong thẻ/tóm tắt lẫn source_ids bất kể space_id (B135-SEC-01 & SEC-02)
+    from app.storage.postgres.runtime import _extract_source_ids_obj
+    extracted_refs: set[str] = set()
+    _extract_source_ids_obj(card_data, extracted_refs)
+    embedded_refs = sorted(referenced_source_ids({"summary": body.summary, "card": card_data}) | extracted_refs)
+    verify_ids = list(dict.fromkeys([*clean_ids, *embedded_refs]))
+    if verify_ids:
+        sources = owner_source_store(user)
+        if any(sources.source(sid) is None for sid in verify_ids):
+            raise HTTPException(404, "Không tìm thấy tài liệu.")
+        existing_ids = [str(s) for s in (card_data.get("_source_ids") or []) if str(s)] if isinstance(card_data.get("_source_ids"), list) else []
+        card_data["_source_ids"] = list(dict.fromkeys([*existing_ids, *verify_ids]))
+    payload = json.dumps(card_data, ensure_ascii=False, separators=(",", ":"))
     if len(payload) > 60_000:
         raise HTTPException(413, "Thẻ kết quả quá lớn để lưu.")
-    user = current_principal(request)
-    if user.get("space_id"):
-        # SEC-02: kiểm tra quyền đọc các nguồn được đính kèm trong thẻ kỹ năng ngay lúc lưu
-        from app.storage.postgres.runtime import _extract_source_ids_obj
-        refs: set[str] = set()
-        _extract_source_ids_obj(body.card, refs)
-        if refs:
-            visible_ids = {s["source_id"] for s in owner_source_store(user).list_sources()}
-            if not (refs <= visible_ids):
-                raise HTTPException(403, "Bạn không có quyền lưu thẻ kết quả chứa tài liệu ngoài phạm vi truy cập.")
     conversations = owner_conversation_store(user)
     conversation_id = body.conversation_id
     if conversation_id:

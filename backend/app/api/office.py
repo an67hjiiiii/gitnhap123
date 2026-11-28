@@ -10,18 +10,29 @@ tuyệt đối không dùng kịch bản minh họa văn bản dựng sẵn.
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
+import logging
+import os
 import random
 import re
 import time
-from typing import Any, AsyncIterator, Callable
+from datetime import datetime, timezone
+from typing import Any, AsyncIterator, Awaitable, Callable
 
-from fastapi import APIRouter, Request
+_log = logging.getLogger(__name__)
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.core.answer_checks import check_product_evidence_claims, strip_invalid_inline_citations
+from app.core.citations import validate_citations
+from app.core.config import ollama_call_options
 from app.core.secret_audit import log_secret_access
 from app.providers.factory import get_provider
+from app.research.run_queue import QueueFullError, product_runs
 
 AGENT_PERSONAS: dict[str, dict[str, str]] = {
     "orchestrator": {
@@ -131,18 +142,87 @@ def _clean_json_field(raw: str, field: str = "reply") -> str:
     return text
 
 
-async def _call_llm(provider: Any, *, system: str, user: str, max_tokens: int = 260, schema: dict[str, Any] = _REPLY_SCHEMA, field: str = "reply") -> tuple[str, int, int]:
+def _filtered_call_kwargs(fn: Any, opts: dict[str, Any]) -> dict[str, Any]:
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return {}
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return dict(opts)
+    return {k: v for k, v in opts.items() if k in params}
+
+
+async def _await_with_guards(
+    coro: Any,
+    *,
+    deadline: float | None = None,
+    is_disconnected: Callable[[], Awaitable[bool]] | None = None,
+) -> Any:
+    if deadline is not None and time.monotonic() >= deadline:
+        if asyncio.iscoroutine(coro):
+            coro.close()
+        raise TimeoutError("Phiên làm việc vượt quá giới hạn thời gian cho phép.")
+    gen_task = asyncio.create_task(coro)
+
+    async def _watch_disconnect() -> None:
+        assert is_disconnected is not None
+        while not gen_task.done():
+            await asyncio.sleep(0.05)
+            if await is_disconnected():
+                raise asyncio.CancelledError("Client disconnected")
+
+    disc_task = asyncio.create_task(_watch_disconnect()) if is_disconnected is not None else None
+    try:
+        while not gen_task.done():
+            step_timeout: float | None = None
+            if deadline is not None:
+                rem = deadline - time.monotonic()
+                if rem <= 0:
+                    raise TimeoutError("Phiên làm việc vượt quá giới hạn thời gian cho phép.")
+                step_timeout = rem
+            wait_set = {gen_task} if disc_task is None else {gen_task, disc_task}
+            done, _ = await asyncio.wait(wait_set, timeout=step_timeout, return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                raise TimeoutError("Phiên làm việc vượt quá giới hạn thời gian cho phép.")
+            if disc_task is not None and disc_task in done and not gen_task.done():
+                disc_task.result()  # raises CancelledError when disconnected
+                break
+        return await gen_task
+    finally:
+        for task in (gen_task, disc_task):
+            if task is not None and not task.done():
+                task.cancel()
+        await asyncio.gather(*(t for t in (gen_task, disc_task) if t is not None), return_exceptions=True)
+
+
+async def _call_llm(
+    provider: Any,
+    *,
+    system: str,
+    user: str,
+    max_tokens: int = 260,
+    schema: dict[str, Any] = _REPLY_SCHEMA,
+    field: str = "reply",
+    call_budget: list[int] | None = None,
+    deadline: float | None = None,
+    is_disconnected: Callable[[], Awaitable[bool]] | None = None,
+) -> tuple[str, int, int]:
+    if call_budget is not None:
+        if call_budget[0] <= 0:
+            raise RuntimeError("Phiên làm việc đã đạt trần số lượt gọi mô hình cho phép.")
+        call_budget[0] -= 1
     started = time.perf_counter()
     sys_clean = f'{system}\nChỉ trả về JSON hợp lệ theo lược đồ {{"{field}": "nội dung tiếng Việt ngắn gọn"}}.\n/no_think'
+    call_opts = ollama_call_options(provider, product=True, max_output_tokens=max_tokens)
     if hasattr(provider, "generate_structured"):
-        res = await provider.generate_structured(
-            system=sys_clean,
-            user=user,
-            response_schema=schema,
-            max_output_tokens=max_tokens,
-        )
+        gen_fn = provider.generate_structured
+        kwargs = _filtered_call_kwargs(gen_fn, {**call_opts, "response_schema": schema})
+        coro = gen_fn(system=sys_clean, user=user, **kwargs)
     else:
-        res = await provider.generate(system=system, user=user)
+        gen_fn = provider.generate
+        kwargs = _filtered_call_kwargs(gen_fn, call_opts)
+        coro = gen_fn(system=system, user=user, **kwargs)
+    res = await _await_with_guards(coro, deadline=deadline, is_disconnected=is_disconnected)
     latency_ms = round((time.perf_counter() - started) * 1000)
     usage = getattr(res, "usage", None)
     tokens = int(getattr(usage, "total_tokens", 0) or 0)
@@ -191,12 +271,46 @@ def build_router(
         """Kích hoạt một phiên làm việc đa tác tử THẬT trên kho tài liệu hiện tại với đội 11 Agent 3D."""
         user = current_user(request)
         pipeline = owner_pipeline(user)
+        if body.source_ids is not None:
+            body.source_ids = [str(sid) for sid in body.source_ids]
+            validator = getattr(pipeline.source_store, "validate_source_selection", None)
+            if callable(validator):
+                try:
+                    validator(body.source_ids)
+                except LookupError as exc:
+                    raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.") from exc
+            elif body.source_ids:
+                source_getter = getattr(pipeline.source_store, "source", None)
+                if callable(source_getter):
+                    if any(source_getter(sid) is None for sid in body.source_ids):
+                        raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.")
+                else:
+                    found_ids = {c.source_id for c in pipeline.source_store.chunks(body.source_ids)}
+                    if any(sid not in found_ids for sid in body.source_ids):
+                        raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.")
         provider = get_provider()
         uid = str(user.get("user_id") or "")
 
-        async def stream() -> AsyncIterator[bytes]:
+        async def _generate_session() -> AsyncIterator[bytes]:
             started_all = time.perf_counter()
             total_tokens = 0
+            try:
+                max_calls = max(5, int(os.getenv("OFFICE_MAX_LLM_CALLS", "6") or 6))
+            except ValueError:
+                max_calls = 6
+            call_budget = [max_calls]
+            try:
+                wall_limit = max(10.0, float(os.getenv("OFFICE_SESSION_TIMEOUT_S", "180") or 180))
+            except ValueError:
+                wall_limit = 180.0
+            deadline = time.monotonic() + wall_limit
+
+            async def _check_aborted() -> bytes | None:
+                if time.monotonic() > deadline:
+                    return _ndjson_line({"type": "error", "detail": "Phiên làm việc vượt quá giới hạn thời gian cho phép."})
+                if await request.is_disconnected():
+                    return b""
+                return None
 
             # 0. Kiểm tra kho tài liệu thật trong không gian đang mở
             try:
@@ -231,8 +345,16 @@ def build_router(
                         max_tokens=110,
                         schema=_TOPIC_SCHEMA,
                         field="topic",
+                        call_budget=call_budget,
+                        deadline=deadline,
+                        is_disconnected=request.is_disconnected,
                     )
                     total_tokens += toks
+                except asyncio.CancelledError:
+                    return
+                except TimeoutError:
+                    yield _ndjson_line({"type": "error", "detail": "Phiên làm việc vượt quá giới hạn thời gian cho phép."})
+                    return
                 except Exception:
                     topic = f"Rà soát và đối chiếu các quy định, chỉ tiêu quan trọng trong {', '.join(doc_names[:2])}"
                 if len(topic) < 12 or "{" in topic:
@@ -254,6 +376,12 @@ def build_router(
                 "has_docs": has_docs,
                 "doc_names": doc_names[:5],
             })
+
+            abort_sig = await _check_aborted()
+            if abort_sig is not None:
+                if abort_sig:
+                    yield abort_sig
+                return
 
             pa = AGENT_PERSONAS[agent_a]
             pb = AGENT_PERSONAS[agent_b]
@@ -277,7 +405,15 @@ def build_router(
                     ),
                     user=f"Nhiệm vụ phiên làm việc: {topic}\nTài liệu sẵn có: {', '.join(doc_names[:4]) if has_docs else 'Chưa có tài liệu nội bộ (dùng kiến thức chuyên môn)'}.",
                     max_tokens=200,
+                    call_budget=call_budget,
+                    deadline=deadline,
+                    is_disconnected=request.is_disconnected,
                 )
+            except asyncio.CancelledError:
+                return
+            except TimeoutError:
+                yield _ndjson_line({"type": "error", "detail": "Phiên làm việc vượt quá giới hạn thời gian cho phép."})
+                return
             except Exception as exc:
                 yield _ndjson_line({"type": "error", "detail": f"Lỗi gọi mô hình AI: {exc}"})
                 return
@@ -298,6 +434,7 @@ def build_router(
             # 2. RAG Specialist rút bằng chứng thật nếu kho có tài liệu
             evidence_text = ""
             citations: list[dict[str, Any]] = []
+            evidence_chunks: list[Any] = []
             if has_docs:
                 yield _ndjson_line({
                     "type": "agent_thinking",
@@ -321,6 +458,7 @@ def build_router(
                     txt = (c.text or "").strip()
                     if not txt:
                         continue
+                    evidence_chunks.append(c)
                     citations.append({
                         "index": idx,
                         "chunk_id": c.chunk_id,
@@ -350,6 +488,12 @@ def build_router(
                 else "Lưu ý: Không có tài liệu nội bộ đính kèm, tư vấn ngắn gọn theo chuyên môn và không bịa số liệu nội bộ.\n\n"
             )
 
+            abort_sig = await _check_aborted()
+            if abort_sig is not None:
+                if abort_sig:
+                    yield abort_sig
+                return
+
             # 3A. Chuyên gia 1 xử lý đầu việc T1 & gửi trao đổi sang Chuyên gia 2
             yield _ndjson_line({
                 "type": "agent_thinking",
@@ -368,7 +512,15 @@ def build_router(
                     ),
                     user=f"{ev_prompt}Nhiệm vụ chung: {topic}\nPhân công của Orchestrator: {plan_msg}",
                     max_tokens=230,
+                    call_budget=call_budget,
+                    deadline=deadline,
+                    is_disconnected=request.is_disconnected,
                 )
+            except asyncio.CancelledError:
+                return
+            except TimeoutError:
+                yield _ndjson_line({"type": "error", "detail": "Phiên làm việc vượt quá giới hạn thời gian cho phép."})
+                return
             except Exception as exc:
                 yield _ndjson_line({"type": "error", "detail": f"Lỗi gọi mô hình ở {pa['name']}: {exc}"})
                 return
@@ -385,6 +537,12 @@ def build_router(
                 "latency_ms": lat_ms,
                 "tokens": toks,
             })
+
+            abort_sig = await _check_aborted()
+            if abort_sig is not None:
+                if abort_sig:
+                    yield abort_sig
+                return
 
             # 3B. Chuyên gia 2 xử lý đầu việc T2 & trao đổi chéo trực tiếp với Chuyên gia 1
             yield _ndjson_line({
@@ -404,7 +562,15 @@ def build_router(
                     ),
                     user=f"{ev_prompt}Nhiệm vụ chung: {topic}\nKết quả T1 từ {pa['name']}: \"{res_a}\"",
                     max_tokens=230,
+                    call_budget=call_budget,
+                    deadline=deadline,
+                    is_disconnected=request.is_disconnected,
                 )
+            except asyncio.CancelledError:
+                return
+            except TimeoutError:
+                yield _ndjson_line({"type": "error", "detail": "Phiên làm việc vượt quá giới hạn thời gian cho phép."})
+                return
             except Exception as exc:
                 yield _ndjson_line({"type": "error", "detail": f"Lỗi gọi mô hình ở {pb['name']}: {exc}"})
                 return
@@ -421,6 +587,12 @@ def build_router(
                 "latency_ms": lat_ms,
                 "tokens": toks,
             })
+
+            abort_sig = await _check_aborted()
+            if abort_sig is not None:
+                if abort_sig:
+                    yield abort_sig
+                return
 
             # 4. Reviewer kiểm định chéo kết quả của 2 phòng ban
             yield _ndjson_line({
@@ -440,7 +612,15 @@ def build_router(
                     ),
                     user=f"{ev_prompt}Nhiệm vụ: {topic}\n- {pa['name']}: {res_a}\n- {pb['name']}: {res_b}",
                     max_tokens=200,
+                    call_budget=call_budget,
+                    deadline=deadline,
+                    is_disconnected=request.is_disconnected,
                 )
+            except asyncio.CancelledError:
+                return
+            except TimeoutError:
+                yield _ndjson_line({"type": "error", "detail": "Phiên làm việc vượt quá giới hạn thời gian cho phép."})
+                return
             except Exception as exc:
                 yield _ndjson_line({"type": "error", "detail": f"Lỗi gọi mô hình ở Reviewer: {exc}"})
                 return
@@ -457,6 +637,12 @@ def build_router(
                 "latency_ms": lat_ms,
                 "tokens": toks,
             })
+
+            abort_sig = await _check_aborted()
+            if abort_sig is not None:
+                if abort_sig:
+                    yield abort_sig
+                return
 
             # 5. Integrator tổng hợp và chốt kết quả bàn giao
             yield _ndjson_line({
@@ -481,11 +667,52 @@ def build_router(
                         f"- Reviewer: {rev_msg}"
                     ),
                     max_tokens=280,
+                    call_budget=call_budget,
+                    deadline=deadline,
+                    is_disconnected=request.is_disconnected,
                 )
+            except asyncio.CancelledError:
+                return
+            except TimeoutError:
+                yield _ndjson_line({"type": "error", "detail": "Phiên làm việc vượt quá giới hạn thời gian cho phép."})
+                return
             except Exception as exc:
                 yield _ndjson_line({"type": "error", "detail": f"Lỗi gọi mô hình ở Integrator: {exc}"})
                 return
             total_tokens += toks
+
+            final_status = "COMPLETE"
+            saved_cids: list[str] = []
+            if has_docs and not evidence_chunks:
+                final_msg, _ = strip_invalid_inline_citations(final_msg, set())
+                citations = []
+                final_status = "PARTIAL"
+            elif has_docs and evidence_chunks:
+                allowed_ids = {c.chunk_id for c in evidence_chunks}
+                final_msg, _ = strip_invalid_inline_citations(final_msg, allowed_ids)
+                valid_cids, _ = validate_citations([c["chunk_id"] for c in citations], evidence_chunks)
+                raw_ev = "\n\n".join((c.text or "") for c in evidence_chunks)
+                refusal_markers = (
+                    "tài liệu không đề cập", "không có thông tin", "không tìm thấy",
+                    "chưa thấy", "không nêu", "tài liệu không nêu", "not found", "does not mention",
+                )
+                initial_status = (
+                    "NO_EVIDENCE"
+                    if any(m in final_msg.casefold() for m in refusal_markers)
+                    else ("COMPLETE" if valid_cids else "PARTIAL")
+                )
+                final_status, final_msg, _, _ = check_product_evidence_claims(
+                    initial_status,
+                    final_msg,
+                    raw_ev,
+                    topic,
+                    [],
+                    evidence_chunks=evidence_chunks,
+                )
+                valid_set = set(valid_cids) if final_status != "NO_EVIDENCE" else set()
+                citations = [c for c in citations if c["chunk_id"] in valid_set]
+                saved_cids = [c["chunk_id"] for c in citations]
+
             yield _ndjson_line({
                 "type": "agent_message",
                 "agent_id": "integrator",
@@ -499,12 +726,39 @@ def build_router(
                 "tokens": toks,
             })
 
+            total_ms = round((time.perf_counter() - started_all) * 1000)
+            run_store = getattr(pipeline, "run_store", None)
+            if run_store is not None and callable(getattr(run_store, "save", None)):
+                try:
+                    run_store.save({
+                        "run_id": f"office_{int(time.time() * 1000)}",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "condition": "OFFICE_SESSION",
+                        "query": topic,
+                        "lifecycle_status": "COMPLETED",
+                        "status": final_status,
+                        "answer": final_msg,
+                        "citations": saved_cids,
+                        "metrics": {"latency_ms": total_ms, "total_tokens": total_tokens},
+                    })
+                except Exception:
+                    _log.warning("Failed to persist office run_store record", exc_info=True)
+
             yield _ndjson_line({
                 "type": "session_done",
-                "total_latency_ms": round((time.perf_counter() - started_all) * 1000),
+                "total_latency_ms": total_ms,
                 "total_tokens": total_tokens,
                 "citations": citations,
+                "status": final_status,
             })
+
+        async def stream() -> AsyncIterator[bytes]:
+            try:
+                async with product_runs.slot():
+                    async for chunk in _generate_session():
+                        yield chunk
+            except QueueFullError as exc:
+                yield _ndjson_line({"type": "error", "detail": str(exc)})
 
         return StreamingResponse(
             stream(),

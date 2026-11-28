@@ -14,7 +14,7 @@ from sqlalchemy import cast, delete, false, func, literal, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, contains_eager, sessionmaker
 
 from app.auth.store import (
     AUTH_SCHEMA_VERSION,
@@ -607,8 +607,13 @@ class PostgresSourceStore:
                 source.updated_at = now
 
         try:
+            chunk_provenance = {
+                **source_provenance,
+                "doc_type": metadata["doc_type"],
+                "doc_type_by": metadata["doc_type_by"],
+            }
             chunks = make_chunks(
-                str(source_name).strip(), clean_text, provenance=source_provenance
+                str(source_name).strip(), clean_text, provenance=chunk_provenance
             )
             if not chunks:
                 raise ValueError("text must not be empty")
@@ -716,6 +721,7 @@ class PostgresSourceStore:
             rows = db.scalars(
                 select(KnowledgeChunkRecord)
                 .join(KnowledgeSourceRecord)
+                .options(contains_eager(KnowledgeChunkRecord.source))
                 .where(*filters)
                 .order_by(KnowledgeChunkRecord.source_id, KnowledgeChunkRecord.chunk_index)
             ).all()
@@ -833,13 +839,27 @@ class PostgresSourceStore:
 
     @staticmethod
     def _chunk(row: KnowledgeChunkRecord) -> SourceChunk:
+        prov = dict(row.provenance or {})
+        meta = dict((row.source.display_metadata if row.source is not None else None) or {})
+        src_type = str(meta.get("doc_type") or "").strip()
+        chk_type = str(prov.get("doc_type") or "").strip()
+        if src_type and (
+            meta.get("doc_type_by") == "user"
+            or not chk_type
+            or (chk_type == "other" and src_type != "other")
+        ):
+            prov["doc_type"] = src_type
+            if meta.get("doc_type_by") and "doc_type_by" not in prov:
+                prov["doc_type_by"] = meta["doc_type_by"]
+        elif chk_type:
+            prov["doc_type"] = chk_type
         return SourceChunk(
             chunk_id=row.chunk_id,
             source_id=row.source_id,
             source_name=row.source.source_name,
             text=row.content or "",
             index=row.chunk_index,
-            provenance=dict(row.provenance or {}),
+            provenance=prov,
         )
 
 
@@ -1010,14 +1030,11 @@ class PostgresConversationStore:
                 if self.space_id is not None else None
             )
             hidden = self._hidden_runs(db, [row.run_id for row in messages if row.run_id], visible=visible)
+            hidden_messages = self._hidden_messages(db, messages, hidden, visible=visible)
 
             def _content_for(row: ConversationMessageRecord) -> str:
-                if row.run_id in hidden:
+                if row.message_id in hidden_messages:
                     return REDACTED_ANSWER
-                if visible is not None and row.run_id is None and "<!--skill-card:" in (row.content or ""):
-                    refs = _skill_card_source_ids(row.content) - planning_source_ids()
-                    if refs and not (refs <= visible):
-                        return REDACTED_ANSWER
                 return row.content
 
             return {
@@ -1079,6 +1096,34 @@ class PostgresConversationStore:
         allowed = visible if visible is not None else visible_source_ids(db, self.owner_user_id, self.space_id)
         rows = db.execute(select(RunRecord.run_id, RunRecord.extra_data).where(RunRecord.run_id.in_(run_ids))).all()
         return {run_id for run_id, data in rows if not referenced_source_ids(data or {}) - planning_source_ids() <= allowed}
+
+    def _hidden_messages(
+        self,
+        db: Session,
+        messages: list[ConversationMessageRecord],
+        hidden_runs: set[str],
+        *,
+        visible: set[str] | None = None,
+    ) -> set[str]:
+        """Ẩn câu trả lời (kể cả SkillCard run_id=None) trong hội thoại tổ chức khi mất quyền với tài liệu tham chiếu."""
+        if self.space_id is None:
+            return set()
+        allowed = visible
+        hidden: set[str] = set()
+        plan_ids = planning_source_ids()
+        for row in messages:
+            if str(row.role or "").upper() == "USER":
+                continue
+            if row.run_id and row.run_id in hidden_runs:
+                hidden.add(row.message_id)
+                continue
+            refs = (referenced_source_ids(row.content or "") | _skill_card_source_ids(row.content or "")) - plan_ids
+            if refs:
+                if allowed is None:
+                    allowed = visible_source_ids(db, self.owner_user_id, self.space_id)
+                if not (refs <= allowed):
+                    hidden.add(row.message_id)
+        return hidden
 
 
 _SKILL_CARD_RE = re.compile(r"<!--skill-card:(.*?)-->", re.S)

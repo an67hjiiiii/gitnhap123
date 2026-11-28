@@ -2,9 +2,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 from dataclasses import dataclass, asdict
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env", override=False)
@@ -76,3 +78,116 @@ class RuntimeConfig:
     def config_hash(self) -> str:
         payload = json.dumps(self.public_dict(), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+_KEEP_ALIVE_RE = re.compile(r"^\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h)?$", re.IGNORECASE)
+_UNSET_VALUES = frozenset({"default", "off", "none", "unset"})
+
+
+def _normalize_keep_alive(raw: Any, *, strict: bool) -> str | int | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        if strict:
+            raise ValueError("keep_alive cannot be a boolean")
+        return None
+    if isinstance(raw, (int, float)):
+        if raw < 0 or not (raw == raw):
+            if strict:
+                raise ValueError("Permanent or negative keep_alive (-1) is disallowed")
+            return None
+        return int(raw) if isinstance(raw, int) or raw.is_integer() else f"{raw}s"
+    text = str(raw).strip()
+    if not text or text.lower() in _UNSET_VALUES:
+        return None
+    if text.startswith("-") or not _KEEP_ALIVE_RE.fullmatch(text):
+        if strict:
+            raise ValueError(f"Invalid or permanent keep_alive value: {text!r}")
+        return None
+    if text.isdigit():
+        return int(text)
+    return text.lower()
+
+
+def resolve_ollama_keep_alive(
+    explicit: str | int | float | None = None,
+    *,
+    product: bool = False,
+    embed: bool = False,
+) -> str | int | None:
+    """Resolve safe, finite Ollama keep_alive duration without forcing permanent residency (-1)."""
+    if explicit is not None:
+        return _normalize_keep_alive(explicit, strict=True)
+    if embed:
+        raw_embed = os.getenv("OLLAMA_EMBED_KEEP_ALIVE")
+        if raw_embed is not None and raw_embed.strip():
+            return _normalize_keep_alive(raw_embed, strict=False)
+        raw_global = os.getenv("OLLAMA_KEEP_ALIVE")
+        if raw_global is not None and raw_global.strip():
+            return _normalize_keep_alive(raw_global, strict=False)
+        return None
+    if product:
+        raw_prod = os.getenv("PRODUCT_OLLAMA_KEEP_ALIVE")
+        if raw_prod is not None and raw_prod.strip():
+            return _normalize_keep_alive(raw_prod, strict=False)
+        raw_global = os.getenv("OLLAMA_KEEP_ALIVE")
+        if raw_global is not None and raw_global.strip():
+            return _normalize_keep_alive(raw_global, strict=False)
+        return "10m"
+    raw_global = os.getenv("OLLAMA_KEEP_ALIVE")
+    if raw_global is not None and raw_global.strip():
+        return _normalize_keep_alive(raw_global, strict=False)
+    return None
+
+
+def resolve_ollama_generation_config(
+    *,
+    product: bool = False,
+    num_ctx: int | None = None,
+    max_output_tokens: int | None = None,
+    timeout: float | None = None,
+    keep_alive: str | int | float | None = None,
+) -> dict[str, Any]:
+    """Centralized generation parameter resolution preserving Research A/B/C defaults and caller overrides."""
+    from app.research.token_budget import resolve_max_safe_num_ctx, resolve_product_num_ctx
+
+    effective_num_ctx: int | None = None
+    if num_ctx is not None:
+        effective_num_ctx = max(512, min(int(num_ctx), resolve_max_safe_num_ctx()))
+    elif product:
+        effective_num_ctx = resolve_product_num_ctx()
+    return {
+        "num_ctx": effective_num_ctx,
+        "keep_alive": resolve_ollama_keep_alive(keep_alive, product=product, embed=False),
+        "max_output_tokens": max_output_tokens,
+        "timeout": timeout,
+    }
+
+
+def ollama_call_options(
+    provider: Any,
+    *,
+    product: bool = True,
+    num_ctx: int | None = None,
+    max_output_tokens: int | None = None,
+    timeout: float | None = None,
+    keep_alive: str | int | float | None = None,
+) -> dict[str, Any]:
+    """Filter centralized generation options to capabilities explicitly supported by `provider`."""
+    cfg = resolve_ollama_generation_config(
+        product=product,
+        num_ctx=num_ctx,
+        max_output_tokens=max_output_tokens,
+        timeout=timeout,
+        keep_alive=keep_alive,
+    )
+    opts: dict[str, Any] = {}
+    if cfg["num_ctx"] is not None and getattr(provider, "supports_num_ctx", False):
+        opts["num_ctx"] = cfg["num_ctx"]
+    if cfg["keep_alive"] is not None and getattr(provider, "supports_keep_alive", False):
+        opts["keep_alive"] = cfg["keep_alive"]
+    if cfg["max_output_tokens"] is not None and getattr(provider, "supports_per_call_output_tokens", False):
+        opts["max_output_tokens"] = cfg["max_output_tokens"]
+    if cfg["timeout"] is not None and getattr(provider, "supports_per_call_timeout", False):
+        opts["timeout"] = cfg["timeout"]
+    return opts

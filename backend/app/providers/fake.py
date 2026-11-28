@@ -10,7 +10,7 @@ class FakeProvider(Provider):
     name = "fake"
     model = "fake-s0-v2"
 
-    async def generate(self, *, system: str, user: str) -> ProviderResult:
+    async def generate(self, system: str, user: str, **kwargs) -> ProviderResult:
         await asyncio.sleep(0.01)
         marker = system.upper()
         if "OBLIGATION_CONCERN_EXTRACTOR" in marker:

@@ -1,9 +1,20 @@
 from __future__ import annotations
+import re
 from app.core.citations import resolve_citations, validate_citations
 from app.core.structured_output import is_placeholder_answer, parse_answer_json
 from app.core.types import Task, TaskResult, SourceChunk, RunMetrics
-from app.research.registry import profile
-from app.core.answer_checks import IMG_MARK, apply_calc_with_values, detect_unanchored_entities, is_task_topic_unanchored
+from app.research.registry import active_domains, profile, use_pack
+from app.core.answer_checks import (
+    IMG_MARK,
+    apply_calc_with_values,
+    check_product_evidence_claims,
+    detect_unanchored_entities,
+    guard_no_evidence,
+    is_task_topic_unanchored,
+    normalize_status,
+    strip_invalid_inline_citations,
+)
+from app.research.token_budget import fit_evidence_to_prompt_budget, resolve_product_num_ctx
 from app.research.vanilla import REPLY_LANGUAGE_HINT
 
 _REFUSAL_PHRASES = (
@@ -60,19 +71,30 @@ def _extract_json(text: str) -> dict:
 
 async def execute_task(provider, task: Task, evidence: list[SourceChunk], metrics: RunMetrics, reply_language: str | None = None,
                        upstream: list[TaskResult] | None = None, product: bool = False, user_request: str | None = None,
-                       extra_hint: str | None = None) -> TaskResult:
+                       extra_hint: str | None = None, num_ctx: int | None = None,
+                       request_timeout: float | None = None, keep_alive: str | int | float | None = None) -> TaskResult:
     if not evidence:
+        fallback_empty = (
+            "No relevant evidence was found for this task."
+            if reply_language == "en"
+            else "Chưa tìm thấy evidence phù hợp cho task này."
+        )
         return TaskResult(
             task_id=task.task_id,
             domain=task.domain,
             status="NO_EVIDENCE",
-            answer="Chưa tìm thấy evidence phù hợp cho task này.",
+            answer=fallback_empty,
             evidence_ids=[],
             citations=[],
             missing_information=["relevant evidence"],
         )
-    p = profile(task.domain)
-    evidence_text = "\n\n".join(f"[{c.chunk_id}] {c.text}" for c in evidence)
+    if task.domain in active_domains():
+        p = profile(task.domain)
+    elif task.domain in {"security", "database", "api_architecture", "general"}:
+        with use_pack("software"):
+            p = profile(task.domain)
+    else:
+        p = profile(task.domain)
     system = (
         f"WORKER. Role={p['name']}. Scope={p['scope']}. Exclusions={p['exclusions']}. "
         "Use only supplied evidence; if insufficient, return NO_EVIDENCE or PARTIAL. "
@@ -85,100 +107,218 @@ async def execute_task(provider, task: Task, evidence: list[SourceChunk], metric
         + "\n".join(f"- {u.task_id} ({u.domain}, {u.status}): {u.answer[:800]}" for u in upstream)
         + "[/UPSTREAM]\n"
     ) if upstream else ""
-    user = (
-        f"[DOMAIN]{task.domain}[/DOMAIN]\n[TASK]{task.goal}[/TASK]\n{upstream_text}[EVIDENCE]{evidence_text}[/EVIDENCE]\n"
-        'Schema: {"status":"COMPLETE|PARTIAL|NO_EVIDENCE","answer":"...",'
-        '"citations":["chunk_id"],"missing_information":[]}'
-    )
-    unanchored_entities: list[str] = []
-    topic_unanchored = False
+
+    def _build_user(ev_text: str, *, include_warnings: bool = True) -> tuple[str, list[str], bool]:
+        body = (
+            f"[DOMAIN]{task.domain}[/DOMAIN]\n[TASK]{task.goal}[/TASK]\n{upstream_text}[EVIDENCE]{ev_text}[/EVIDENCE]\n"
+            'Schema: {"status":"COMPLETE|PARTIAL|NO_EVIDENCE","answer":"...",'
+            '"citations":["chunk_id"],"missing_information":[]}'
+        )
+        unanchored_ent: list[str] = []
+        topic_unanch = False
+        if product:
+            if user_request and user_request.strip() != task.goal.strip():
+                # Đưa dữ kiện trường hợp/chữ ảnh làm ngữ cảnh tham chiếu sau [EVIDENCE], tránh chèn toàn bộ câu hỏi nhiều vế lên trước [TASK] (MA-04).
+                body += f"\n[CASE_CONTEXT]{user_request[:1500]}[/CASE_CONTEXT]"
+            body += "\n\n" + PRODUCT_WORKER_HINT
+            if include_warnings and ev_text:
+                unanchored_ent = detect_unanchored_entities(task.goal, ev_text)
+                topic_unanch = is_task_topic_unanchored(task.goal, ev_text)
+                if unanchored_ent:
+                    body += (
+                        "\n\n[CẢNH BÁO ĐỐI CHIẾU TỪ KHÓA]: Các thực thể/văn bản sau có trong [TASK] nhưng XUẤT HIỆN 0 LẦN trong toàn bộ EVIDENCE: "
+                        + ", ".join(unanchored_ent)
+                        + ". TUYỆT ĐỐI KHÔNG gán giá dịch vụ/mức phạt của hạng mục khác thay cho các thực thể vắng mặt này; nếu [TASK] hỏi chính về chúng, PHẢI trả status=\"NO_EVIDENCE\" và citations=[]."
+                    )
+                elif topic_unanch:
+                    body += (
+                        "\n\n[CẢNH BÁO ĐỐI CHIẾU CHỦ ĐỀ]: Các từ khóa chủ đề chính trong [TASK] không xuất hiện trong bất kỳ đoạn EVIDENCE nào ở trên. "
+                        "Nếu EVIDENCE thực sự không đề cập đến nội dung này, BẮT BUỘC đặt status=\"NO_EVIDENCE\", citations=[], và nói rõ tài liệu không có thông tin; "
+                        "TUYỆT ĐỐI không tự tính ra con số mới hay lấy ngày ban hành / mức phí khác gán thay thế!"
+                    )
+            if extra_hint:  # bước chọn nguồn tri thức: cho phép bổ sung kiến thức chung có nhãn
+                body += "\n\n" + extra_hint
+        elif reply_language in REPLY_LANGUAGE_HINT:
+            body += "\n\n" + REPLY_LANGUAGE_HINT[reply_language]
+        return body, unanchored_ent, topic_unanch
+
+    budget_missing: list[str] = []
+    effective_num_ctx: int | None = None
     if product:
-        if user_request:
-            user = f"[USER_REQUEST]{user_request[:2500]}[/USER_REQUEST]\n" + user
-        user += "\n\n" + PRODUCT_WORKER_HINT
-        unanchored_entities = detect_unanchored_entities(task.goal, evidence_text)
-        topic_unanchored = is_task_topic_unanchored(task.goal, evidence_text)
-        if unanchored_entities:
-            user += (
-                "\n\n[CẢNH BÁO ĐỐI CHIẾU TỪ KHÓA]: Các thực thể/văn bản sau có trong [TASK] nhưng XUẤT HIỆN 0 LẦN trong toàn bộ EVIDENCE: "
-                + ", ".join(unanchored_entities)
-                + ". TUYỆT ĐỐI KHÔNG gán giá dịch vụ/mức phạt của hạng mục khác thay cho các thực thể vắng mặt này; nếu [TASK] hỏi chính về chúng, PHẢI trả status=\"NO_EVIDENCE\" và citations=[]."
+        effective_num_ctx = num_ctx if num_ctx is not None else resolve_product_num_ctx()
+        base_prompt, _, _ = _build_user("", include_warnings=False)
+        evidence, budget_info = fit_evidence_to_prompt_budget(
+            evidence,
+            system=system,
+            prompt_without_evidence=base_prompt,
+            num_ctx=effective_num_ctx,
+            output_reserve=1100,
+        )
+        if budget_info["overflow"]:
+            return TaskResult(
+                task_id=task.task_id,
+                domain=task.domain,
+                status="PARTIAL",
+                answer="Ngữ cảnh nhiệm vụ vượt quá giới hạn cửa sổ ngữ cảnh an toàn (num_ctx).",
+                evidence_ids=[],
+                citations=[],
+                missing_information=["prompt_exceeds_num_ctx"],
             )
-        elif topic_unanchored:
-            user += (
-                "\n\n[CẢNH BÁO ĐỐI CHIẾU CHỦ ĐỀ]: Các từ khóa chủ đề chính trong [TASK] không xuất hiện trong bất kỳ đoạn EVIDENCE nào ở trên. "
-                "Nếu EVIDENCE thực sự không đề cập đến nội dung này, BẮT BUỘC đặt status=\"NO_EVIDENCE\", citations=[], và nói rõ tài liệu không có thông tin; "
-                "TUYỆT ĐỐI không tự tính ra con số mới hay lấy ngày ban hành / mức phí khác gán thay thế!"
-            )
-        if extra_hint:  # bước chọn nguồn tri thức: cho phép bổ sung kiến thức chung có nhãn
-            user += "\n\n" + extra_hint
-    elif reply_language in REPLY_LANGUAGE_HINT:
-        user += "\n\n" + REPLY_LANGUAGE_HINT[reply_language]
+        if budget_info["trimmed_top"]:
+            budget_missing.append("top_evidence_trimmed_to_num_ctx")
+        elif budget_info["trimmed_trailing"]:
+            budget_missing.append("trailing_evidence_trimmed_to_num_ctx")
+
+    evidence_text = "\n\n".join(f"[{c.chunk_id}] {c.text}" for c in evidence)
+    user, unanchored_entities, topic_unanchored = _build_user(evidence_text, include_warnings=True)
+    extra_opts: dict = {}
+    if product and getattr(provider, "supports_per_call_output_tokens", False):
+        extra_opts["max_output_tokens"] = 1100
+    if product and effective_num_ctx is not None and getattr(provider, "supports_num_ctx", False):
+        extra_opts["num_ctx"] = effective_num_ctx
+    if product and request_timeout is not None and getattr(provider, "supports_per_call_timeout", False):
+        extra_opts["timeout"] = request_timeout
+    if product and keep_alive is not None and getattr(provider, "supports_keep_alive", False):
+        extra_opts["keep_alive"] = keep_alive
+
     grounded = getattr(provider, "generate_grounded", None)
-    limit = (
-        {"max_output_tokens": 1100}
-        if product and getattr(provider, "supports_per_call_output_tokens", False)
-        else {}
-    )
     result = (
-        await grounded(system=system, user=user, evidence_ids=[c.chunk_id for c in evidence], **limit)
+        await grounded(system=system, user=user, evidence_ids=[c.chunk_id for c in evidence], **extra_opts)
         if callable(grounded)
-        else await provider.generate(system=system, user=user)
+        else await provider.generate(system=system, user=user, **extra_opts)
     )
     metrics.add_usage(result.usage)
     obj = _extract_json(result.text)
     raw_citations = [str(x) for x in obj.get("citations") or []]
-    status = str(obj.get("status") or "PARTIAL").upper()
-    answer = str(obj.get("answer") or "")
+    raw_status = str(obj.get("status") or "PARTIAL").upper()
+    raw_ans = str(obj.get("answer") or "")
+    answer = raw_ans.strip() if product else raw_ans
     computed_numbers: list[str] = []
+
+    _EMPTY_MISSING = {"", "none", "null", "n/a", "không có", "không", "không thiếu", "no missing information", "không có thông tin thiếu"}
+    raw_missing = [str(x).strip() for x in obj.get("missing_information") or [] if str(x).strip().casefold() not in _EMPTY_MISSING]
+    missing = [*budget_missing, *raw_missing]
+
+    unanch_refusal = False
     if product:
+        status, status_normalized = normalize_status(raw_status)
+        if status_normalized:
+            missing.append("noncanonical model status normalized")
+        if obj.get("truncated") and status == "COMPLETE":
+            status = "PARTIAL"
         answer, computed_set = apply_calc_with_values(answer)
         computed_numbers = sorted(computed_set)
-        # Anti-Hallucination Grounding Guard: nếu thực thể định danh mạnh HOẶC toàn bộ chủ đề cốt lõi của [TASK]
-        # xuất hiện 0 lần trong EVIDENCE nhưng mô hình lại trả lời khẳng định (status=COMPLETE, không có từ phủ định)
-        # → chặn triệt để ảo giác đánh tráo điều khoản/bịa số liệu!
         if (unanchored_entities or topic_unanchored) and status == "COMPLETE":
-            import re as _re
-            ans_low = _re.sub(r"[*_`]+", "", answer).casefold()
-            has_refusal = any(p in ans_low for p in _REFUSAL_PHRASES)
-            if not has_refusal:
+            ans_low = re.sub(r"[*_`]+", "", answer).casefold()
+            if not any(p in ans_low for p in _REFUSAL_PHRASES):
                 status = "NO_EVIDENCE"
-                if unanchored_entities:
-                    answer = (
-                        "Tài liệu hiện có không chứa thông tin hay quy định về "
-                        + ", ".join(unanchored_entities)
-                        + "."
-                    )
-                else:
-                    answer = "Tài liệu hiện có không chứa thông tin về nội dung được hỏi."
+                answer = (
+                    f"Tài liệu hiện có không chứa thông tin hay quy định về {', '.join(unanchored_entities)}."
+                    if unanchored_entities
+                    else "Tài liệu hiện có không chứa thông tin về nội dung được hỏi."
+                )
+                unanch_refusal = True
                 raw_citations = []
                 computed_numbers = []
-        # Chuẩn hóa tác tử từ chối thuần túy: nếu toàn bộ câu trả lời chỉ xác nhận tài liệu không có thông tin
-        # nhưng mô hình nhỏ ghi nhầm status=PARTIAL và vẫn gắn citation rác → chuẩn hóa về NO_EVIDENCE, citations=[].
         if status == "PARTIAL" and _is_pure_refusal(answer):
             status = "NO_EVIDENCE"
             raw_citations = []
-    if status == "NO_EVIDENCE":
-        # Tác tử xác nhận không tìm thấy bằng chứng trong tài liệu: không đẩy đoạn đã đọc nhầm lên Nguồn tham chiếu!
-        valid, invalid = [], []
-    elif product:
-        valid, invalid = resolve_citations(raw_citations, evidence, answer, allow_grounded_fallback=True)
+
+        if status == "NO_EVIDENCE":
+            valid, invalid = [], []
+        else:
+            valid, invalid = resolve_citations(raw_citations, evidence, answer, allow_grounded_fallback=True)
+        metrics.add_citations(valid, invalid)
+        if invalid:
+            if status != "NO_EVIDENCE":
+                status = "PARTIAL"
+            missing.append("invalid citation locator(s) removed")
+        if status == "COMPLETE" and not valid:
+            status = "PARTIAL"
+            missing.append("worker answer has no valid citation")
+        if is_placeholder_answer(answer):
+            answer = ""
+            if status == "COMPLETE":
+                status = "PARTIAL"
+            missing.append("worker returned an empty answer")
+
+        fallback_msg = (
+            answer
+            if unanch_refusal
+            else (
+                "No relevant evidence was found for this task."
+                if reply_language == "en"
+                else "Chưa tìm thấy evidence phù hợp cho task này."
+            )
+        )
+        status, answer, valid = guard_no_evidence(
+            status,
+            answer,
+            valid,
+            missing,
+            user_request or task.goal,
+            fallback_msg,
+            product=True,
+            reply_language=reply_language,
+        )
+        if answer and status != "NO_EVIDENCE":
+            allowed_inline = {c.chunk_id for c in evidence}
+            answer, stripped_inline = strip_invalid_inline_citations(answer, allowed_inline)
+            if stripped_inline:
+                missing.append("unauthorized or unprompted inline citation(s) removed: " + ", ".join(stripped_inline[:6]))
+                if status == "COMPLETE":
+                    status = "PARTIAL"
+            # B139.2F6 (FIX-04): Promote uncited authorized chunk ONLY on explicit clause locator + domain substance overlap
+            _CLAUSE_LOC_RE = re.compile(r"\b(?:Điều|Clause|Article)\s+\d+(?:\.\d+)?\b", re.I)
+            _SUB_STOP = frozenset({
+                "điều", "khoản", "theo", "hợp", "đồng", "quy", "định", "phần", "trên", "dưới",
+                "trong", "ngoài", "hoặc", "nhưng", "được", "không", "chưa", "phải", "nếu", "khi",
+                "bên", "của", "cho", "với", "từ", "đến", "tại", "và", "các", "những", "này",
+                "clause", "article", "section", "under", "with", "from", "that", "this", "must", "shall",
+            })
+            def _substance_tokens(txt: str) -> set[str]:
+                return {w for w in re.findall(r"[^\W\d_]{4,}", (txt or "").casefold()) if w not in _SUB_STOP}
+
+            ans_clauses = {m.group(0).casefold() for m in _CLAUSE_LOC_RE.finditer(answer)}
+            ans_substance = _substance_tokens(answer)
+            for ch in evidence:
+                if ch.chunk_id in valid:
+                    continue
+                ch_clauses = {m.group(0).casefold() for m in _CLAUSE_LOC_RE.finditer(ch.text or "")}
+                matched_clauses = ans_clauses & ch_clauses
+                if not matched_clauses:
+                    continue
+                ch_substance = _substance_tokens(f"{ch.text or ''} {getattr(ch, 'source_name', '') or ''}")
+                shared_substance = ans_substance & ch_substance
+                has_subclause = any("." in c for c in matched_clauses)
+                if (has_subclause and len(shared_substance) >= 2) or len(shared_substance) >= 3:
+                    valid.append(ch.chunk_id)
+
+            status, answer, _, _ = check_product_evidence_claims(
+                status,
+                answer,
+                evidence_text,
+                user_request or task.goal,
+                missing,
+                evidence_chunks=evidence,
+                ignored_identifiers=set(computed_numbers),
+            )
     else:
         valid, invalid = validate_citations(raw_citations, evidence)
-    metrics.add_citations(valid, invalid)
-    _EMPTY_MISSING = {"", "none", "null", "n/a", "không có", "không", "không thiếu", "no missing information", "không có thông tin thiếu"}
-    missing = [str(x).strip() for x in obj.get("missing_information") or [] if str(x).strip().casefold() not in _EMPTY_MISSING]
-    if invalid:
-        status = "PARTIAL"
-        missing.append("invalid citation locator(s) removed")
-    if status == "COMPLETE" and not valid:
-        status = "PARTIAL"
-        missing.append("worker answer has no valid citation")
-    if is_placeholder_answer(answer):
-        answer = ""
-        if status == "COMPLETE":
+        metrics.add_citations(valid, invalid)
+        status = raw_status
+        if invalid:
             status = "PARTIAL"
-        missing.append("worker returned an empty answer")
+            missing.append("invalid citation locator(s) removed")
+        if status == "COMPLETE" and not valid:
+            status = "PARTIAL"
+            missing.append("worker answer has no valid citation")
+        if is_placeholder_answer(answer):
+            answer = ""
+            if status == "COMPLETE":
+                status = "PARTIAL"
+            missing.append("worker returned an empty answer")
+
     return TaskResult(
         task_id=task.task_id,
         domain=task.domain,

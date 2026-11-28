@@ -167,33 +167,64 @@ def fuse(query: str, chunks: list[SourceChunk], vector_ranked: list[str], top_k:
 
 
 _ARTICLE = re.compile(
-    r"(?m)^\s*(?:(?:#{1,4}\s+\S+)|(?:(?:#{1,4}\s*)?(?:(?:Điều|ĐIỀU|Article|Mục|MỤC)\s+\d+|(?:Chương|CHƯƠNG)\s+(?:[IVXLCDM]+|\d+))\s*[.:–-]?))"
+    r"(?m)^\s*(?:(?:#{1,4}\s+\S+)|(?:(?:#{1,4}\s*)?(?:(?:Điều|ĐIỀU|Article|Mục|MỤC)\s+\d+|(?:Chương|CHƯƠNG|Chapter)\s+(?:[IVXLCDM]+|\d+))\s*[.:–-]?))"
 )
-ARTICLE_TAIL = 400  # Điều hoặc tiêu đề Markdown bắt đầu trong 400 ký tự cuối đoạn thì phần thân/bảng nằm ở đoạn sau
+_LIST_OR_CLAUSE_START = re.compile(
+    r"^\s*(?:[a-zđ]\)|(?:\d+\.)+\d*\s+|\d+[.)]\s+|[-*•]\s+|(?:khoản|điểm|clause)\s+\d+)",
+    re.I,
+)
+_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
+ARTICLE_TAIL = 400  # Điều/Chương hoặc tiêu đề Markdown bắt đầu trong 400 ký tự cuối đoạn thì phần thân/bảng nằm ở đoạn sau
 
 
-def continue_articles(found: list[SourceChunk], chunks: list[SourceChunk]) -> list[SourceChunk]:
-    """Đoạn được chọn kết thúc ngay sau tiêu đề "Điều N." (thân Điều bị cắt sang đoạn sau) thì lấy kèm đoạn liền sau,
-    đặt ngay sau đoạn đó. 21/11: "Điều 14. Công nhận tốt nghiệp" nằm cuối đoạn 24, các điều kiện a) b) c) ở đoạn 25,
-    mô hình chỉ thấy tiêu đề nên đoán bừa. Chỉ chế độ sản phẩm (gọi trong nhánh hybrid)."""
+def _needs_next_continuation(cur_text: str, nxt_text: str) -> bool:
+    """Kiểm tra đoạn hiện tại bị cắt giữa Điều/bảng/danh sách/tiêu đề Markdown và đoạn liền sau là phần tiếp nối."""
+    if not cur_text or not nxt_text:
+        return False
+    cur_lines = [ln.rstrip() for ln in cur_text.splitlines() if ln.strip()]
+    nxt_first = next((ln.strip() for ln in nxt_text.splitlines() if ln.strip()), "")
+    if not cur_lines or not nxt_first:
+        return False
+    last_line = cur_lines[-1]
+    if _ARTICLE.match(nxt_first):
+        return bool(_ARTICLE.match(last_line.strip()))
+    if _TABLE_ROW.match(last_line) and _TABLE_ROW.match(nxt_first):
+        return True
+    heads = list(_ARTICLE.finditer(cur_text))
+    if heads and len(cur_text) - heads[-1].start() <= ARTICLE_TAIL:
+        return True
+    if last_line.endswith(":") and (_LIST_OR_CLAUSE_START.match(nxt_first) or _TABLE_ROW.match(nxt_first)):
+        return True
+    if heads and _LIST_OR_CLAUSE_START.match(nxt_first):
+        return True
+    return False
+
+
+def continue_articles(found: list[SourceChunk], chunks: list[SourceChunk], *, max_chain: int = 3) -> list[SourceChunk]:
+    """Kéo tối đa max_chain đoạn nối tiếp cùng source_id (hỗ trợ tiêu đề Markdown/Điều/bảng/danh sách);
+    không lấy từ source khác và dừng trước tiêu đề Điều/Chương mới."""
     by_pos = {(c.source_id, c.index): c for c in chunks}
-    have = {c.chunk_id for c in found}
+    in_found = {c.chunk_id for c in found}
+    deferred: set[str] = set()
+    for c in found:
+        if (c.source_id, c.index - 1) in {(x.source_id, x.index) for x in found}:
+            prev = by_pos.get((c.source_id, c.index - 1))
+            if prev and prev.chunk_id in in_found and _needs_next_continuation(prev.text, c.text):
+                deferred.add(c.chunk_id)
+
+    have: set[str] = set()
     out: list[SourceChunk] = []
     for c in found:
+        if c.chunk_id in deferred or c.chunk_id in have:
+            continue
         out.append(c)
-        heads = list(_ARTICLE.finditer(c.text))
-        nxt = by_pos.get((c.source_id, c.index + 1))
-        tail_stripped = (c.text or "").rstrip()
-        mid_sentence_cut = bool(
-            len(tail_stripped) >= 500
-            and tail_stripped[-1].isalnum()
-            and "|" not in tail_stripped.splitlines()[-1]
-        )
-        if nxt and nxt.chunk_id not in have and (
-            (heads and len(c.text) - heads[-1].start() <= ARTICLE_TAIL)
-            or mid_sentence_cut
-            or (len(tail_stripped) >= 500 and len(nxt.text) <= 300)
-        ):
+        have.add(c.chunk_id)
+        cur = c
+        for _ in range(max_chain):
+            nxt = by_pos.get((cur.source_id, cur.index + 1))
+            if not nxt or nxt.chunk_id in have or not _needs_next_continuation(cur.text, nxt.text):
+                break
             out.append(SourceChunk(**{**nxt.__dict__, "score": c.score}))
             have.add(nxt.chunk_id)
+            cur = nxt
     return out

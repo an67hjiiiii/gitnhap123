@@ -20,9 +20,10 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 
 from app.core.access import Source, can_delete, load_member
-from app.core.secret_audit import log_secret_access
+from app.core.secret_audit import log_secret_access, run_read_source_ids
 from app.research.decomposer import detect_domains
 from app.research.registry import OFFICE_PACK, PACKS, use_pack
+from app.research.run_queue import product_runs
 from app.storage.postgres.models import KnowledgeSourceRecord
 
 # Cột được phép xem trong trang quản trị; cột bí mật (password_hash, token_hash) không bao giờ trả về.
@@ -62,9 +63,10 @@ class WorkspaceBody(BaseModel):
     @field_validator("name")
     @classmethod
     def _non_blank_name(cls, v: str) -> str:
-        if not v.strip():
+        s = v.strip()
+        if not s:
             raise ValueError("Tên không gian làm việc không được để trống.")
-        return v
+        return s
 
 
 class WorkspaceItemBody(BaseModel):
@@ -72,11 +74,23 @@ class WorkspaceItemBody(BaseModel):
     item_id: str = Field(min_length=1, max_length=160)
 
 
+_COMPARE_CONDITIONS = frozenset({"A", "B", "C", "C-P", "C-N", "C-O"})
+
+
 class CompareRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     conditions: list[str] = Field(default_factory=lambda: ["A", "B", "C"], min_length=1, max_length=6)
     source_ids: list[str] | None = None  # tài liệu của không gian đang mở, như ô hỏi đáp
     domain_pack: Literal[tuple(PACKS)] | None = None  # type: ignore[valid-type]  # mặc định office (11 Agent 3D)
+
+    @field_validator("conditions")
+    @classmethod
+    def _valid_conditions(cls, values: list[str]) -> list[str]:
+        cleaned = [str(c).strip().upper() for c in values]
+        invalid = [c for c in cleaned if c not in _COMPARE_CONDITIONS]
+        if invalid:
+            raise ValueError(f"Điều kiện không hợp lệ: {', '.join(invalid)}")
+        return cleaned
 
 
 def _loopback(url: str | None) -> bool | None:
@@ -125,8 +139,9 @@ def build_router(
             domains = {c.chunk_id: detect_domains(c.text) if c.text.strip() else [] for c in hits}
         if body.domain:
             hits = [c for c in hits if body.domain in domains[c.chunk_id]][: body.top_k]
-        if hits:
-            log_secret_access(session_factory(), str(user["user_id"]), {c.source_id for c in hits}, "ASK")
+        audited_ids = {c.source_id for c in hits} if hits else ({c.source_id for c in chunks} if body.source_ids else set())
+        if audited_ids:
+            log_secret_access(session_factory(), str(user["user_id"]), audited_ids, "ASK")
         return {
             "query": body.query,
             "top_k": body.top_k,
@@ -283,22 +298,26 @@ def build_router(
     @router.post("/compare")
     async def compare(body: CompareRequest, request: Request) -> dict:
         user = current_user(request)
+        if not body.message.strip():
+            raise HTTPException(422, "Nội dung câu hỏi không được để trống.")
         conditions = [c.strip().upper() for c in body.conditions]
         runs = []
-        for condition in conditions:
-            try:
-                extra = {"domain_pack": body.domain_pack} if body.domain_pack else {}
-                run = await owner_pipeline(user).run(
-                    body.message.strip(),
-                    condition,
-                    source_ids=body.source_ids,
-                    **extra,
-                )
-            except LookupError as exc:
-                raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.") from exc
-            except ValueError as exc:
-                raise HTTPException(400, str(exc)) from exc
-            runs.append(run)
+        async with product_runs.slot():
+            for condition in conditions:
+                try:
+                    extra = {"domain_pack": body.domain_pack} if body.domain_pack else {}
+                    run = await owner_pipeline(user).run(
+                        body.message.strip(),
+                        condition,
+                        source_ids=body.source_ids,
+                        **extra,
+                    )
+                except LookupError as exc:
+                    raise HTTPException(404, "Không tìm thấy tài liệu đã chọn.") from exc
+                except ValueError as exc:
+                    raise HTTPException(400, str(exc)) from exc
+                log_secret_access(session_factory(), str(user["user_id"]), run_read_source_ids(run), "ASK")
+                runs.append(run)
         return {"message": body.message.strip(), "conditions": conditions, "runs": runs,
                 "note": "Một lượt so sánh là số mô tả kỹ thuật, không phải kết quả thực nghiệm."}
 

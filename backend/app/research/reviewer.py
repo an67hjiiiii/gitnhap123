@@ -51,13 +51,28 @@ def reviewer_enabled() -> bool:
     return os.getenv("PRODUCT_REVIEWER", "off").strip().lower() in {"1", "on", "true", "yes"}
 
 
-async def review_answer(provider, answer: str, evidence_text: str, metrics: RunMetrics) -> dict:
+async def review_answer(
+    provider,
+    answer: str,
+    evidence_text: str,
+    metrics: RunMetrics,
+    *,
+    num_ctx: int | None = None,
+    request_timeout: float | None = None,
+    keep_alive: str | int | float | None = None,
+) -> dict:
     """Trả {"status": "ok"|"error"|"skipped", "checked", "unsupported": [...]}. Không ném lỗi ra ngoài."""
     structured = getattr(provider, "generate_structured", None)
     if not callable(structured) or not answer.strip() or not evidence_text.strip():
         return {"status": "skipped", "checked": 0, "unsupported": []}
     user = f"ANSWER:\n{answer}\n\nEVIDENCE:\n{evidence_text[:MAX_EVIDENCE_CHARS]}"
-    kwargs = {"max_output_tokens": REVIEW_OUTPUT_TOKENS} if getattr(provider, "supports_per_call_output_tokens", False) else {}
+    kwargs: dict = {"max_output_tokens": REVIEW_OUTPUT_TOKENS} if getattr(provider, "supports_per_call_output_tokens", False) else {}
+    if num_ctx is not None and getattr(provider, "supports_num_ctx", False):
+        kwargs["num_ctx"] = num_ctx
+    if request_timeout is not None and getattr(provider, "supports_per_call_timeout", False):
+        kwargs["timeout"] = request_timeout
+    if keep_alive is not None and getattr(provider, "supports_keep_alive", False):
+        kwargs["keep_alive"] = keep_alive
     try:
         result = await structured(system=SYSTEM, user=user, response_schema=REVIEW_SCHEMA, **kwargs)
         metrics.add_usage(result.usage)

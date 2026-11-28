@@ -98,13 +98,22 @@ class SpaceBody(_Body):
     @field_validator("name")
     @classmethod
     def _non_blank_space_name(cls, v: str) -> str:
-        if not v.strip():
+        s = v.strip()
+        if not s:
             raise ValueError("Tên không gian tổ chức không được để trống.")
-        return v
+        return s
 
 
 class DeleteSpaceBody(_Body):
     confirm_name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("confirm_name")
+    @classmethod
+    def _non_empty_confirm(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Tên xác nhận không được để trống.")
+        return s
 
 
 class SpaceUpdate(_Body):
@@ -117,9 +126,12 @@ class SpaceUpdate(_Body):
     @field_validator("name")
     @classmethod
     def _non_blank_space_name_opt(cls, v: str | None) -> str | None:
-        if v is not None and not v.strip():
+        if v is None:
+            return None
+        s = v.strip()
+        if not s:
             raise ValueError("Tên không gian tổ chức không được để trống.")
-        return v
+        return s
 
 
 class DepartmentBody(_Body):
@@ -128,9 +140,10 @@ class DepartmentBody(_Body):
     @field_validator("name")
     @classmethod
     def _non_blank_dept_name(cls, v: str) -> str:
-        if not v.strip():
+        s = v.strip()
+        if not s:
             raise ValueError("Tên đơn vị không được để trống.")
-        return v
+        return s
 
 
 class MemberUpdate(_Body):
@@ -211,6 +224,14 @@ class RequestBody(BaseModel):
     days: float | None = Field(default=None, ge=0, le=366, allow_inf_nan=False)
     approver_level: Literal["MANAGER", "EXECUTIVE"]
     check_result: dict = Field(default_factory=dict)
+
+    @field_validator("title")
+    @classmethod
+    def _non_empty_title(cls, v: str) -> str:
+        s = v.strip()
+        if len(s) < 3:
+            raise ValueError("Tiêu đề đơn cần tối thiểu 3 ký tự.")
+        return s
 
 
 class DecideBody(BaseModel):
@@ -934,33 +955,19 @@ def build_router(*, current_user: Callable[[Request], dict], session_factory: Ca
                        {"mask": ORG_AUDIT_MASK, "o": uid, "name": row.source_name[:200]})
             _notify_new_viewers(db, row, set(), uid, "source_published")
             _commit(db)
+            source_name = row.source_name
         # RET-04: kiểm tra văn bản thay thế/mâu thuẫn trong không gian sau khi công bố (lỗi phụ không làm hỏng publish)
         try:
+            import logging
             from app.analysis.watch import notify_findings, watch_findings
-            from app.core.types import SourceChunk
-            with _db() as db:
-                vis_ids = visible_source_ids(db, uid, space_id)
-                chunk_rows = db.execute(
-                    select(KnowledgeChunkRecord, KnowledgeSourceRecord.source_name)
-                    .join(KnowledgeSourceRecord, KnowledgeSourceRecord.source_id == KnowledgeChunkRecord.source_id)
-                    .where(KnowledgeChunkRecord.source_id.in_(vis_ids))
-                    .order_by(KnowledgeChunkRecord.source_id, KnowledgeChunkRecord.chunk_index)
-                ).all()
-                chunks = [
-                    SourceChunk(
-                        chunk_id=c.chunk_id,
-                        source_id=c.source_id,
-                        source_name=sname,
-                        text=c.text,
-                        index=c.chunk_index,
-                    )
-                    for c, sname in chunk_rows
-                ]
-                findings = watch_findings(source_id, chunks)
-                if findings:
-                    notify_findings(session_factory(), uid, row.source_name, findings)
+            from app.storage.postgres.runtime import PostgresSourceStore
+            factory = session_factory()
+            findings = watch_findings(source_id, PostgresSourceStore(factory, uid, space_id).chunks())
+            if findings:
+                notify_findings(factory, uid, source_name, findings)
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).exception("org doc watch failed")
         return {"source_id": source_id, "space_id": space_id, "classification": body.classification,
                 "department_id": department_id}
 
